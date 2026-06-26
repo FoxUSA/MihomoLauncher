@@ -87,6 +87,12 @@ Mihomo Launcher рассчитан на нетехнического польз�
 - Движок mihomo: https://github.com/MetaCubeX/mihomo
 - Шаблоны маршрутизации: https://github.com/blackmatrix7/ios_rule_script
 
+## Благодарности и атрибуция
+
+- This product includes GeoLite2 data created by MaxMind, available from <https://www.maxmind.com>. *(Атрибуция MaxMind GeoLite2 в обязательной формулировке.)*
+- VPN-движок: [mihomo (Clash.Meta)](https://github.com/MetaCubeX/mihomo).
+- Шаблоны маршрутизации: [blackmatrix7 / ios_rule_script](https://github.com/blackmatrix7/ios_rule_script).
+
 ## Лицензия
 
 Freeware — бесплатно, без телеметрии. Закрытый исходный код; репозиторий содержит только документацию и ссылки на загрузку.

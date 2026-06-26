@@ -87,6 +87,12 @@ Each rule bundles a target (app, website, or Store app by AUMID) with its domain
 - mihomo engine: https://github.com/MetaCubeX/mihomo
 - Routing templates: https://github.com/blackmatrix7/ios_rule_script
 
+## Credits & attribution
+
+- This product includes GeoLite2 data created by MaxMind, available from <https://www.maxmind.com>.
+- VPN engine: [mihomo (Clash.Meta)](https://github.com/MetaCubeX/mihomo).
+- Routing templates: [blackmatrix7 / ios_rule_script](https://github.com/blackmatrix7/ios_rule_script).
+
 ## License
 
 Freeware — free to use, no telemetry. Closed source; this repository hosts documentation and download links only.
