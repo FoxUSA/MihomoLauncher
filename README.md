@@ -49,8 +49,9 @@ Mihomo Launcher is built for non‑technical users: you configure once *which pr
 - **Connection check by site response.** Availability is judged by the response body (block markers), not the status code, so a Cloudflare‑403 isn't confused with a real block. The launcher auto‑cycles through dozens of nodes until the service opens.
 - **Microsoft Store apps** (ChatGPT, Claude, …) via stable AUMID, plus regular `.exe` and websites.
 - **Server geolocation on each tile** (country, city) from a local MaxMind GeoLite2 database — fully offline.
+- **DNS of your choice.** A dedicated tab decides who resolves the rest of the machine's traffic: the system resolvers, a template public one (Cloudflare / Google / AdGuard over plain UDP, DoH, DoH3, DoT or DoQ), your own list, or the DNS that came with the VPN server's own config (read from a WireGuard `.conf` or a Clash subscription). Rule domains are unaffected — the far side still resolves those.
 - **Bilingual UI (RU / EN)**, switchable on the fly.
-- **Built‑in online updates** for the launcher, the mihomo engine and the geo database.
+- **Built‑in online updates**, per item: the launcher, the mihomo engine, the geo database and the range lists each show their version and date, carry their own check interval, and can be force‑updated from the Updates tab.
 
 ## Screenshots
 
@@ -99,4 +100,4 @@ Freeware — free to use, no telemetry. Closed source; this repository hosts doc
 
 ---
 
-<sub>Keywords: per-app VPN, split tunneling, mihomo, Clash.Meta, WireGuard, VLESS, Reality, Clash subscription, kill-switch, anti IP-leak, blackmatrix7 rules, Windows VPN launcher, proxy, GeoIP, RDP-safe VPN, ChatGPT / Claude via VPN.</sub>
+<sub>Keywords: per-app VPN, split tunneling, mihomo, Clash.Meta, WireGuard, VLESS, Reality, Clash subscription, kill-switch, anti IP-leak, blackmatrix7 rules, Windows VPN launcher, proxy, GeoIP, DNS over HTTPS / TLS / QUIC, RDP-safe VPN, ChatGPT / Claude via VPN.</sub>
