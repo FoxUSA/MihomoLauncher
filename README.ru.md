@@ -14,19 +14,11 @@
 ![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D6?logo=windows)
 ![Движок: mihomo](https://img.shields.io/badge/движок-mihomo-444)
 ![Бесплатно](https://img.shields.io/badge/цена-бесплатно-2ea44f)
+[![Лицензия: GPL-3.0](https://img.shields.io/badge/лицензия-GPL--3.0-blue)](LICENSE)
 
 [English](README.md) · **Русский**
 
 </div>
-
-<p align="center">
-<a href="images/mihomolauncher-main.png"><img src="images/mihomolauncher-main.png" height="140" alt="Главное окно"></a>
-<a href="images/mihomolauncher-rule.png"><img src="images/mihomolauncher-rule.png" height="140" alt="Правило"></a>
-<a href="images/mihomolauncher-routing.png"><img src="images/mihomolauncher-routing.png" height="140" alt="Маршрутизация"></a>
-<a href="images/mihomolauncher-settings.png"><img src="images/mihomolauncher-settings.png" height="140" alt="Настройки"></a>
-<a href="images/mihomolauncher-templates.png"><img src="images/mihomolauncher-templates.png" height="140" alt="Шаблоны"></a>
-<a href="images/mihomolauncher-store.png"><img src="images/mihomolauncher-store.png" height="140" alt="Microsoft Store"></a>
-</p>
 
 Настраиваете один раз: какие приложения и сайты через какой VPN. Дальше — одна кнопка **Подключиться**, лаунчер сам подберёт рабочий узел.
 
@@ -43,10 +35,24 @@
 2. Запустить `MihomoLauncher.exe` — движок поставится сам
 3. Добавить VPN и приложения — и нажать **Подключиться**
 
-Windows 10 / 11 (x64). Бесплатно, без телеметрии. В репозитории — только страница и ссылки на загрузку.
+Windows 10 / 11 (x64). Бесплатно, без телеметрии.
+
+## Сборка из исходников
+
+Готовая сборка — [архив выше](https://byfox.dev/data/mihomolauncher/MihomoLauncher.zip), утилита сама обновляется из него. Собрать свою:
+
+1. Windows с .NET SDK (любой свежий, например 8 или 9) и .NET Framework 4.8 — проект собирается под `net48`
+2. `dotnet build MihomoLauncher.csproj -c Release`
+3. Результат в `bin\Release\MihomoLauncher\`: в корне `MihomoLauncher.exe`, всё остальное в `Data\`
+
+Папку раскладывает `build\layout-release.ps1` (его запускает Release-сборка). Базу GeoLite2 он ищет в `..\..\maxmind` рядом с проектом или в `%MIHOMOLAUNCHER_GEO_SOURCE%`; если её нет, скачайте базу в самой утилите: **Настройки → Обновление → База геолокации (GeoLite2)**. Подпись кода необязательна — переменные `MIHOMOLAUNCHER_SIGN_THUMBPRINT` (или `MIHOMOLAUNCHER_SIGN_PFX` + `MIHOMOLAUNCHER_SIGN_PFX_PASS`). Движка mihomo в репозитории нет: утилита скачивает его при первом запуске.
+
+## Лицензия
+
+[GPL-3.0](LICENSE) с условием об указании автора — см. [NOTICE](NOTICE). Форки и изменённые версии обязаны сохранять строку *«Based on Mihomo Launcher by byFox — https://byfox.dev/mihomolauncher/»*.
 
 ---
 
-<sub>This product includes GeoLite2 data created by MaxMind, available from <https://www.maxmind.com>. Движок VPN: [mihomo](https://github.com/MetaCubeX/mihomo). Шаблоны правил: [blackmatrix7 / ios_rule_script](https://github.com/blackmatrix7/ios_rule_script).</sub>
+<sub>This product includes GeoLite2 data created by MaxMind, available from <https://www.maxmind.com>. Движок VPN: [mihomo](https://github.com/MetaCubeX/mihomo). Шаблоны правил: [blackmatrix7 / ios_rule_script](https://github.com/blackmatrix7/ios_rule_script). Иконки плиток: [dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Интерфейс: [WPF-UI](https://github.com/lepoco/wpfui).</sub>
 
 <sub>Ключевые слова: VPN по приложениям, раздельное туннелирование, mihomo, Clash.Meta, WireGuard, VLESS, Reality, Hysteria2, kill-switch, VPN-лаунчер для Windows.</sub>

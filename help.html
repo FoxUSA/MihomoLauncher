@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Справка — Mihomo Launcher</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter+Tight:wght@400;500;600;700&display=swap">
+<style>
+  :root{
+    --bg:#0a0d10; --bg-elev:#111518; --bg-card:#0e1316; --border:#1e252a; --border-strong:#2a333a;
+    --text:#e6ecef; --text-dim:#8a969e; --text-muted:#5a6770;
+    --accent:#4ecdc4; --accent-dim:#2b8079; --accent-glow:rgba(78,205,196,.15); --warn:#ffc107; --danger:#ff6b6b; --ok:#4caf50;
+    --mono:'JetBrains Mono','Consolas',monospace; --sans:'Inter Tight',system-ui,sans-serif; --disp:'Fraunces','Times New Roman',serif;
+  }
+  [data-theme="light"]{
+    --bg:#fafaf7; --bg-elev:#f2f1ec; --bg-card:#fff; --border:#d9d6cc; --border-strong:#b8b3a3;
+    --text:#1a1d20; --text-dim:#5a6770; --text-muted:#8a969e; --accent:#1e8d85; --accent-dim:#4ecdc4; --accent-glow:rgba(30,141,133,.12);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{font-family:var(--sans);background:var(--bg);color:var(--text);line-height:1.55;-webkit-font-smoothing:antialiased;min-height:100vh;overflow-x:hidden}
+  /* Native byFox.dev background texture: corner glows + faint masked grid. */
+  body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+    background-image:radial-gradient(circle at 20% 0%,var(--accent-glow) 0%,transparent 40%),radial-gradient(circle at 80% 100%,rgba(78,205,196,.05) 0%,transparent 40%)}
+  body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.25;
+    background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);
+    background-size:80px 80px;mask-image:radial-gradient(ellipse at center,black 20%,transparent 75%);-webkit-mask-image:radial-gradient(ellipse at center,black 20%,transparent 75%)}
+  main,footer{position:relative;z-index:1}
+  .wrap{max-width:880px;margin:0 auto;padding:0 20px}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.86em;background:var(--bg-elev);border:1px solid var(--border);border-radius:4px;padding:1px 6px;color:var(--text)}
+  kbd{font-family:var(--mono);font-size:.82em;background:var(--bg-elev);border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:5px;padding:1px 7px;white-space:nowrap}
+
+  header{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+  .bar{display:flex;align-items:center;gap:14px;height:58px}
+  .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.02em}
+  .brand a{color:inherit}
+  .brand a:hover{color:var(--accent);text-decoration:none}
+  .brand b{color:var(--accent)}
+  .bar .sp{flex:1}
+  .ghost{font-family:var(--mono);font-size:.8rem;color:var(--text-dim);border:1px solid var(--border-strong);border-radius:6px;padding:6px 11px;cursor:pointer;background:transparent}
+  .ghost:hover{color:var(--text);border-color:var(--accent-dim);text-decoration:none}
+
+  .hero{padding:48px 0 18px}
+  .eyebrow{font-family:var(--mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--accent)}
+  h1{font-family:var(--disp);font-weight:600;font-size:clamp(1.9rem,4vw,2.7rem);line-height:1.05;margin:10px 0 12px}
+  .lead{color:var(--text-dim);font-size:1.02rem;max-width:60ch}
+
+  .tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:22px 0 6px}
+  .search{flex:1;min-width:200px;font-family:var(--sans);font-size:.95rem;color:var(--text);background:var(--bg-card);border:1px solid var(--border-strong);border-radius:8px;padding:10px 13px;outline:none}
+  .search:focus{border-color:var(--accent-dim)}
+  .btn{font-family:var(--mono);font-size:.78rem;color:var(--text-dim);background:var(--bg-card);border:1px solid var(--border-strong);border-radius:8px;padding:9px 13px;cursor:pointer}
+  .btn:hover{color:var(--text);border-color:var(--accent-dim)}
+
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 28px}
+  .chip{font-family:var(--mono);font-size:.78rem;color:var(--text-dim);border:1px solid var(--border);border-radius:999px;padding:6px 12px;cursor:pointer;background:var(--bg-card)}
+  .chip:hover{color:var(--accent);border-color:var(--accent-dim);text-decoration:none}
+
+  details{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;margin:0 0 12px;overflow:hidden}
+  details[open]{border-color:var(--border-strong)}
+  summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:14px;padding:16px 18px;font-weight:600;font-size:1.06rem}
+  summary::-webkit-details-marker{display:none}
+  .num{font-family:var(--mono);font-size:.8rem;color:var(--accent);border:1px solid var(--accent-dim);border-radius:7px;padding:3px 8px;min-width:30px;text-align:center}
+  .caret{margin-left:auto;color:var(--text-muted);transition:transform .2s}
+  details[open] .caret{transform:rotate(90deg)}
+  .body{padding:2px 18px 18px 18px;color:var(--text-dim)}
+  .body h3{color:var(--text);font-size:.95rem;font-weight:600;margin:14px 0 6px}
+  .body p{margin:6px 0}
+  .body ul{list-style:none;display:grid;gap:7px;margin:8px 0}
+  .body ul li{position:relative;padding-left:20px}
+  .body ul li::before{content:'';position:absolute;left:4px;top:.62em;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .body ol{margin:8px 0 8px 2px;display:grid;gap:8px;counter-reset:s;list-style:none}
+  .body ol li{position:relative;padding-left:30px;counter-increment:s}
+  .body ol li::before{content:counter(s);position:absolute;left:0;top:-1px;font-family:var(--mono);font-size:.74rem;color:var(--accent);border:1px solid var(--accent-dim);border-radius:6px;width:21px;height:21px;display:flex;align-items:center;justify-content:center}
+  .tip{border-left:3px solid var(--accent-dim);background:color-mix(in srgb,var(--accent) 7%,transparent);border-radius:0 8px 8px 0;padding:10px 14px;margin:12px 0;font-size:.92rem;color:var(--text)}
+  .tip.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent)}
+  .path{font-family:var(--mono);font-size:.8rem;color:var(--text-muted);margin:2px 0 10px}
+  .path b{color:var(--text-dim);font-weight:500}
+  .empty{color:var(--text-muted);font-family:var(--mono);font-size:.85rem;padding:18px;text-align:center}
+
+  footer{border-top:1px solid var(--border);margin-top:40px;padding:22px 0;color:var(--text-muted);font-family:var(--mono);font-size:.78rem;display:flex;flex-wrap:wrap;gap:10px}
+  footer .sp{flex:1}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <span class="brand"><a href="https://byfox.dev/">by<b>Fox</b>.dev</a> · <a href="https://byfox.dev/mihomolauncher/">Mihomo Launcher</a></span>
+    <span class="sp"></span>
+    <button class="ghost" id="theme">тема</button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="hero">
+    <span class="eyebrow">справка / как настроить</span>
+    <h1>Mihomo Launcher — настройка за пару минут</h1>
+    <p class="lead">Один раз настраиваете, какие программы и сайты работают через VPN и через какие узлы. Дальше — одна кнопка «Connect». Ниже — только нужное, без воды.</p>
+  </section>
+
+  <section id="sections">
+
+    <details open data-k="старт запуск распаковать движок mihomo connect">
+      <summary><span class="num">1</span> Быстрый старт <span class="caret">›</span></summary>
+      <div class="body">
+        <ol>
+          <li>Распакуйте архив и запустите <code>MihomoLauncher.exe</code>. При первом запуске он предложит скачать и настроить VPN-движок mihomo — согласитесь и подтвердите запрос Windows. Дальше движок поднимается сам.</li>
+          <li>Откройте <b>«Settings»</b> → добавьте хотя бы один <b>VPN-вариант</b> (узел).</li>
+          <li>Там же, в таблице <b>«Правила»</b>, добавьте программы и сайты, которые должны работать через VPN.</li>
+          <li>Закройте настройки и нажмите <b>«Connect»</b>. Готово.</li>
+        </ol>
+        <div class="tip">Защита включена сразу: пока вы не нажали «Connect», VPN-программы не выходят в интернет — реальный IP не светится.</div>
+      </div>
+    </details>
+
+    <details data-k="vpn вариант узел wireguard conf vless reality clash подписка hysteria2 hy2 обфускация salamander добавить частота обновления интервал часов обновить">
+      <summary><span class="num">2</span> VPN-варианты (узлы) <span class="caret">›</span></summary>
+      <div class="body">
+        <p class="path"><b>Settings → Основное → таблица «VPN-варианты»</b></p>
+        <ul>
+          <li><b>«+ Добавить»</b> → выберите тип: <b>WireGuard</b> (файл <code>.conf</code>), <b>VLESS</b> (ссылка <code>vless://…</code>), <b>Hysteria2</b> (ссылка <code>hysteria2://…</code> или <code>hy2://…</code>) или <b>Clash-подписка</b> (URL).</li>
+          <li>В <b>Hysteria2</b>-ссылке лаунчер разбирает пароль, <code>sni</code>, обфускацию <code>obfs=salamander</code>, <code>insecure</code>, <code>pinSHA256</code>, <code>alpn</code> и «прыжки» по портам (<code>mport</code> или диапазон вместо порта).</li>
+          <li>Можно добавить несколько узлов — при подключении лаунчер сам подберёт рабочий для каждого правила.</li>
+          <li>Галочка <b>«Вкл»</b> временно выключает вариант, не удаляя его.</li>
+          <li>Кнопки <b>«Выше / Ниже»</b> задают порядок перебора.</li>
+          <li>Для <b>Clash-подписки</b> в окне варианта есть поле <b>«Частота обновления (часов)»</b> — как часто узлы из подписки заново скачиваются с сервера (по умолчанию раз в 48 часов).</li>
+          <li>Кнопка <b>«Обновить списки»</b> — стянуть свежую версию подписки с сервера прямо сейчас.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-k="правило программа сайт ссылка добавить url приложение процесс store плитка тип launch использовать vpn kill-switch иконка">
+      <summary><span class="num">3</span> Правила: программы и сайты <span class="caret">›</span></summary>
+      <div class="body">
+        <p class="path"><b>Settings → Основное → таблица «Правила» → «+ Добавить»</b></p>
+        <p>Правило — это набор того, что открывается с одной плитки, с общими настройками VPN. В окне правила есть таблица «Что входит в правило», а под ней кнопки добавления:</p>
+        <ul>
+          <li><b>«Приложение»</b> — выбрать <code>.exe</code> через обзор.</li>
+          <li><b>«Процесс»</b> — выбрать из уже запущенных программ.</li>
+          <li><b>«Store»</b> — приложение из Microsoft Store (ChatGPT, Claude и т.п.) по стабильному идентификатору.</li>
+          <li><b>«URL»</b> — сайт, который откроется по плитке.</li>
+          <li><b>«Шаблон URL»</b> — готовый набор диапазонов сервиса (см. раздел ниже).</li>
+        </ul>
+        <ul>
+          <li>Колонка <b>«Плитка»</b> — что именно запускать/открывать по клику на плитке (можно отметить один пункт). <b>Если не отмечено ничего — плитки на главном экране не будет</b>, правило работает только для маршрутизации трафика.</li>
+          <li>Отметить «Плитку» можно и у строки-шаблона: своего адреса у шаблона нет, поэтому плитка откроет <b>адрес для проверки подключения</b> (например, <code>instagram.com</code>). Так плитка появляется и у правила, в котором есть только шаблон.</li>
+          <li><b>«Использовать VPN»</b> — трафик правила идёт через VPN.</li>
+          <li><b>«Kill-switch»</b> — пока VPN не поднят, у правила нет интернета (защита от утечки). Рекомендуется оставить включённым.</li>
+          <li><b>Иконка «с сервера»</b> — тянется по названию правила; иначе укажите файл вручную.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-k="шаблон blackmatrix7 диапазоны домены ip выбрать сервис обновить список перейти">
+      <summary><span class="num">4</span> Шаблоны диапазонов (blackmatrix7) <span class="caret">›</span></summary>
+      <div class="body">
+        <p>Чтобы через VPN шёл <b>весь</b> трафик сервиса (а не один адрес), добавьте в правило готовый шаблон диапазонов.</p>
+        <p class="path"><b>В окне правила → кнопка «Шаблон URL»</b></p>
+        <ul>
+          <li>Найдите сервис по названию (YouTube, Instagram, Spotify…). В правило добавится строка-шаблон с диапазонами (домены + IP).</li>
+          <li>Кликнув по типу строки-шаблона, можно открыть её содержимое в браузере.</li>
+        </ul>
+        <div class="tip">Шаблоны берутся из открытого репозитория blackmatrix7 — тысячи готовых сервисов с уже собранными диапазонами; списки сами обновляются.</div>
+      </div>
+    </details>
+
+    <details data-k="адрес проверки доступности checkurl автоподстановка очистка">
+      <summary><span class="num">5</span> Адрес для проверки доступности <span class="caret">›</span></summary>
+      <div class="body">
+        <p>По этому адресу лаунчер решает, открыта ли программа/сайт через выбранный VPN-узел.</p>
+        <ul>
+          <li>Для известных сервисов подставляется автоматически.</li>
+          <li>Для неизвестных — можно оставить пустым: тогда правило просто привязывается к первому рабочему узлу без проверки сайта.</li>
+          <li>Можно вписать любой адрес вручную.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-k="routing маршрутизация таблица какие vpn варианты использовать порядок приоритет номер запасной закрепить исключить не выбран vpn">
+      <summary><span class="num">6</span> Какой VPN у какого правила (Routing) <span class="caret">›</span></summary>
+      <div class="body">
+        <p class="path"><b>Кнопка «Routing» на главном экране</b> — вся схема одной таблицей: строки — правила, столбцы — ваши VPN-варианты.</p>
+        <ul>
+          <li><b>Клик по квадратику</b> ставит номер: <b>1</b> — первый вариант, <b>2</b> — запасной, и так далее. Повторный клик по номеру убирает его, остальные пересчитываются.</li>
+          <li><b>Пустой квадратик</b> — этот VPN для правила не используется вообще.</li>
+          <li>Чтобы жёстко закрепить правило за одним узлом — поставьте номер только ему.</li>
+          <li>Отдельная колонка <b>«Kill-switch»</b> — та же галочка, что в окне правила (см. раздел ниже).</li>
+          <li>Если у правила не отмечен <b>ни один</b> VPN, а «Использовать VPN» включено — на плитке будет статус <b>«Не выбран VPN»</b>.</li>
+        </ul>
+        <div class="tip">То же самое есть и внутри правила: <b>Settings → правило → «Какие VPN-варианты можно использовать»</b>. Таблица «Routing» просто показывает все правила сразу — удобнее, когда узлов и правил много.</div>
+      </div>
+    </details>
+
+    <details data-k="connect disconnect подключиться отключиться плитка гео страна сервер переподключить отключить шестерёнка статус">
+      <summary><span class="num">7</span> Подключение и главный экран <span class="caret">›</span></summary>
+      <div class="body">
+        <ul>
+          <li><b>«Connect»</b> — лаунчер подбирает рабочий узел для каждого правила и открывает доступ.</li>
+          <li><b>«Disconnect»</b> — разорвать соединение и снова включить защиту (kill-switch).</li>
+          <li><b>«Routing»</b> — таблица «какое правило через какой VPN и в каком порядке» (раздел 6).</li>
+          <li>Значок журнала в заголовке окна — живой лог <b>«Что заблокировано и почему»</b> (раздел 9).</li>
+          <li>Плитка показывает узел и страну/город сервера. Клик по плитке открывает программу или сайт.</li>
+          <li>Угловые значки на плитке: <b>⚙</b> (слева сверху) — изменить правило; <b>⟳</b> — переподключить только эту; <b>✕</b> — отключить только эту.</li>
+          <li>Подписи под плиткой: <b>«напрямую»</b> (без VPN), <b>«нужен VPN»</b> (ещё не подключались), <b>«не работает»</b> (ни один узел не открыл сайт), <b>«Не выбран VPN»</b> (сняты все варианты).</li>
+          <li>Если узел не отозвался с первого раза, лаунчер не сдаётся: несколько попыток, два прохода по списку узлов и автоповтор примерно раз в 90 секунд.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-k="kill-switch килсвитч защита утечка брандмауэр windows firewall блокировать программы туннель недоступен движок упал локальная сеть принтеры">
+      <summary><span class="num">8</span> Kill-switch: защита от утечки <span class="caret">›</span></summary>
+      <div class="body">
+        <p>Защита работает в два слоя, и включается она <b>по правилам</b> — у каждого правила своя галочка «Kill-switch».</p>
+        <ul>
+          <li><b>Внутри движка.</b> Пока ни один VPN-вариант правила не поднялся, трафик правила отклоняется, а не уходит напрямую. Работает, только пока движок жив.</li>
+          <li><b>Брандмауэр Windows.</b> Переключатель <b>«Блокировать программы средствами Windows, когда туннель недоступен»</b> в <b>Settings → Mihomo</b>. Программы из правил с kill-switch не выйдут в интернет мимо туннеля, даже если движок упал, перезапускается или лаунчер закрыт.</li>
+        </ul>
+        <ul>
+          <li>Строка под переключателем показывает состояние: сколько правил в брандмауэре или что нужна установка (кнопка <b>«Настроить mihomo»</b> — одно окно UAC).</li>
+          <li>Локальная сеть, принтеры и удалённый рабочий стол не блокируются никогда.</li>
+          <li>Брандмауэр умеет закрывать только <b>программы</b>. Если в правиле один сайт или шаблон и ни одной программы — закрывать нечего, добавьте в правило программу, которая его открывает.</li>
+        </ul>
+        <div class="tip">Защита включена с момента входа в систему, даже если программу запустили мимо лаунчера.</div>
+      </div>
+    </details>
+
+    <details data-k="лог журнал что заблокировано и почему трафик реклама трекеры мимо утилиты проблемы не открывается сайт диагностика">
+      <summary><span class="num">9</span> «Что заблокировано и почему» (живой лог) <span class="caret">›</span></summary>
+      <div class="body">
+        <p class="path"><b>Значок журнала в заголовке главного окна</b></p>
+        <p>Сюда смотрят, когда сайт или программа не открывается. Пока окно открыто, движок пишет подробный лог; откройте проблемную ссылку — строка появится в списке с готовым объяснением.</p>
+        <ul>
+          <li><b>«Проблемы»</b> — то, к чему причастна утилита: её правила, kill-switch, отказавшие узлы и DNS.</li>
+          <li><b>«Реклама и трекеры»</b> — что вырезал DNS-сервер вашего компьютера (роутер, провайдер, NextDNS/AdGuard). Это норма, а не сбой.</li>
+          <li><b>«Мимо утилиты»</b> — прямые соединения программ, не попавшие ни под одно правило: не дозвонилась сама программа, утилита ни при чём.</li>
+          <li><b>«Всё подряд»</b> — включая успешно пропущенное.</li>
+        </ul>
+        <div class="tip">История живёт вместе с утилитой: подключения и переподключения её не стирают. Кнопка <b>«Очистить»</b> — если хочется начать с чистого листа.</div>
+      </div>
+    </details>
+
+    <details data-k="remote desktop session безопасный режим rdp anydesk удалённый рабочий стол таймер 60 секунд страховка">
+      <summary><span class="num">10</span> Remote desktop session (удалённая настройка) <span class="caret">›</span></summary>
+      <div class="body">
+        <p>Переключатель-страховка на случай, когда лаунчер настраивают по <b>удалённому рабочему столу</b> (RDP, AnyDesk и т.п.): неверная настройка VPN может оборвать удалённое подключение, а этот режим не даст «закрыть себе доступ».</p>
+        <ul>
+          <li>Пока режим включён, лаунчер каждые <b>60 секунд</b> останавливает движок mihomo, если тот запущен. Если связь пропала из-за VPN — доступ вернётся не позже чем через минуту.</li>
+          <li>Переключатель есть в трёх местах (они синхронизированы): на главном экране рядом с кнопками, в <b>Settings → Mihomo</b> и в окне установки движка.</li>
+          <li>Рядом виден отсчёт; он идёт только пока движок реально запущен.</li>
+          <li>Адреса активной RDP-сессии лаунчер и так находит сам и держит вне туннеля и вне блокировок, так что обычно связь не рвётся и без этого режима. Он — страховка от совсем неудачного конфига.</li>
+          <li>По умолчанию режим <b>выключен</b>. Закончив удалённую настройку, выключите его.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-k="движок mihomo скачать путь рабочая папка datauser автозапуск конфиг обновление обновить версия не установлен">
+      <summary><span class="num">11</span> Движок, автозапуск, обновления <span class="caret">›</span></summary>
+      <div class="body">
+        <p class="path"><b>Settings → вкладки «Mihomo» и «Настройки»</b></p>
+        <ul>
+          <li><b>Движок mihomo</b> скачивается автоматически — при первом запуске (с вашего согласия) или кнопкой <b>«Настроить mihomo»</b> на вкладке Mihomo. Берётся последняя стабильная версия с GitHub. Если движка нет — статус показывает <b>«Не установлен»</b>.</li>
+          <li><b>Путь к mihomo</b> и <b>рабочая папка</b> по умолчанию — в папке <code>DataUser</code> рядом с программой; обычно менять не нужно.</li>
+          <li><b>«Запускать при включении компьютера»</b> (вкладка Настройки) — автозапуск лаунчера при входе в систему. Окно при этом не открывается: программа сворачивается в трей (значок у часов) и <b>сама подключается</b>. Наведите курсор на значок — во всплывающей подсказке видно состояние; клик по значку открывает окно.</li>
+          <li><b>Путь к файлу конфигурации</b> (вкладка Настройки) — можно перенести настройки в своё расположение.</li>
+          <li>Когда выходит обновление лаунчера, движка или гео-базы — на главном экране появляется зелёная кнопка <b>«Обновить»</b>. На вкладке <b>«Обновление»</b> видно версию и дату каждого, свой период проверки и кнопка обновить принудительно.</li>
+          <li>Если движок ведёт себя странно (не отвечает, не ставится) — кнопка <b>«Переустановить движок»</b> сносит его и ставит заново.</li>
+        </ul>
+      </div>
+    </details>
+
+    <details data-k="удалить удаление снести uninstall убрать автозапуск задача mihomo очистить сброс данные">
+      <summary><span class="num">12</span> Полное удаление <span class="caret">›</span></summary>
+      <div class="body">
+        <p>Рядом с <code>MihomoLauncher.exe</code> лежит <code>uninstall</code> — запустите его, и откроется окно удаления с кнопкой <b>«Удалить»</b>.</p>
+        <ul>
+          <li>Оно по шагам закроет программу, остановит VPN (mihomo), уберёт лаунчер из автозапуска, удалит задачу планировщика (здесь появится запрос прав администратора — подтвердите) и сотрёт служебные данные.</li>
+          <li>Последний шаг делаете вы: <b>папку с программой удалите вручную</b>. Вместе с ней уходит и папка <code>DataUser</code>, где лежат ваши настройки, гео-база и сам движок.</li>
+          <li>Пока папка на месте, ваши правила и узлы <b>сохраняются</b> — удаление служебных данных их не трогает.</li>
+        </ul>
+        <div class="tip">Если приложение «не запускается» после переустановки — частая причина в том, что старая копия ещё работает в фоне. Удаление очищает это состояние; затем распакуйте новую версию и запустите снова.</div>
+      </div>
+    </details>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  <span>© 2026 byFox · Mihomo Launcher</span>
+  <span class="sp"></span>
+  <span>Подробнее: byfox.dev/mihomolauncher</span>
+</footer>
+<p class="wrap" style="opacity:.5;font-size:12px;margin:.2rem auto 1.2rem;">This product includes GeoLite2 data created by MaxMind, available from <a href="https://www.maxmind.com">maxmind.com</a>.</p>
+
+<script>
+  // Theme toggle (persisted).
+  var root=document.documentElement, tbtn=document.getElementById('theme');
+  try{var sv=localStorage.getItem('ml-help-theme'); if(sv)root.setAttribute('data-theme',sv);}catch(e){}
+  tbtn.onclick=function(){var t=root.getAttribute('data-theme')==='dark'?'light':'dark';root.setAttribute('data-theme',t);try{localStorage.setItem('ml-help-theme',t);}catch(e){}};
+</script>
+</body>
+</html>

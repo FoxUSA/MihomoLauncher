@@ -1,0 +1,53 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.VpnMatrixWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="{DynamicResource Vpn_Title}"
+                 Width="900"
+                 Height="600"
+                 MinWidth="520"
+                 MinHeight="320"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Vpn_Title}" />
+
+        <TextBlock Grid.Row="1"
+                   Text="{DynamicResource Vpn_Hint}"
+                   FontSize="12" Opacity="0.65" TextWrapping="Wrap"
+                   Margin="20,4,20,10" />
+
+        <!-- The matrix is built in code: its columns are the VPN variants the user has
+             configured, so there is no fixed column set to declare here. -->
+        <ScrollViewer Grid.Row="2"
+                      x:Name="Scroller"
+                      Margin="20,0,20,0"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Auto">
+            <Grid x:Name="Matrix" HorizontalAlignment="Left" />
+        </ScrollViewer>
+
+        <TextBlock Grid.Row="2"
+                   x:Name="LblEmpty"
+                   Visibility="Collapsed"
+                   FontSize="13" Opacity="0.7" TextWrapping="Wrap"
+                   Margin="20,0,20,0"
+                   VerticalAlignment="Top" />
+
+        <Border Grid.Row="3" Padding="20,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button x:Name="BtnSave" Content="{DynamicResource Vpn_Save}" Margin="0,0,8,0"
+                           Appearance="Primary" FontSize="14" Padding="20,8" Click="OnSave" />
+                <ui:Button Content="{DynamicResource Vpn_Cancel}" FontSize="14" Padding="20,8" Click="OnCancel" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

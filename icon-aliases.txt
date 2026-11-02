@@ -1,0 +1,162 @@
+# Tile icon aliases — hand-maintained. build\gen-icons.ps1 merges this with the file list of
+# ico_web\ (the icon set uploaded to https://byfox.dev/data/mihomolauncher/ico/) into the
+# shipped icons.txt. IconFetcher recognises a rule by: its name, its programs' exe names,
+# its sites' domains, its blackmatrix7 template name and the template's domains.
+#
+#   key=slug           a rule name / exe name / domain label that means this icon
+#   @domain=slug       this domain AND all its subdomains mean this icon (longest wins)
+#
+# Keys are case-insensitive. Anything already named exactly like an icon file (youtube,
+# telegram, chatgpt…) needs no line here.
+
+# ---- our own icons ----
+@ru.dog=api.ru.dog
+
+# ---- AI ----
+# dashboard-icons names are swapped: anthropic.png = the Claude starburst, claude-ai.png = the Anthropic «A\» logo
+claude=anthropic
+anthropic=claude-ai
+клод=anthropic
+@claude.ai=anthropic
+@anthropic.com=claude-ai
+gemini=google-gemini
+джемини=google-gemini
+@gemini.google.com=google-gemini
+чатгпт=chatgpt
+чат гпт=chatgpt
+gpt=chatgpt
+@chatgpt.com=chatgpt
+@openai.com=chatgpt
+@oaistatic.com=chatgpt
+@oaiusercontent.com=chatgpt
+дипсик=deepseek
+copilot=microsoft-copilot
+@copilot.microsoft.com=microsoft-copilot
+mistral=mistral-ai
+@mistral.ai=mistral-ai
+kimi=kimi-ai
+перплексити=perplexity
+квен=qwen
+грок=grok
+@grok.com=grok
+@x.ai=grok
+
+# ---- video / music ----
+ютуб=youtube
+youtube music=youtube-music
+@googlevideo.com=youtube
+@ytimg.com=youtube
+@youtu.be=youtube
+@youtube-nocookie.com=youtube
+@music.youtube.com=youtube-music
+нетфликс=netflix
+@nflxvideo.net=netflix
+@nflximg.net=netflix
+спотифай=spotify
+@scdn.co=spotify
+@spotifycdn.com=spotify
+твич=twitch
+@ttvnw.net=twitch
+@jtvnw.net=twitch
+тикток=tiktok
+@tiktokcdn.com=tiktok
+@tiktokv.com=tiktok
+@byteoversea.com=tiktok
+prime video=amazon-prime
+@primevideo.com=amazon-prime
+
+# ---- messengers / social ----
+телеграм=telegram
+телеграмм=telegram
+tg=telegram
+@t.me=telegram
+@telegram.org=telegram
+@telegram.me=telegram
+@telesco.pe=telegram
+@tdesktop.com=telegram
+ватсап=whatsapp
+вотсап=whatsapp
+@whatsapp.net=whatsapp
+@wa.me=whatsapp
+вайбер=viber
+дискорд=discord
+@discord.gg=discord
+@discordapp.com=discord
+@discordapp.net=discord
+инстаграм=instagram
+инстаграмм=instagram
+инста=instagram
+@cdninstagram.com=instagram
+фейсбук=facebook
+@fbcdn.net=facebook
+@fb.com=facebook
+messenger=facebook-messenger
+@messenger.com=facebook-messenger
+твиттер=twitter
+x=twitter
+@x.com=twitter
+@twimg.com=twitter
+@t.co=twitter
+линкедин=linkedin
+@licdn.com=linkedin
+реддит=reddit
+@redd.it=reddit
+@redditmedia.com=reddit
+@redditstatic.com=reddit
+пинтерест=pinterest
+@pinimg.com=pinterest
+сигнал=signal
+@signal.org=signal
+скайп=skype
+зум=zoom
+
+# ---- browsers (exe names) ----
+msedge=microsoft-edge
+microsoft edge=microsoft-edge
+edge=microsoft-edge
+хром=chrome
+google chrome=chrome
+файрфокс=firefox
+мозила=firefox
+mozilla firefox=firefox
+опера=opera
+яндекс=yandex
+@ya.ru=yandex
+
+# ---- Microsoft / Google / Apple ----
+outlook=microsoft-outlook
+teams=microsoft-teams
+ms-teams=microsoft-teams
+onedrive=microsoft-onedrive
+excel=microsoft-excel
+@mail.google.com=gmail
+@drive.google.com=google-drive
+гугл=google
+gdrive=google-drive
+google drive=google-drive
+@icloud.com=icloud
+@bing.com=bing
+
+# ---- games ----
+steamwebhelper=steam
+стим=steam
+@steampowered.com=steam
+@steamcommunity.com=steam
+@steamstatic.com=steam
+epicgameslauncher=epic-games
+epic games=epic-games
+@epicgames.com=epic-games
+
+# ---- misc ----
+@githubusercontent.com=github
+@github.io=github
+гитхаб=github
+@aliexpress.ru=aliexpress
+алиэкспресс=aliexpress
+амазон=amazon
+википедия=wikipedia
+@wikimedia.org=wikipedia
+дропбокс=dropbox
+@dropboxusercontent.com=dropbox
+ноушн=notion
+@notion.so=notion

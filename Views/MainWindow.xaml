@@ -1,0 +1,401 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.MainWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+                 xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+                 xmlns:svc="clr-namespace:MihomoLauncher.Services"
+                 mc:Ignorable="d"
+                 Title="{DynamicResource Main_WindowTitle}"
+                 Width="680"
+                 MinWidth="640"
+                 SizeToContent="Height"
+                 ResizeMode="CanMinimize"
+                 WindowStartupLocation="CenterScreen"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica">
+
+    <ui:FluentWindow.Resources>
+        <!-- Top action buttons: one shared base colour (#323D51, like the Settings tabs);
+             on hover each fades in its OWN muted accent carried in Tag (green for connect,
+             red for disconnect, a slightly lighter shade for settings) — never bright.
+             Hand cursor only here (a real button). -->
+        <Style x:Key="ActionButtonStyle" TargetType="{x:Type ui:Button}">
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Background" Value="#FF323D51" />
+            <Setter Property="Foreground" Value="#FFEAF1FF" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ui:Button}">
+                        <Border x:Name="Bd"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                SnapsToDevicePixels="True">
+                            <Grid>
+                                <!-- Per-button hover colour (Tag), faded in on hover. -->
+                                <Border x:Name="Hover"
+                                        CornerRadius="{TemplateBinding CornerRadius}"
+                                        Background="{Binding Tag, RelativeSource={RelativeSource TemplatedParent}}"
+                                        Opacity="0" />
+                                <StackPanel Orientation="Horizontal"
+                                            Margin="{TemplateBinding Padding}"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                    <ContentPresenter x:Name="Ico" Content="{TemplateBinding Icon}"
+                                                      VerticalAlignment="Center" Margin="0,0,8,0" />
+                                    <ContentPresenter Content="{TemplateBinding Content}"
+                                                      VerticalAlignment="Center"
+                                                      TextElement.Foreground="{TemplateBinding Foreground}"
+                                                      TextElement.FontSize="{TemplateBinding FontSize}"
+                                                      TextElement.FontWeight="{TemplateBinding FontWeight}" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Icon" Value="{x:Null}">
+                                <Setter TargetName="Ico" Property="Margin" Value="0" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Hover" Property="Opacity" Value="1" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Hover" Property="Opacity" Value="1" />
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.92" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </ui:FluentWindow.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- WPF-UI 4.3's TitleBar template draws ONLY the icon — its Title property has no
+             visual at all (it merely gates the icon cell's visibility), so the caption is our
+             own TextBlock in Header (the left cell, right after the icon) and TxtCaption is
+             what gets the "Mihomo Launcher x / Mihomo y" text. Title is kept in sync anyway
+             so the property isn't lying to anyone reading it.
+             The buttons live in TrailingContent (right side, left of the window buttons);
+             both presenters are interactive — unlike a sibling overlaid on the chrome, which
+             the TitleBar's drag handling swallows. -->
+        <ui:TitleBar x:Name="TitleBarMain" Grid.Row="0" Title="Mihomo Launcher" ShowMaximize="False">
+            <ui:TitleBar.Header>
+                <TextBlock x:Name="TxtCaption"
+                           VerticalAlignment="Center"
+                           Margin="8,0,12,0"
+                           FontSize="12"
+                           MaxWidth="320"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+            </ui:TitleBar.Header>
+            <ui:TitleBar.TrailingContent>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <ui:Button x:Name="BtnLang"
+                               VerticalAlignment="Center"
+                               Height="28"
+                               Margin="0,0,6,0"
+                               Padding="8,0"
+                               Appearance="Secondary"
+                               Cursor="Hand"
+                               ToolTip="{DynamicResource Main_LangToggleTip}"
+                               Click="OnToggleLanguage">
+                        <StackPanel Orientation="Horizontal">
+                            <ui:SymbolIcon x:Name="IcoLang" Symbol="Translate24" FontSize="15" Margin="0,0,5,0"
+                                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+                            <TextBlock x:Name="LangCode" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                        </StackPanel>
+                    </ui:Button>
+                    <ui:Button x:Name="BtnWebsite"
+                               VerticalAlignment="Center"
+                               Height="28"
+                               Margin="0,0,6,0"
+                               Padding="8,0"
+                               Appearance="Secondary"
+                               Cursor="Hand"
+                               ToolTip="{DynamicResource Main_WebsiteTip}"
+                               Click="OnOpenWebsite">
+                        <ui:SymbolIcon x:Name="IcoWebsite" Symbol="Globe24" FontSize="15"
+                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                    </ui:Button>
+                    <!-- The DNS shield lived here until 2026-08-15 — the launcher no longer
+                         picks the machine's resolvers, so there is nothing to toggle. -->
+                    <!-- Live engine log: what the engine blocked and why (rule / kill-switch /
+                         DNS). Opens on demand; the engine only logs verbosely while it's open. -->
+                    <ui:Button x:Name="BtnLog"
+                               VerticalAlignment="Center"
+                               Height="28"
+                               Margin="0,0,6,0"
+                               Padding="8,0"
+                               Appearance="Secondary"
+                               Cursor="Hand"
+                               ToolTip="{DynamicResource Log_Tip}"
+                               Click="OnOpenLog">
+                        <ui:SymbolIcon x:Name="IcoLog" Symbol="TextBulletListSquare24" FontSize="15"
+                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                    </ui:Button>
+                    <ui:Button x:Name="BtnExitApp"
+                               VerticalAlignment="Center"
+                               Height="28"
+                               Margin="0,0,10,0"
+                               Padding="8,0"
+                               Appearance="Secondary"
+                               Cursor="Hand"
+                               ToolTip="{DynamicResource Set_BtnExitApp}"
+                               Click="OnExitApp">
+                        <ui:SymbolIcon x:Name="IcoExit" Symbol="Power24" FontSize="15"
+                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                    </ui:Button>
+                </StackPanel>
+            </ui:TitleBar.TrailingContent>
+        </ui:TitleBar>
+
+        <Grid Grid.Row="1">
+
+            <!-- Result state: top buttons + tiles + status banner at the bottom -->
+            <Grid x:Name="ResultRoot" Visibility="Visible">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <!-- Auto (not *) so the window's SizeToContent grows to show all tiles
+                         instead of squeezing them. -->
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Top action bar: three text-width buttons + update notice -->
+                <StackPanel Grid.Row="0" Margin="18,12,18,0">
+                    <StackPanel Orientation="Horizontal">
+                        <ui:Button x:Name="BtnRetry"
+                                   Style="{StaticResource ActionButtonStyle}"
+                                   Content="{DynamicResource Main_Connect}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Padding="14,8"
+                                   Margin="0,0,8,0"
+                                   Tag="#FF3C6149"
+                                   Click="OnCheck">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="PlugConnected24" Foreground="#EAF1FF" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+                        <ui:Button x:Name="BtnDisconnect"
+                                   Style="{StaticResource ActionButtonStyle}"
+                                   Content="{DynamicResource Main_Disconnect}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   Padding="14,8"
+                                   Margin="0,0,8,0"
+                                   Tag="#FF6E3A3A"
+                                   Click="OnDisconnect">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="PlugDisconnected24" Foreground="#EAF1FF" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+                        <ui:Button x:Name="BtnSettings"
+                                   Style="{StaticResource ActionButtonStyle}"
+                                   Content="{DynamicResource Main_Settings}"
+                                   FontSize="14"
+                                   Padding="14,8"
+                                   Margin="0,0,8,0"
+                                   Tag="#FF3E4B64"
+                                   Click="OnOpenSettings">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="Settings24" Foreground="#EAF1FF" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+
+                        <!-- The whole routing picture in one grid: rules down the left, VPN
+                             variants across the top. Next to Settings because it edits the same
+                             thing the per-rule dialog does, only all of it at once. -->
+                        <ui:Button x:Name="BtnVpnMatrix"
+                                   Style="{StaticResource ActionButtonStyle}"
+                                   Content="{DynamicResource Main_Routing}"
+                                   FontSize="14"
+                                   Padding="14,8"
+                                   Tag="#FF3E4B64"
+                                   ToolTip="{DynamicResource Main_RoutingTip}"
+                                   Click="OnOpenVpnMatrix">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="Globe24" Foreground="#EAF1FF" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+
+                        <!-- DNS for direct traffic: opens Settings on its tab. The icon turns sage
+                             while the user's own resolver is in use (SyncDnsButton). -->
+                        <ui:Button x:Name="BtnDns"
+                                   Style="{StaticResource ActionButtonStyle}"
+                                   Content="DNS"
+                                   FontSize="14"
+                                   Padding="14,8"
+                                   Margin="8,0,0,0"
+                                   Tag="#FF3E4B64"
+                                   Click="OnOpenDns">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon x:Name="IcoDns" Symbol="GlobeShield24" Foreground="#EAF1FF" />
+                            </ui:Button.Icon>
+                        </ui:Button>
+
+                        <!-- "Remote desktop session" safe mode: while the switch is on, the
+                             launcher watches mihomo and force-stops it every 60s it's running,
+                             so a bad VPN config can't lock you out over RDP/AnyDesk. Off by
+                             default. The same switch lives in Settings and the install prompt. -->
+                        <Border x:Name="KillTimerBox"
+                                Background="#FF3A2F36"
+                                CornerRadius="6"
+                                Padding="10,0"
+                                Margin="8,0,0,0"
+                                VerticalAlignment="Stretch">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <ui:ToggleSwitch x:Name="SwitchSafeMode" VerticalAlignment="Center"
+                                                 Checked="OnSafeModeToggle" Unchecked="OnSafeModeToggle" />
+                                <TextBlock x:Name="KillCountdown" Text="1:00" VerticalAlignment="Center"
+                                           FontSize="14" FontWeight="SemiBold" Margin="8,0,8,0"
+                                           Foreground="#FFEAD0D0" />
+                                <TextBlock Text="{DynamicResource Main_KillTimerLabel}" VerticalAlignment="Center"
+                                           FontSize="12.5" Foreground="#FFD7A8A8" />
+                                <Border x:Name="KillHelpHit" Width="22" Height="22" CornerRadius="11"
+                                        Background="Transparent" Cursor="Hand" Margin="4,0,0,0"
+                                        ToolTip="{DynamicResource Main_KillTimerHelpTip}"
+                                        MouseLeftButtonUp="OnKillTimerHelp">
+                                    <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="15"
+                                                   Foreground="#FFAAB9D6"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <!-- Shown only when the VPN engine (mihomo) isn't installed/set up yet,
+                         e.g. mom skipped the first-run prompt. One tap re-runs the download +
+                         elevated setup. RefreshEngineState() toggles its visibility. -->
+                    <ui:Button x:Name="BtnInstallEngine"
+                               Style="{StaticResource ActionButtonStyle}"
+                               Margin="0,10,0,0"
+                               Visibility="Collapsed"
+                               HorizontalAlignment="Stretch"
+                               HorizontalContentAlignment="Center"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Padding="12,8"
+                               Background="#FF6E5A33"
+                               Foreground="#FFF3E7CC"
+                               Tag="#FF80683B"
+                               Content="{DynamicResource Main_InstallEngineBtn}"
+                               Click="OnInstallEngineClick">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="ArrowDownload24" Foreground="#FFF3E7CC" />
+                        </ui:Button.Icon>
+                    </ui:Button>
+
+                    <ui:Button x:Name="BtnUpdate"
+                               Margin="0,10,0,0"
+                               Visibility="Collapsed"
+                               HorizontalAlignment="Stretch"
+                               HorizontalContentAlignment="Center"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               Padding="12,8"
+                               Appearance="Success"
+                               Content="{DynamicResource Main_UpdateBtn}"
+                               Click="OnUpdateClick">
+                        <ui:Button.Icon>
+                            <ui:SymbolIcon Symbol="ArrowSync24" />
+                        </ui:Button.Icon>
+                    </ui:Button>
+                </StackPanel>
+
+                <!-- Tiles. No ScrollViewer: it reports ~0 desired height, which collapses
+                     the row under the window's SizeToContent and clips the tiles. Direct
+                     in an Auto row, the window grows to fit them. -->
+                <ItemsControl x:Name="TilesPanel"
+                              Grid.Row="1"
+                              Margin="14,10,14,0"
+                              HorizontalAlignment="Center">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <WrapPanel Orientation="Horizontal"
+                                       HorizontalAlignment="Center" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                </ItemsControl>
+
+                <!-- Bottom status banner (green when ok, red when not) + footer note -->
+                <StackPanel Grid.Row="2" Margin="18,12,18,12">
+                    <Border x:Name="TopBanner"
+                            Padding="14,9"
+                            CornerRadius="7"
+                            Background="{x:Static svc:Theme.BannerOkBg}"
+                            BorderThickness="1"
+                            BorderBrush="{x:Static svc:Theme.BannerOkBorder}">
+                        <TextBlock x:Name="BannerText"
+                                   FontSize="13.5"
+                                   FontWeight="Medium"
+                                   Foreground="{x:Static svc:Theme.BannerOkText}"
+                                   TextWrapping="Wrap"
+                                   Text="{DynamicResource Main_BannerAllWorks}" />
+                    </Border>
+                    <TextBlock x:Name="StatusFoot"
+                               Margin="2,6,0,0"
+                               VerticalAlignment="Center"
+                               FontSize="12"
+                               Opacity="0.6" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Connecting overlay -->
+            <Grid x:Name="ConnectingOverlay" Background="{x:Static svc:Theme.OverlayScrim}" Visibility="Collapsed">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="32">
+                    <TextBlock x:Name="ConnectingTitle"
+                               Text="{DynamicResource Main_ConnectingTitle}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <TextBlock x:Name="ConnectingDetail"
+                               Text="{DynamicResource Main_ConnectingDetail}"
+                               FontSize="13"
+                               Margin="0,8,0,24"
+                               Opacity="0.65"
+                               TextAlignment="Center"
+                               TextWrapping="Wrap" />
+                    <ui:ProgressRing x:Name="ConnectingRing"
+                                     IsIndeterminate="True"
+                                     Width="64"
+                                     Height="64"
+                                     HorizontalAlignment="Center"
+                                     Margin="0,0,0,24" />
+                    <!-- Determinate progress bar, shown only during updates (download /
+                         extraction). Collapsed during the normal connecting flow. -->
+                    <ProgressBar x:Name="UpdateBar"
+                                 Width="320"
+                                 Height="10"
+                                 Minimum="0"
+                                 Maximum="100"
+                                 IsIndeterminate="True"
+                                 Visibility="Collapsed"
+                                 HorizontalAlignment="Center"
+                                 Margin="0,0,0,24"
+                                 Foreground="{x:Static svc:Theme.AccentBlue}"
+                                 Background="{x:Static svc:Theme.ListBg}"
+                                 BorderThickness="0" />
+                    <ui:Button x:Name="BtnCancel"
+                               Content="{DynamicResource Main_Stop}"
+                               FontSize="14"
+                               Padding="22,9"
+                               HorizontalAlignment="Center"
+                               Click="OnCancel" />
+                </StackPanel>
+            </Grid>
+
+        </Grid>
+    </Grid>
+</ui:FluentWindow>

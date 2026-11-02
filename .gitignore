@@ -1,0 +1,16 @@
+# Build output
+bin/
+obj/
+*_wpftmp.csproj
+.vs/
+.vscode/
+*.user
+
+# Local tooling / scratch
+.claude/
+tmp*.json
+desktop.ini
+
+# The full tile icon set (~150 MB) lives on byfox.dev, not in the repo;
+# build\gen-icons.ps1 reads it from here when regenerating icons.txt.
+/ico_web/

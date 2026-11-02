@@ -1,0 +1,119 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <RootNamespace>MihomoLauncher</RootNamespace>
+    <AssemblyName>MihomoLauncher</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <!-- A filled-in version resource is part of looking like a real product rather than an
+         anonymous binary: an empty Company/Copyright is one of the things both SmartScreen and
+         Defender's ML weigh against an unsigned exe. -->
+    <Product>Mihomo Launcher</Product>
+    <AssemblyTitle>Mihomo Launcher</AssemblyTitle>
+    <Description>Mihomo Launcher — per-app split VPN for Windows (byfox.dev)</Description>
+    <Company>byFox</Company>
+    <Authors>byFox</Authors>
+    <Copyright>Copyright (c) 2026 byFox</Copyright>
+    <Version>2.2.2</Version>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>fox.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <!-- Release ships from bin\Release\MihomoLauncher\ (no net481 leaf folder), so the
+       distributable folder is literally "MihomoLauncher". Debug stays bin\Debug\net481. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin\Release\MihomoLauncher\</OutputPath>
+  </PropertyGroup>
+  <!-- The standalone launcher sources under build\launchers\ are compiled separately into
+       help.exe/uninstall.exe by layout-release.ps1 — keep them OUT of the main app build. -->
+  <ItemGroup>
+    <Compile Remove="build\**\*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="WPF-UI" Version="4.3.0" />
+    <PackageReference Include="MaxMind.GeoIP2" Version="5.2.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Late-bound COM (dynamic) for the Windows Firewall policy objects — FirewallGuard. -->
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Drawing" />
+    <!-- Exact IPv4/IPv6 range arithmetic for the firewall address lists — FirewallGuard. -->
+    <Reference Include="System.Numerics" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+    <Reference Include="System.Management" />
+    <Reference Include="System.Net.Http" />
+    <Reference Include="System.Runtime.Serialization" />
+    <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The launcher's own icon. NOT embedded as a WPF resource and NOT bundled as the
+         per-app tile icons (those are fetched from the server at runtime, see IconFetcher).
+         It's the .exe icon (ApplicationIcon above) and is also copied to Data\fox.ico so the
+         window/title-bar/tray icon can be loaded from disk at runtime (Debug + Release). -->
+    <Content Include="fox.ico" Link="Data\fox.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Folder / shortcut icons, all shipped INTO Data\ (so an update brings fresh copies):
+         data.ico → Data\ folder, user_data.ico → DataUser\ folder, help.ico → the "help"
+         shortcut, trash.ico → the "uninstall" shortcut. Applied at runtime by FolderIcons. -->
+    <Content Include="data.ico" Link="Data\data.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="user_data.ico" Link="Data\user_data.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="help.ico" Link="Data\help.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="trash.ico" Link="Data\trash.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- App version manifest (appVersion + mihomoVersion). Shipped to Data\ (moved there by
+         layout-release.ps1). Wiped & replaced on update. -->
+    <Content Include="manifest.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Offline user help. Lives in Data\ now; the root gets a "help" shortcut (FolderIcons). -->
+    <Content Include="help.html" Link="Data\help.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Merged rule-template catalog (blackmatrix7 + byfox awg-panel folders), 3 columns
+         Name|CheckUrl|ClashUrl. Ships straight into DataUser\ (survives updates) as the offline
+         baseline; refreshed at runtime (UpdateService.UpdateTemplatesAsync writes DataUser\rules).
+         Regenerate the baseline with build\gen-rules.ps1. NOTE: manifest_geo.json and the old
+         blackmatrix7+www.txt are NO LONGER shipped — update state lives in DataUser\updates.json;
+         the app deletes any lingering legacy copies of both on first run. -->
+    <Content Include="rules" Link="DataUser\rules">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Bundled tile icons: only our own (all_trafic.png, api.ru.dog.png), shipped into
+         Data\ico\ (the same cache dir IconFetcher downloads into). The full icon set lives on
+         the server (ico_web\ = /var/www/byfox.dev/data/mihomolauncher/ico/, uploaded by hand)
+         and is fetched per rule. IconFetcher only fetches what's MISSING, so shipped icons win. -->
+    <Content Include="ico\*.png" Link="Data\ico\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Index of the server icon set (slugs + aliases + @domains) used to recognise a rule's
+         icon offline. Generated by build\gen-icons.ps1 from ico_web\ + icon-aliases.txt. -->
+    <Content Include="icons.txt" Link="Data\icons.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Uninstall helper. Lives in Data\ now; the root gets an "uninstall" shortcut
+         (FolderIcons) carrying trash.ico. -->
+    <Content Include="uninstall.bat" Link="Data\uninstall.bat">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Release-only: reshape the output to MihomoLauncher.exe in root + Data\ for the rest. -->
+  <Target Name="LayoutReleaseDataFolder" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\build\layout-release.ps1&quot; -OutDir &quot;$(OutDir.TrimEnd('\'))&quot;" />
+  </Target>
+</Project>

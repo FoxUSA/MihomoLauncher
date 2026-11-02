@@ -1,0 +1,86 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.LinkTemplatePickerDialog"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="{DynamicResource Dlg_TemplatesClashTitle}"
+                 Width="640" Height="720"
+                 MinWidth="520" MinHeight="480"
+                 ResizeMode="CanResize"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Dlg_TemplatesClashTitle}" />
+
+        <TextBlock Grid.Row="1" Margin="20,4,20,8" FontSize="12" Opacity="0.7" TextWrapping="Wrap">
+            <Run Text="{DynamicResource Dlg_TemplatesHint}" />
+        </TextBlock>
+
+        <ui:TextBox Grid.Row="2" x:Name="TxtSearch" Margin="20,0,20,10" FontSize="13"
+                    PlaceholderText="{DynamicResource Dlg_SearchByName}"
+                    TextChanged="OnSearchChanged" />
+
+        <!-- Virtualized list: only the visible rows materialize, so the ~700-item catalog opens
+             instantly instead of building every button up front. -->
+        <ListBox Grid.Row="3" x:Name="ItemsHost" Margin="20,0,20,0"
+                 Background="Transparent" BorderThickness="0" Padding="0"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                 ScrollViewer.VerticalScrollBarVisibility="Auto"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 VirtualizingPanel.ScrollUnit="Pixel">
+            <ListBox.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <VirtualizingStackPanel Orientation="Vertical" />
+                </ItemsPanelTemplate>
+            </ListBox.ItemsPanel>
+            <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <ContentPresenter />
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </ListBox.ItemContainerStyle>
+            <!-- Each row is a group of up to 3 services → 3 columns, while the rows themselves
+                 stay virtualized. -->
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <ItemsControl ItemsSource="{Binding}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <ui:Button Content="{Binding Name}" Width="184" Margin="3"
+                                           HorizontalContentAlignment="Center"
+                                           Tag="{Binding}" Click="OnPick" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Border Grid.Row="4" Padding="20,12">
+            <ui:Button Content="{DynamicResource Dlg_Close}" HorizontalAlignment="Right" FontSize="14" Padding="20,8" Click="OnCancel" />
+        </Border>
+    </Grid>
+</ui:FluentWindow>

@@ -1,0 +1,40 @@
+<Window x:Class="MihomoLauncher.Views.UpdaterWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:svc="clr-namespace:MihomoLauncher.Services"
+        Title="{DynamicResource Upd_Title}"
+        Width="480" Height="230"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="True"
+        Topmost="True"
+        Background="{x:Static svc:Theme.WindowBg}"
+        Foreground="{x:Static svc:Theme.TextPrimary}">
+    <Grid Margin="30,26">
+        <StackPanel VerticalAlignment="Center">
+            <TextBlock Text="{DynamicResource Upd_Title}"
+                       FontSize="18"
+                       FontWeight="SemiBold"
+                       Foreground="{x:Static svc:Theme.TextPrimary}" />
+            <TextBlock x:Name="StatusText"
+                       Text="{DynamicResource Upd_Preparing}"
+                       Margin="0,14,0,18"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+            <ProgressBar x:Name="Bar"
+                         Height="10"
+                         Minimum="0"
+                         Maximum="100"
+                         IsIndeterminate="True"
+                         Foreground="{x:Static svc:Theme.AccentBlue}"
+                         Background="{x:Static svc:Theme.ListBg}"
+                         BorderThickness="0" />
+            <TextBlock x:Name="PercentText"
+                       Text=""
+                       Margin="0,8,0,0"
+                       FontSize="12"
+                       Foreground="{x:Static svc:Theme.TextMuted}" />
+        </StackPanel>
+    </Grid>
+</Window>

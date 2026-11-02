@@ -1,0 +1,281 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.TrafficLogWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:svc="clr-namespace:MihomoLauncher.Services"
+                 Title="Log"
+                 Width="900" Height="620"
+                 MinWidth="620" MinHeight="380"
+                 WindowStartupLocation="CenterOwner"
+                 ResizeMode="CanResize"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica">
+    <ui:FluentWindow.Resources>
+        <!-- Same pill-tab chrome as Settings: the TabControl here holds NO content, it is a
+             filter switch above the one shared table. -->
+        <Style x:Key="LogTabControlStyle" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <StackPanel IsItemsHost="True" Orientation="Horizontal" Background="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="LogTabItemStyle" TargetType="TabItem">
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextSecondary}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Bd" Height="30" Padding="14,0" CornerRadius="6"
+                                SnapsToDevicePixels="True"
+                                Background="{x:Static svc:Theme.BadgeNeutralBg}"
+                                BorderBrush="{x:Static svc:Theme.CardBorder}"
+                                BorderThickness="1"
+                                TextElement.Foreground="{TemplateBinding Foreground}">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.CardBgHover}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.SelectionBg}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{x:Static svc:Theme.SelectionBg}" />
+                                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </ui:FluentWindow.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" x:Name="Bar" />
+
+        <StackPanel Grid.Row="1" Margin="20,4,20,8">
+            <TextBlock x:Name="LblHint" FontSize="12" Opacity="0.7" TextWrapping="Wrap"
+                       Text="{DynamicResource Log_Hint}" />
+            <!-- A Grid, not a StackPanel: stacked horizontally the status text was handed
+                 infinite width, so it ran straight off the window edge and the user saw only
+                 its first half. Here the tabs take what they need and the status gets exactly
+                 the rest, wrapping instead of disappearing. -->
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TabControl x:Name="Tabs" Grid.Column="0" Style="{StaticResource LogTabControlStyle}"
+                            SelectionChanged="OnTabChanged">
+                    <!-- Headers carry a live row count, so they're composed in code. -->
+                    <TabItem x:Name="TabProblems" Style="{StaticResource LogTabItemStyle}" Tag="problem" />
+                    <TabItem x:Name="TabAds"      Style="{StaticResource LogTabItemStyle}" Tag="ads" />
+                    <TabItem x:Name="TabOutside"  Style="{StaticResource LogTabItemStyle}" Tag="outside" />
+                    <TabItem x:Name="TabAll"      Style="{StaticResource LogTabItemStyle}" Tag="all" />
+                </TabControl>
+                <CheckBox x:Name="ChkByApp" Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center"
+                          FontSize="12" Content="{DynamicResource Log_ByApp}"
+                          Checked="OnByAppChanged" Unchecked="OnByAppChanged" />
+                <TextBlock x:Name="LblStatus" Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center"
+                           FontSize="12" Opacity="0.75" TextWrapping="Wrap" Text="" />
+            </Grid>
+            <TextBlock x:Name="LblTabHint" Margin="0,8,0,0" FontSize="11" Opacity="0.6"
+                       TextWrapping="Wrap" Text="" />
+
+            <!-- «Куда пойдёт этот адрес»: typing filters the rows (across every tab), Enter
+                 explains the route from the live config — see RouteExplainer. -->
+            <Grid Margin="0,10,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ui:TextBox x:Name="TxtSearch" Grid.Column="0" FontSize="13"
+                            PlaceholderText="{DynamicResource Log_SearchPlaceholder}"
+                            TextChanged="OnSearchChanged" KeyDown="OnSearchKeyDown">
+                    <ui:TextBox.Icon>
+                        <ui:SymbolIcon Symbol="Search24" />
+                    </ui:TextBox.Icon>
+                </ui:TextBox>
+                <ui:Button x:Name="BtnExplain" Grid.Column="1" Margin="8,0,0,0"
+                           Content="{DynamicResource Log_Explain}" Click="OnExplain">
+                    <ui:Button.Icon>
+                        <ui:SymbolIcon Symbol="Globe24" />
+                    </ui:Button.Icon>
+                </ui:Button>
+            </Grid>
+            <Border x:Name="ExplainBox" Margin="0,8,0,0" Padding="10,6" CornerRadius="6"
+                    Background="{x:Static svc:Theme.CardBg}"
+                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1"
+                    Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <TextBox x:Name="TxtExplain" Grid.Row="0" IsReadOnly="True" TextWrapping="Wrap"
+                             FontSize="12.5" BorderThickness="0" Background="Transparent" Padding="0"
+                             MaxHeight="240" VerticalScrollBarVisibility="Auto" />
+                    <TextBlock x:Name="LblFound" Grid.Row="1" Margin="0,4,0,0" FontSize="11" Opacity="0.6"
+                               TextWrapping="Wrap" Text="" />
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <Border Grid.Row="2" Margin="20,0,20,0"
+                CornerRadius="8"
+                Background="{x:Static svc:Theme.CardBg}"
+                BorderBrush="{x:Static svc:Theme.CardBorder}"
+                BorderThickness="1"
+                ClipToBounds="True">
+            <DataGrid x:Name="Grid"
+                      AutoGenerateColumns="False"
+                      IsReadOnly="True"
+                      SelectionMode="Single"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="None"
+                      Background="Transparent"
+                      BorderThickness="0"
+                      RowHeaderWidth="0"
+                      CanUserResizeRows="False"
+                      EnableRowVirtualization="True"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+                <DataGrid.ColumnHeaderStyle>
+                    <Style TargetType="DataGridColumnHeader">
+                        <Setter Property="Height" Value="34" />
+                        <Setter Property="Padding" Value="12,0" />
+                        <Setter Property="FontSize" Value="12" />
+                        <Setter Property="FontWeight" Value="SemiBold" />
+                        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextSecondary}" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridColumnHeader">
+                                    <Border Background="{x:Static svc:Theme.BadgeNeutralBg}"
+                                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="0,0,0,1"
+                                            Padding="{TemplateBinding Padding}">
+                                        <ContentPresenter VerticalAlignment="Center" />
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </DataGrid.ColumnHeaderStyle>
+                <DataGrid.RowStyle>
+                    <Style TargetType="DataGridRow">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{x:Static svc:Theme.CardBgHover}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="{x:Static svc:Theme.SelectionBg}" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </DataGrid.RowStyle>
+                <DataGrid.CellStyle>
+                    <!-- Every cell top-aligned with the same padding, a hairline between rows:
+                         a long «Почему» grows its row without the other cells floating mid-way. -->
+                    <Style TargetType="DataGridCell">
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="FontSize" Value="12.5" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="DataGridCell">
+                                    <Border Background="Transparent" Padding="12,8"
+                                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="0,0,0,1">
+                                        <ContentPresenter VerticalAlignment="Top" />
+                                    </Border>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </DataGrid.CellStyle>
+                <!-- Every column is exactly as wide as its content (or its header) needs;
+                     «Почему» takes all the space that is left. -->
+                <DataGrid.Columns>
+                    <DataGridTemplateColumn Header="{DynamicResource Log_ColTime}" Width="Auto" MinWidth="70">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding TimeText}" FontFamily="Consolas" Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                    <TextBlock Text="{Binding CountText}" FontSize="11" Margin="0,2,0,0"
+                                               Foreground="{x:Static svc:Theme.TextMuted}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <DataGridTemplateColumn Header="{DynamicResource Log_ColVerdict}" Width="Auto">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Border BorderBrush="{Binding VerdictBrush}" BorderThickness="1" CornerRadius="10"
+                                        Background="{x:Static svc:Theme.BadgeNeutralBg}"
+                                        Padding="9,1" HorizontalAlignment="Left">
+                                    <TextBlock Text="{Binding VerdictText}" FontSize="12" Foreground="{Binding VerdictBrush}" />
+                                </Border>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <!-- Where to: the site in bold, which program and which rule underneath. -->
+                    <DataGridTemplateColumn Header="{DynamicResource Log_ColHost}" Width="Auto" MaxWidth="320">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <StackPanel>
+                                    <TextBlock Text="{Binding HostText}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                               ToolTip="{Binding HostText}" />
+                                    <TextBlock FontSize="11.5" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
+                                               Foreground="{x:Static svc:Theme.TextMuted}">
+                                        <Run Text="{Binding ProcessName, Mode=OneWay}" />
+                                        <Run Text="{Binding RuleLine, Mode=OneWay}" />
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                    <!-- «Почему» is a whole sentence and often a long one. It wraps to as many
+                         lines as the window's current width needs instead of being cut off at
+                         the edge; the row grows with it (the grid sets no RowHeight). -->
+                    <DataGridTemplateColumn Header="{DynamicResource Log_ColWhy}" Width="*" MinWidth="220">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding WhyText}" TextWrapping="Wrap" LineHeight="18"
+                                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Border>
+
+        <Border Grid.Row="3" Padding="20,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button Content="{DynamicResource Log_Clear}" Margin="0,0,8,0" Click="OnClear" />
+                <ui:Button Content="{DynamicResource Dlg_Copy}" Margin="0,0,8,0" Click="OnCopy" />
+                <ui:Button Content="{DynamicResource Dlg_Close}" Appearance="Primary" Padding="20,8" Click="OnClose" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

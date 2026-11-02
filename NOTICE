@@ -1,0 +1,25 @@
+Mihomo Launcher
+Copyright (C) 2026 byFox - https://byfox.dev
+
+This program is licensed under the GNU General Public License, version 3
+or any later version (see LICENSE), with the following additional term
+under section 7(b) of that license.
+
+Author attribution. Every copy and every modified version of this program
+must preserve this notice and the following attribution, both in the
+source files and in the Appropriate Legal Notices displayed by the program:
+
+    Based on Mihomo Launcher by byFox - https://byfox.dev/mihomolauncher/
+
+Third-party components (not covered by the notice above, each under its own license):
+
+  - mihomo (MetaCubeX) - GPL-3.0. Not bundled: downloaded at first run from its
+    GitHub releases (or the byfox.dev mirror). https://github.com/MetaCubeX/mihomo
+  - WPF-UI (lepoco) - MIT. https://github.com/lepoco/wpfui
+  - MaxMind.GeoIP2 / MaxMind.Db - Apache-2.0. https://github.com/maxmind/GeoIP2-dotnet
+  - GeoLite2 data - This product includes GeoLite2 data created by MaxMind,
+    available from https://www.maxmind.com
+  - Rule templates: blackmatrix7 / ios_rule_script - fetched at runtime.
+    https://github.com/blackmatrix7/ios_rule_script
+  - Tile icons: homarr-labs / dashboard-icons - Apache-2.0, fetched at runtime
+    from byfox.dev. https://github.com/homarr-labs/dashboard-icons

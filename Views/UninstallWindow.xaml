@@ -1,0 +1,83 @@
+<Window x:Class="MihomoLauncher.Views.UninstallWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:svc="clr-namespace:MihomoLauncher.Services"
+        Title="{DynamicResource Uni_Title}"
+        Width="540" Height="420"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="True"
+        Background="{x:Static svc:Theme.WindowBg}"
+        Foreground="{x:Static svc:Theme.TextPrimary}">
+    <Grid Margin="26,22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="{DynamicResource Uni_Title}"
+                   FontSize="18" FontWeight="SemiBold"
+                   Foreground="{x:Static svc:Theme.TextPrimary}" />
+
+        <TextBlock Grid.Row="1"
+                   Margin="0,8,0,2" FontSize="13" TextWrapping="Wrap"
+                   Foreground="{x:Static svc:Theme.TextSecondary}"
+                   Text="{DynamicResource Uni_Intro}" />
+
+        <Border Grid.Row="2" Margin="0,12"
+                Background="{x:Static svc:Theme.ListBg}"
+                BorderBrush="{x:Static svc:Theme.CardBorder}"
+                BorderThickness="1" CornerRadius="6">
+            <ItemsControl x:Name="StepsList" Margin="10,8">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="0,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="24" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding Glyph}"
+                                       FontSize="14" FontWeight="Bold"
+                                       Foreground="{Binding GlyphBrush}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="{Binding Title}"
+                                       FontSize="13" VerticalAlignment="Center"
+                                       Foreground="{x:Static svc:Theme.TextPrimary}" />
+                            <TextBlock Grid.Column="2" Text="{Binding Detail}"
+                                       FontSize="12" VerticalAlignment="Center" Margin="10,0,0,0"
+                                       Foreground="{x:Static svc:Theme.TextMuted}" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Border>
+
+        <ProgressBar Grid.Row="3" x:Name="Bar"
+                     Height="8" Minimum="0" Maximum="100" Value="0"
+                     Foreground="{x:Static svc:Theme.AccentBlue}"
+                     Background="{x:Static svc:Theme.ListBg}"
+                     BorderThickness="0" />
+
+        <Border Grid.Row="4" x:Name="DonePanel" Visibility="Collapsed"
+                Margin="0,14,0,0" Padding="12,10"
+                Background="{x:Static svc:Theme.BannerOkBg}"
+                BorderBrush="{x:Static svc:Theme.BannerOkBorder}"
+                BorderThickness="1" CornerRadius="6">
+            <TextBlock x:Name="DoneText" TextWrapping="Wrap" FontSize="13"
+                       Foreground="{x:Static svc:Theme.BannerOkText}"
+                       Text="{DynamicResource Uni_DoneBanner}" />
+        </Border>
+
+        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+            <Button x:Name="BtnRun" Content="{DynamicResource Uni_BtnRun}" MinWidth="110" Padding="14,7"
+                    Click="OnRun" />
+            <Button x:Name="BtnClose" Content="{DynamicResource Uni_BtnClose}" MinWidth="110" Padding="14,7"
+                    Margin="10,0,0,0" Click="OnClose" />
+        </StackPanel>
+    </Grid>
+</Window>

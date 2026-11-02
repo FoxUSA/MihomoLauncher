@@ -14,19 +14,11 @@ Per‑app split tunneling for Windows: only the apps and sites you choose go thr
 ![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D6?logo=windows)
 ![Engine: mihomo](https://img.shields.io/badge/engine-mihomo-444)
 ![Free](https://img.shields.io/badge/price-free-2ea44f)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 **English** · [Русский](README.ru.md)
 
 </div>
-
-<p align="center">
-<a href="images/mihomolauncher-main.png"><img src="images/mihomolauncher-main.png" height="140" alt="Main window"></a>
-<a href="images/mihomolauncher-rule.png"><img src="images/mihomolauncher-rule.png" height="140" alt="Rule"></a>
-<a href="images/mihomolauncher-routing.png"><img src="images/mihomolauncher-routing.png" height="140" alt="Routing"></a>
-<a href="images/mihomolauncher-settings.png"><img src="images/mihomolauncher-settings.png" height="140" alt="Settings"></a>
-<a href="images/mihomolauncher-templates.png"><img src="images/mihomolauncher-templates.png" height="140" alt="Templates"></a>
-<a href="images/mihomolauncher-store.png"><img src="images/mihomolauncher-store.png" height="140" alt="Microsoft Store"></a>
-</p>
 
 Set it up once — which apps and sites go through which VPN. After that it's one **Connect** button, and the launcher finds a working node by itself.
 
@@ -43,10 +35,24 @@ Set it up once — which apps and sites go through which VPN. After that it's on
 2. Run `MihomoLauncher.exe` — the engine installs itself
 3. Add your VPN and apps — and press **Connect**
 
-Windows 10 / 11 (x64). Freeware, no telemetry. This repository hosts the page and download links only.
+Windows 10 / 11 (x64). Free, no telemetry.
+
+## Build from source
+
+The ready-to-run build is the [archive above](https://byfox.dev/data/mihomolauncher/MihomoLauncher.zip) — the app updates itself from it. To build your own:
+
+1. Windows with the .NET SDK (any recent, e.g. 8 or 9) and .NET Framework 4.8 — the app targets `net48`
+2. `dotnet build MihomoLauncher.csproj -c Release`
+3. The result is in `bin\Release\MihomoLauncher\`: `MihomoLauncher.exe` in the root, everything else in `Data\`
+
+`build\layout-release.ps1` (run by the Release build) shapes that folder. It looks for a GeoLite2 database in `..\..\maxmind` next to the project or in `%MIHOMOLAUNCHER_GEO_SOURCE%`; without one, download it in the app: **Settings → Updates → Geolocation database**. Code signing is optional — set `MIHOMOLAUNCHER_SIGN_THUMBPRINT` (or `MIHOMOLAUNCHER_SIGN_PFX` + `MIHOMOLAUNCHER_SIGN_PFX_PASS`). The mihomo engine is not in the repo: the app downloads it on first run.
+
+## License
+
+[GPL-3.0](LICENSE) with an author-attribution term — see [NOTICE](NOTICE). Forks and modified versions must keep the line *“Based on Mihomo Launcher by byFox — https://byfox.dev/mihomolauncher/”*.
 
 ---
 
-<sub>This product includes GeoLite2 data created by MaxMind, available from <https://www.maxmind.com>. VPN engine: [mihomo](https://github.com/MetaCubeX/mihomo). Rule templates: [blackmatrix7 / ios_rule_script](https://github.com/blackmatrix7/ios_rule_script).</sub>
+<sub>This product includes GeoLite2 data created by MaxMind, available from <https://www.maxmind.com>. VPN engine: [mihomo](https://github.com/MetaCubeX/mihomo). Rule templates: [blackmatrix7 / ios_rule_script](https://github.com/blackmatrix7/ios_rule_script). Tile icons: [dashboard-icons](https://github.com/homarr-labs/dashboard-icons). UI: [WPF-UI](https://github.com/lepoco/wpfui).</sub>
 
 <sub>Keywords: per-app VPN, split tunneling, mihomo, Clash.Meta, WireGuard, VLESS, Reality, Hysteria2, kill-switch, Windows VPN launcher.</sub>
