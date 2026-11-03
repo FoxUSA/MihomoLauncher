@@ -42,7 +42,8 @@ namespace MihomoLauncher.Services
 
             using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) })
             {
-                http.DefaultRequestHeaders.UserAgent.ParseAdd(BrowserUserAgent);
+                // Our own API counts its consumers by the app's name; elsewhere look like a browser.
+                http.DefaultRequestHeaders.UserAgent.ParseAdd(ByfoxApi.IsOurs(url) ? ByfoxApi.UserAgent : BrowserUserAgent);
                 using (var resp = await http.GetAsync(url, ct).ConfigureAwait(false))
                 {
                     resp.EnsureSuccessStatusCode();
@@ -63,7 +64,8 @@ namespace MihomoLauncher.Services
             return items.Count;
         }
 
-        // True if this site has a rule URL whose cache is missing or older than a week.
+        // True if this site has a rule URL whose cache is missing, older than a week, or older
+        // than the day the catalog says the template last changed.
         public static bool ShouldRefresh(RuleSite site)
         {
             if (site == null || string.IsNullOrWhiteSpace(site.ClashRuleUrl)) return false;
@@ -71,6 +73,8 @@ namespace MihomoLauncher.Services
             if (string.IsNullOrWhiteSpace(site.RuleFetchedUtc)) return true;
             if (!DateTime.TryParse(site.RuleFetchedUtc, null,
                     System.Globalization.DateTimeStyles.RoundtripKind, out var when)) return true;
+            var updated = BlackMatrixCatalog.ParseDate(BlackMatrixCatalog.ForUrl(site.ClashRuleUrl)?.Updated);
+            if (updated != null && when.ToUniversalTime().Date < updated.Value) return true;
             return DateTime.UtcNow - when.ToUniversalTime() >= RefreshInterval;
         }
 
@@ -135,15 +139,22 @@ namespace MihomoLauncher.Services
             if (upper.StartsWith("DOMAIN,")) return TypeValue("DOMAIN");
             if (upper.StartsWith("IP-CIDR6,")) return TypeValue("IP-CIDR6");
             if (upper.StartsWith("IP-CIDR,")) return TypeValue("IP-CIDR");
+            // Kept since 2026-11-03 (Telegram has 5): the config builder writes them only once
+            // the engine has its ASN.mmdb (UpdateService.EnsureAsnDbAsync).
+            if (upper.StartsWith("IP-ASN,")) return TypeValue("IP-ASN");
             // We only route by domain/IP — skip PROCESS-NAME, URL-REGEX, RULE-SET, etc.
             if (upper.Contains(",")) return null;
 
-            // Bare value (no type prefix).
+            // Bare value (no type prefix). Domain-set style "+.example.com" / ".example.com"
+            // loses its marker; every bare name is taken as a suffix, as before.
             if (CidrLike.IsMatch(item))
                 return (item.Contains(":") ? "IP-CIDR6," : "IP-CIDR,") + item;
             if (Ipv4Like.IsMatch(item))
                 return "IP-CIDR," + item + "/32";
-            return "DOMAIN-SUFFIX," + item.ToLowerInvariant();
+            var host = item.ToLowerInvariant();
+            if (host.StartsWith("+.")) return "DOMAIN-SUFFIX," + host.Substring(2);
+            if (host.StartsWith(".")) return "DOMAIN-SUFFIX," + host.Substring(1);
+            return "DOMAIN-SUFFIX," + host;
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -65,6 +66,20 @@ namespace MihomoLauncher.Services
         // papers over — by killing the engine every 60 s, which also takes the kill-switch down
         // with it. The watchdog compares this against the live peers instead.
         public static List<string> LastRdpExcludes { get; private set; }
+
+        private static bool IsCidrRule(string type) => type.StartsWith("IP-CIDR", StringComparison.OrdinalIgnoreCase);
+        private static bool IsAsnRule(string type) => type.Equals("IP-ASN", StringComparison.OrdinalIgnoreCase);
+        // Rules matched on the destination IP — under fake-ip they need ",no-resolve".
+        private static bool IsIpRule(string type) => IsCidrRule(type) || IsAsnRule(type);
+
+        // An IP-ASN line makes the engine load ASN.mmdb while it reads the config, downloading it
+        // if absent — and a failed download refuses the WHOLE config. So these lines are written
+        // only once the file is there (UpdateService.EnsureAsnDbAsync puts it in place).
+        private static bool AsnDbReady(AppConfig cfg)
+        {
+            try { return File.Exists(Path.Combine(AppConfigStore.ResolveMihomoWorkDir(cfg), "ASN.mmdb")); }
+            catch { return false; }
+        }
 
         // One malformed address anywhere in the file and mihomo refuses the WHOLE config — at
         // reload (HTTP 400, "netip.ParsePrefix") and, worse, at start: the engine exits at once,
@@ -187,23 +202,26 @@ namespace MihomoLauncher.Services
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            void AddRule(string type, string value)
+            // `raw`: what the person named themselves — a site, a template, the check address —
+            // goes straight through the target even when the target is a Clash subscription with
+            // rules of its own. Only a whole PROGRAM follows the subscription's rules (they decide
+            // per destination). Otherwise a site the subscription doesn't list — or lists in a
+            // list that failed to download — fell to the subscription's MATCH (DIRECT) and the
+            // template "didn't work" (2026-11-03: Google template + api.xbyfox.com on a
+            // subscription went direct).
+            void AddRule(string type, string value, bool raw)
             {
                 if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(value)) return;
                 if (!seen.Add(type + "|" + value)) return;
-                rules.Add(new RuleDef(type, value, target));
+                rules.Add(new RuleDef(type, value, target) { Raw = raw });
             }
 
-            foreach (var prog in app.Programs ?? new List<RuleProgram>())
-            {
-                var exe = ProcessImageName(prog);
-                if (!string.IsNullOrEmpty(exe)) AddRule("PROCESS-NAME", exe);
-            }
-
+            // Sites before programs: a rule's own sites must win even for its own program's
+            // traffic, which would otherwise be handed to the subscription first.
             foreach (var site in app.Sites ?? new List<RuleSite>())
             {
                 if (site == null) continue;
-                AddRule("DOMAIN-SUFFIX", HostOf(site.Url));
+                AddRule("DOMAIN-SUFFIX", HostOf(site.Url), true);
 
                 // Cached rule list (domains/IPs) — route all of it through the same target so
                 // the whole service goes via the VPN, not just the probe host. "TYPE,VALUE".
@@ -212,11 +230,17 @@ namespace MihomoLauncher.Services
                     if (string.IsNullOrWhiteSpace(item)) continue;
                     int c = item.IndexOf(',');
                     if (c <= 0 || c >= item.Length - 1) continue;
-                    AddRule(item.Substring(0, c).Trim(), item.Substring(c + 1).Trim());
+                    AddRule(item.Substring(0, c).Trim(), item.Substring(c + 1).Trim(), true);
                 }
             }
 
-            AddRule("DOMAIN-SUFFIX", HostOf(ResolveCheckUrl(app)));
+            AddRule("DOMAIN-SUFFIX", HostOf(ResolveCheckUrl(app)), true);
+
+            foreach (var prog in app.Programs ?? new List<RuleProgram>())
+            {
+                var exe = ProcessImageName(prog);
+                if (!string.IsNullOrEmpty(exe)) AddRule("PROCESS-NAME", exe, false);
+            }
         }
 
         // The address used to verify (and route) a rule: the explicit CheckUrl, else the
@@ -585,6 +609,11 @@ namespace MihomoLauncher.Services
             sb.AppendLine("external-controller: " + api);
             if (!string.IsNullOrEmpty(cfg.MihomoSecret))
                 sb.AppendLine("secret: \"" + cfg.MihomoSecret.Replace("\"", "\\\"") + "\"");
+            // When the engine needs its ASN base (IP-ASN in a subscription's lists) and has none,
+            // it downloads one — from GitHub releases by default, often blocked from RU. Ours is
+            // the same GeoLite2-ASN. The other geo bases keep their defaults: nothing we write uses them.
+            sb.AppendLine("geox-url:");
+            sb.AppendLine("  asn: \"" + ByfoxApi.GeoAsnUrl + "\"");
             sb.AppendLine();
 
             // TUN — intercept traffic; rules decide DIRECT vs proxy. We DON'T route local
@@ -743,14 +772,16 @@ namespace MihomoLauncher.Services
             // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
             // on, in which case its target (a proxy, or REJECT under its kill-switch).
             string catchAll = "DIRECT";
+            bool asnReady = AsnDbReady(cfg);
             sb.AppendLine("rules:");
             foreach (var r in rules)
             {
                 if (r == null || string.IsNullOrEmpty(r.Type) || string.IsNullOrEmpty(r.Target)) continue;
                 if (r.Type.Equals("MATCH", StringComparison.OrdinalIgnoreCase)) { catchAll = r.Target; continue; }
+                if (IsAsnRule(r.Type) && !asnReady) continue;
                 // IP rules must skip DNS resolution under fake-ip, or they never match.
-                bool ipRule = r.Type.StartsWith("IP-CIDR", StringComparison.OrdinalIgnoreCase);
-                if (ipRule && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
+                bool ipRule = IsIpRule(r.Type);
+                if (IsCidrRule(r.Type) && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
                 var suffix = ipRule ? ",no-resolve" : "";
                 // The matcher sits in parentheses there, so a value with its own brackets or commas
                 // can't be put into one; it goes through the node as before, and says so.
@@ -784,8 +815,9 @@ namespace MihomoLauncher.Services
                     foreach (var r in mine)
                     {
                         if (!written.Add(r.Type + "|" + r.Value)) continue;
-                        bool ipRule = r.Type.StartsWith("IP-CIDR", StringComparison.OrdinalIgnoreCase);
-                        if (ipRule && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
+                        if (IsAsnRule(r.Type) && !asnReady) continue;
+                        bool ipRule = IsIpRule(r.Type);
+                        if (IsCidrRule(r.Type) && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
                         sb.AppendLine("  - " + r.Type + "," + r.Value + ",DIRECT" + (ipRule ? ",no-resolve" : ""));
                     }
                 }

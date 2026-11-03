@@ -35,8 +35,15 @@ namespace MihomoLauncher.Views
         public static async Task MessageAsync(Window owner, string title, string body, string okText = "OK")
             => await ShowAsync(owner, title, body, okText, null).ConfigureAwait(true);
 
+        // Like ConfirmAsync, with a ready-made body (several blocks, badges) instead of one text,
+        // on a wider card. cancelText null = a single button.
+        public static Task<bool> ConfirmContentAsync(Window owner, string title, UIElement content, string okText,
+            string cancelText, double width = 480)
+            => ShowAsync(owner, title, null, okText, cancelText, Wpf.Ui.Controls.ControlAppearance.Primary, content, width);
+
         private static Task<bool> ShowAsync(Window owner, string title, string body, string okText, string cancelText,
-            Wpf.Ui.Controls.ControlAppearance okAppearance = Wpf.Ui.Controls.ControlAppearance.Primary)
+            Wpf.Ui.Controls.ControlAppearance okAppearance = Wpf.Ui.Controls.ControlAppearance.Primary,
+            UIElement content = null, double width = 400)
         {
             var tcs = new TaskCompletionSource<bool>();
 
@@ -50,7 +57,7 @@ namespace MihomoLauncher.Views
 
             var card = new Border
             {
-                Width = 400,
+                Width = width,
                 Background = Services.Theme.OverlayCardBg,
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
@@ -69,14 +76,20 @@ namespace MihomoLauncher.Views
                 Margin = new Thickness(0, 0, 0, 8),
                 Foreground = Services.Theme.TextPrimary,
             });
-            sp.Children.Add(new TextBlock
+            if (content != null)
             {
-                Text = body,
-                FontSize = 14,
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 18),
-                Foreground = Services.Theme.OverlayBody,
-            });
+                if (content is FrameworkElement fe) fe.Margin = new Thickness(0, 0, 0, 18);
+                sp.Children.Add(content);
+            }
+            else
+                sp.Children.Add(new TextBlock
+                {
+                    Text = body,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 18),
+                    Foreground = Services.Theme.OverlayBody,
+                });
 
             var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
 

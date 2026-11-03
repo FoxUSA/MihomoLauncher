@@ -365,24 +365,10 @@ namespace MihomoLauncher.Services
             return map;
         }
 
-        // A template carries no name of its own — it IS its blackmatrix7 URL
-        // (…/rule/Clash/YouTube/YouTube.yaml), so the file name is the name the user picked.
+        // A template carries no name of its own — it IS its list URL; the catalog knows whose
+        // (Apple_Classical.yaml is «Apple», byfox/<name>/clash/rules.yaml is «<name>»).
         private static string TemplateNameOf(string clashUrl, string fallback)
-        {
-            try
-            {
-                var u = (clashUrl ?? "").Trim();
-                if (u.Length == 0) return fallback;
-                var q = u.IndexOfAny(new[] { '?', '#' });
-                if (q >= 0) u = u.Substring(0, q);
-                var name = u.Substring(u.LastIndexOf('/') + 1);
-                var dot = name.LastIndexOf('.');
-                if (dot > 0) name = name.Substring(0, dot);
-                name = Uri.UnescapeDataString(name);
-                return string.IsNullOrWhiteSpace(name) ? fallback : name;
-            }
-            catch { return fallback; }
-        }
+            => BlackMatrixCatalog.NameForUrl(clashUrl, fallback);
 
         // Find the owner of a match. The engine reports the rule's own payload, which is exactly
         // what we wrote into the config, so an exact hit is the normal case; the suffix pass

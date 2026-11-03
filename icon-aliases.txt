@@ -160,3 +160,9 @@ epic games=epic-games
 @dropboxusercontent.com=dropbox
 ноушн=notion
 @notion.so=notion
+
+# Our own: the byFox fox (ico\byfox.png is shipped in the build, and uploaded to ico_web too)
+byfox=byfox
+xbyfox=byfox
+@byfox.dev=byfox
+@xbyfox.com=byfox

@@ -3,64 +3,81 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace MihomoLauncher.Services
 {
-    // One pickable blackmatrix7 service: its rule name, the Clash .yaml URL, and a
-    // best-effort site to test availability with.
+    // One pickable rule template (api.byfox.dev/rule/templates.json item): its name, the full
+    // Clash classical list to download, a site to test availability with, and the catalog's
+    // own words about it (title, description, tags) for the picker and its «?» card.
     public class BlackMatrixService
     {
         public string Name { get; set; }
         public string ClashUrl { get; set; }
         public string CheckUrl { get; set; }
+
+        // Catalog id: the bm7 folder path ("Telegram", "Cloud/AkamaiCloud") or the byfox
+        // folder name. Empty for rows from the legacy text formats.
+        public string Id { get; set; } = "";
+        public string Src { get; set; } = "";
+        public string TitleRu { get; set; } = "";
+        public string TitleEn { get; set; } = "";
+        public string DescRu { get; set; } = "";
+        public string DescEn { get; set; } = "";
+        public string Category { get; set; } = "";
+        public string Updated { get; set; } = "";      // yyyy-MM-dd
+        public bool Hidden { get; set; }
+        public List<string> Tags { get; set; } = new List<string>();
+        public List<string> Sample { get; set; } = new List<string>();
+        public int Domains, Suffixes, Keywords, Cidr, Cidr6, Asn;
+
+        // Every other file of this template the catalog lists (domain-set, its classical rest,
+        // other platforms) — what an old saved URL may point at, so it can be moved to ClashUrl.
+        public List<string> OtherUrls { get; set; } = new List<string>();
+
+        public string Title
+        {
+            get
+            {
+                var t = Loc.Current == AppLang.En ? (TitleEn ?? "") : (TitleRu ?? "");
+                if (t.Length == 0) t = (TitleRu ?? "").Length > 0 ? TitleRu : (TitleEn ?? "");
+                return t.Length > 0 ? t : (Name ?? "");
+            }
+        }
+
+        public string Desc
+        {
+            get
+            {
+                var d = Loc.Current == AppLang.En ? (DescEn ?? "") : (DescRu ?? "");
+                return d.Length > 0 ? d : ((DescRu ?? "").Length > 0 ? DescRu : (DescEn ?? ""));
+            }
+        }
+
+        // The short name under the title, only when it says something the title doesn't.
+        public string NameNote =>
+            (Title ?? "").IndexOf(Name ?? "", StringComparison.OrdinalIgnoreCase) >= 0 ? "" : (Name ?? "");
     }
 
-    // The blackmatrix7/ios_rule_script catalog: ready-made Clash rule lists. Mirrors the
-    // service list used by awg-panel. Each service maps to a Clash .yaml URL and, where
-    // known, a site to probe for availability (so the link tile gates on the real exit IP).
+    // The rule-template catalog: api.byfox.dev/rule/templates.json — a mirror of
+    // blackmatrix7/ios_rule_script plus our own templates, with RU/EN titles and descriptions.
+    // Each template maps to its FULL Clash classical list (item.classical) and, where known,
+    // a site to probe for availability (so the tile gates on the real exit IP).
+    //
+    // Two things the old name-built URLs got wrong, and why paths now come from the catalog:
+    // for the 19 big domain-set templates (Apple, Advertising, Global, China…) <Name>.yaml is
+    // only the classical REST of the list — Apple: 45 lines of 1604 — and 23 templates live in
+    // nested folders (Cloud/AkamaiCloud) that no name-built path reaches.
     public static class BlackMatrixCatalog
     {
-        // rule/Clash/<Name>/<Name>.yaml
+        public const string Bm7Base = ByfoxApi.RuleBase + "bm7/";
+        public const string ByfoxRulesBase = ByfoxApi.RuleBase + "byfox/";
+
+        // Built-in fallback only (no catalog file at all): bm7/Clash/<Name>/<Name>.yaml.
         public static string ClashUrlFor(string name)
         {
             var n = (name ?? "").Trim();
-            return "https://raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/Clash/"
-                   + Uri.EscapeDataString(n) + "/" + Uri.EscapeDataString(n) + ".yaml";
-        }
-
-        // ---- byfox awg-panel folders source ----
-        // https://byfox.dev/data/awg-panel/rules/folders.txt is a bare list of folder names; each
-        // folder is a rule template AND (when it looks like a domain) its own availability site.
-        // The Clash rule list for a folder lives at <base>/<folder>/clash/rules.yaml.
-        public const string ByfoxRulesBase = "https://byfox.dev/data/awg-panel/rules/";
-
-        public static string ByfoxClashUrlFor(string folder)
-        {
-            var f = (folder ?? "").Trim().Trim('/');
-            return ByfoxRulesBase + Uri.EscapeDataString(f) + "/clash/rules.yaml";
-        }
-
-        // A folder that looks like a hostname (has a dot, no spaces) becomes its own check site.
-        // Non-domain folders (e.g. "Block_ads_trackers_quic") get no availability probe.
-        public static string ByfoxCheckUrlFor(string folder)
-        {
-            var f = (folder ?? "").Trim().Trim('/');
-            if (f.Length == 0 || f.IndexOf(' ') >= 0 || f.IndexOf('.') < 0) return "";
-            return "https://" + f.ToLowerInvariant() + "/";
-        }
-
-        // Turn one byfox folder line into a service row (null for blank/comment lines).
-        public static BlackMatrixService ByfoxServiceFor(string folder)
-        {
-            var f = (folder ?? "").Trim();
-            if (f.Length == 0 || f.StartsWith("#") || f.StartsWith("<!--") || f.StartsWith("-->"))
-                return null;
-            return new BlackMatrixService
-            {
-                Name = f,
-                ClashUrl = ByfoxClashUrlFor(f),
-                CheckUrl = ByfoxCheckUrlFor(f),
-            };
+            return Bm7Base + "Clash/" + Uri.EscapeDataString(n) + "/" + Uri.EscapeDataString(n) + ".yaml";
         }
 
         // Best-effort availability-check URL. Explicit map first (covers the popular
@@ -77,41 +94,41 @@ namespace MihomoLauncher.Services
             return "https://www." + key.ToLowerInvariant() + ".com/";
         }
 
-        // The merged rule catalog lives in DataUser\rules (survives updates; an update wipes
-        // Data\). Legacy blackmatrix7+www.txt copies (DataUser / Data / flat) are read as a
-        // fallback until the next refresh writes the canonical DataUser\rules copy.
-        public static string CatalogPath
+        // Downloaded catalog (DataUser survives app updates) and the one shipped in Data\
+        // (refreshed by every app update). The newer of the two by its "date" wins.
+        public static string TemplatesPath => Path.Combine(VersionInfo.DataUserDir, "templates.json");
+        public static string ShippedTemplatesPath => Path.Combine(VersionInfo.InstallRoot, "Data", "templates.json");
+
+        // Pre-2026-11 catalog files, read only when no templates.json exists anywhere.
+        private static IEnumerable<string> LegacyCatalogPaths => new[]
         {
-            get
-            {
-                var canonical = CanonicalCatalogPath;
-                if (File.Exists(canonical)) return canonical;
-                var root = VersionInfo.InstallRoot;
-                foreach (var legacy in new[]
-                {
-                    Path.Combine(VersionInfo.DataUserDir, "blackmatrix7+www.txt"),
-                    Path.Combine(root, "Data", "blackmatrix7+www.txt"),
-                    Path.Combine(root, "blackmatrix7+www.txt"),
-                })
-                    if (File.Exists(legacy)) return legacy;
-                return canonical;   // canonical write location even when it doesn't exist yet
-            }
-        }
+            Path.Combine(VersionInfo.DataUserDir, "rules"),
+            Path.Combine(VersionInfo.DataUserDir, "blackmatrix7+www.txt"),
+            Path.Combine(VersionInfo.InstallRoot, "Data", "blackmatrix7+www.txt"),
+        };
 
-        // Where a fresh merge is written (always DataUser\rules, so it survives updates).
-        public static string CanonicalCatalogPath =>
-            Path.Combine(VersionInfo.DataUserDir, "rules");
-
-        // Built once and reused — ~700 services, so rebuilding on every picker open /
-        // template load is wasted work. Prefers the downloaded blackmatrix7+www.txt (name +
-        // curated check URL straight from the file); falls back to the built-in list below.
+        // Built once and reused — ~700 templates, so rebuilding on every picker open is wasted.
         private static IReadOnlyList<BlackMatrixService> _cache;
+        private static string _cacheDate = "";
+
+        // Every template, hidden ones included (an old rule may still use one).
         public static IReadOnlyList<BlackMatrixService> All()
         {
             if (_cache != null) return _cache;
 
-            var fromFile = LoadFromFile();
-            if (fromFile != null && fromFile.Count > 0) return _cache = fromFile;
+            var fromJson = LoadNewestTemplates(out var date);
+            if (fromJson != null && fromJson.Count > 0) { _cacheDate = date; return _cache = fromJson; }
+
+            foreach (var p in LegacyCatalogPaths)
+            {
+                try
+                {
+                    if (!File.Exists(p)) continue;
+                    var legacy = ParseCatalog(File.ReadAllText(p));
+                    if (legacy != null && legacy.Count > 0) return _cache = legacy;
+                }
+                catch { }
+            }
 
             return _cache = Services
                 .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -125,29 +142,167 @@ namespace MihomoLauncher.Services
                 .ToList();
         }
 
-        // Drop the cached list so the next All() re-reads the (freshly downloaded) file.
-        public static void Reset() { _cache = null; }
+        // What the template picker offers: no hidden templates (kept only for clients that
+        // already use them), and not AdGuardSDNSFilter/Direct — an allow-list of exceptions,
+        // which the word «реклама» finds next to Advertising and which blocks what should work.
+        public static IEnumerable<BlackMatrixService> Pickable() =>
+            All().Where(s => !s.Hidden && !string.IsNullOrEmpty(s.ClashUrl)
+                             && !string.Equals(s.Id, "AdGuardSDNSFilter/Direct", StringComparison.OrdinalIgnoreCase));
 
-        // Parse Data\blackmatrix7+www.txt into the service list. Returns null when the file
-        // is missing/unreadable so callers fall back to the built-in list. Format: a leading
-        // <!-- ... --> comment block (carrying the date + example URLs), then one
-        // "Name|CheckUrl" per line (CheckUrl may be empty for rule categories without a site).
-        private static IReadOnlyList<BlackMatrixService> LoadFromFile()
+        // The date (yyyy-MM-dd) of the catalog All() came from, "" for legacy/built-in.
+        public static string LoadedDate { get { All(); return _cacheDate; } }
+
+        // Drop the cached list so the next All() re-reads the (freshly downloaded) file.
+        public static void Reset() { _cache = null; _cacheDate = ""; }
+
+        private static List<BlackMatrixService> LoadNewestTemplates(out string date)
         {
-            try
+            date = "";
+            List<BlackMatrixService> best = null;
+            foreach (var p in new[] { TemplatesPath, ShippedTemplatesPath })
             {
-                var path = CatalogPath;
-                if (!File.Exists(path)) return null;
-                return ParseCatalog(File.ReadAllText(path));
+                try
+                {
+                    if (!File.Exists(p)) continue;
+                    var list = ParseTemplates(File.ReadAllText(p, Encoding.UTF8), out var d);
+                    if (list == null || list.Count == 0) continue;
+                    if (best == null || string.CompareOrdinal(d, date) > 0) { best = list; date = d; }
+                }
+                catch { }
             }
-            catch { return null; }
+            return best;
         }
 
-        // Parse raw file text into services (deduped case-insensitively, sorted). Public so
-        // the updater can validate downloaded content before replacing the local file. Handles
-        // both the legacy 2-column blackmatrix7 format ("Name|CheckUrl") and the merged
-        // 3-column DataUser\rules format ("Name|CheckUrl|ClashUrl"). When the ClashUrl column
-        // is absent/empty the URL is derived from the name (blackmatrix7 github convention).
+        // templates.json text → templates (sorted by name). Null when it isn't a usable catalog,
+        // so the updater can refuse a bad download before it replaces anything.
+        public static List<BlackMatrixService> ParseTemplates(string json, out string date)
+        {
+            date = "";
+            if (string.IsNullOrWhiteSpace(json)) return null;
+            var root = ByfoxApi.ParseJson(json);
+            date = ByfoxApi.Str(root, "date");
+            var baseUrl = ByfoxApi.Base + ByfoxApi.Str(root, "base");
+            if (!baseUrl.EndsWith("/")) baseUrl += "/";
+
+            var list = new List<BlackMatrixService>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var it in ByfoxApi.Arr(root, "items"))
+            {
+                var id = ByfoxApi.Str(it, "id");
+                var name = ByfoxApi.Str(it, "name");
+                if (name.Length == 0) name = id;
+                if (id.Length == 0 || !seen.Add(id)) continue;
+
+                // The Clash list to route by: the full classical one. A template without it
+                // (none today) falls back to its Clash file when that one is classical.
+                var classical = ByfoxApi.Str(it, "classical");
+                var files = ByfoxApi.Obj(it, "files");
+                var rest = ByfoxApi.Obj(it, "rest");
+                if (classical.Length == 0 && !ByfoxApi.Bool(it, "domain_set")) classical = ByfoxApi.Str(files, "clash");
+
+                var svc = new BlackMatrixService
+                {
+                    Id = id,
+                    Name = name,
+                    Src = ByfoxApi.Str(it, "src"),
+                    ClashUrl = classical.Length > 0 ? baseUrl + classical : "",
+                    CheckUrl = ByfoxApi.Str(it, "check"),
+                    TitleRu = ByfoxApi.Str(ByfoxApi.Obj(it, "title"), "ru"),
+                    TitleEn = ByfoxApi.Str(ByfoxApi.Obj(it, "title"), "en"),
+                    DescRu = ByfoxApi.Str(ByfoxApi.Obj(it, "desc"), "ru"),
+                    DescEn = ByfoxApi.Str(ByfoxApi.Obj(it, "desc"), "en"),
+                    Category = ByfoxApi.Str(it, "category"),
+                    Updated = ByfoxApi.Str(it, "updated"),
+                    Hidden = ByfoxApi.Bool(it, "hidden"),
+                };
+                foreach (var t in ByfoxApi.Arr(it, "tags")) if (t is string s && s.Length > 0) svc.Tags.Add(s);
+                foreach (var t in ByfoxApi.Arr(it, "sample")) if (t is string s && s.Length > 0) svc.Sample.Add(s);
+                var st = ByfoxApi.Obj(it, "stats");
+                svc.Domains = ByfoxApi.Int(st, "domains");
+                svc.Suffixes = ByfoxApi.Int(st, "suffixes");
+                svc.Keywords = ByfoxApi.Int(st, "keywords");
+                svc.Cidr = ByfoxApi.Int(st, "cidr");
+                svc.Cidr6 = ByfoxApi.Int(st, "cidr6");
+                svc.Asn = ByfoxApi.Int(st, "asn");
+                foreach (var group in new[] { files, rest })
+                    if (group != null)
+                        foreach (var kv in group)
+                            if (kv.Value is string path && path.Length > 0) svc.OtherUrls.Add(baseUrl + path);
+
+                list.Add(svc);
+            }
+            if (list.Count == 0) return null;
+            list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            return list;
+        }
+
+        // The template a saved list URL belongs to: by its classical URL, else by any other file
+        // of it. Null for a URL the catalog doesn't know (a hand-typed list, an old built-in name).
+        public static BlackMatrixService ForUrl(string url)
+        {
+            var u = (url ?? "").Trim();
+            if (u.Length == 0) return null;
+            var all = All();
+            foreach (var s in all)
+                if (string.Equals(s.ClashUrl, u, StringComparison.OrdinalIgnoreCase)) return s;
+            foreach (var s in all)
+                foreach (var o in s.OtherUrls)
+                    if (string.Equals(o, u, StringComparison.OrdinalIgnoreCase)) return s;
+            return null;
+        }
+
+        // The name to show for a template URL: the catalog's, else the list's file name without
+        // the bm7 split suffixes (Apple_Classical.yaml → Apple).
+        public static string NameForUrl(string url, string fallback = "")
+        {
+            var s = ForUrl(url);
+            if (s != null) return s.Name;
+            try
+            {
+                var u = (url ?? "").Trim();
+                if (u.Length == 0) return fallback;
+                var q = u.IndexOfAny(new[] { '?', '#' });
+                if (q >= 0) u = u.Substring(0, q);
+                var segs = u.TrimEnd('/').Split('/');
+                var name = Path.GetFileNameWithoutExtension(Uri.UnescapeDataString(segs[segs.Length - 1]));
+                // byfox: …/byfox/<name>/clash/rules.yaml — the folder is the name.
+                if (string.Equals(name, "rules", StringComparison.OrdinalIgnoreCase) && segs.Length >= 3)
+                    name = Uri.UnescapeDataString(segs[segs.Length - 3]);
+                foreach (var tail in new[] { "_Classical", "_Domain", "_Resolve", "_No_Resolve" })
+                    if (name.EndsWith(tail, StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - tail.Length);
+                return string.IsNullOrWhiteSpace(name) ? fallback : name;
+            }
+            catch { return fallback; }
+        }
+
+        // A list URL saved by an older build, moved to where it lives now:
+        //   raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/ → api.byfox.dev/rule/bm7/
+        //   byfox.dev/data/awg-panel/rules/                                      → api.byfox.dev/rule/byfox/
+        // and then to the template's FULL classical list (a domain-set template's <Name>.yaml
+        // is only its rest). Returns the URL unchanged when there is nothing to move.
+        public static string MigrateUrl(string url)
+        {
+            var u = (url ?? "").Trim();
+            if (u.Length == 0) return u;
+            var moved = SwapPrefix(u, "raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/", Bm7Base)
+                        ?? SwapPrefix(u, "cdn.jsdelivr.net/gh/blackmatrix7/ios_rule_script@master/rule/", Bm7Base)
+                        ?? SwapPrefix(u, "byfox.dev/data/awg-panel/rules/", ByfoxRulesBase)
+                        ?? u;
+            var svc = ForUrl(moved);
+            return svc != null && !string.IsNullOrEmpty(svc.ClashUrl) ? svc.ClashUrl : moved;
+        }
+
+        private static string SwapPrefix(string url, string oldHostPath, string newBase)
+        {
+            foreach (var scheme in new[] { "https://", "http://", "https://www.", "http://www." })
+                if (url.StartsWith(scheme + oldHostPath, StringComparison.OrdinalIgnoreCase))
+                    return newBase + url.Substring(scheme.Length + oldHostPath.Length);
+            return null;
+        }
+
+        // Parse a legacy catalog text into services (deduped case-insensitively, sorted): the
+        // 2-column blackmatrix7 format ("Name|CheckUrl") and the merged 3-column DataUser\rules
+        // format ("Name|CheckUrl|ClashUrl"). An empty ClashUrl is derived from the name.
         public static IReadOnlyList<BlackMatrixService> ParseCatalog(string content)
         {
             if (string.IsNullOrWhiteSpace(content)) return null;
@@ -181,7 +336,7 @@ namespace MihomoLauncher.Services
                 list.Add(new BlackMatrixService
                 {
                     Name = name,
-                    ClashUrl = clash.Length > 0 ? clash : ClashUrlFor(name),
+                    ClashUrl = clash.Length > 0 ? MigrateUrlNoCatalog(clash) : ClashUrlFor(name),
                     CheckUrl = check,   // authoritative — empty means "no availability probe"
                 });
             }
@@ -191,60 +346,25 @@ namespace MihomoLauncher.Services
             return list;
         }
 
-        // Build the merged DataUser\rules text from the two upstream sources: the blackmatrix7
-        // "Name|CheckUrl" list and the byfox "folders.txt" folder list. blackmatrix7 rows win on
-        // a name clash (they carry curated check URLs); byfox rows carry an explicit ClashUrl.
-        // `dateHeader` is the dd.MM.yyyy stamp written on the first line (the catalog version).
-        // Returns null if BOTH sources are empty (so the caller keeps the old file).
-        public static string BuildMergedContent(string blackmatrixContent, IEnumerable<string> byfoxFolders, string dateHeader)
-        {
-            var rows = new List<BlackMatrixService>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Prefix swap only — ParseCatalog runs while All() is being built, so no catalog lookup.
+        private static string MigrateUrlNoCatalog(string url) =>
+            SwapPrefix(url, "raw.githubusercontent.com/blackmatrix7/ios_rule_script/master/rule/", Bm7Base)
+            ?? SwapPrefix(url, "byfox.dev/data/awg-panel/rules/", ByfoxRulesBase)
+            ?? url;
 
-            var bm = ParseCatalog(blackmatrixContent);
-            if (bm != null)
-                foreach (var s in bm)
-                    if (seen.Add(s.Name)) rows.Add(s);
-
-            if (byfoxFolders != null)
-                foreach (var folder in byfoxFolders)
-                {
-                    var svc = ByfoxServiceFor(folder);
-                    if (svc != null && seen.Add(svc.Name)) rows.Add(svc);
-                }
-
-            if (rows.Count == 0) return null;
-            rows.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-
-            var sb = new System.Text.StringBuilder();
-            sb.Append("<!--").Append((dateHeader ?? "").Trim()).Append('\n');
-            sb.Append("# Merged rule catalog — blackmatrix7 (byfox.dev/data/maxmind/blackmatrix7+www.txt)\n");
-            sb.Append("# + byfox awg-panel folders (byfox.dev/data/awg-panel/rules/folders.txt)\n");
-            sb.Append("# Format: Name|CheckUrl|ClashUrl  (ClashUrl empty => derived from name)\n");
-            sb.Append("-->\n");
-            foreach (var s in rows)
-            {
-                // Leave the ClashUrl column empty when it's the derivable blackmatrix7 default
-                // (keeps the file compact); write it explicitly for byfox / any custom URL.
-                var derived = ClashUrlFor(s.Name);
-                var clash = string.Equals(s.ClashUrl ?? "", derived, StringComparison.OrdinalIgnoreCase) ? "" : (s.ClashUrl ?? "");
-                sb.Append(s.Name).Append('|').Append(s.CheckUrl ?? "").Append('|').Append(clash).Append('\n');
-            }
-            return sb.ToString();
-        }
-
-        // Read the service-list date from the file's first line, e.g. "<!--10.06.2026" or
-        // "<!--10.06.2026-->", and from a bare "dd.MM.yyyy" (the manifest's catalogDate).
-        // Returns null on anything unparseable.
+        // Read a dd.MM.yyyy date from a legacy first line ("<!--10.06.2026"), or a bare
+        // dd.MM.yyyy / yyyy-MM-dd. Returns null on anything unparseable.
         public static DateTime? ParseDate(string s)
         {
             if (string.IsNullOrWhiteSpace(s)) return null;
             var t = s.Trim();
             var lt = t.IndexOf("<!--", StringComparison.Ordinal);
             if (lt >= 0) t = t.Substring(lt + 4).Trim();
+            if (DateTime.TryParseExact(t.Length >= 10 ? t.Substring(0, 10) : t, "yyyy-MM-dd",
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var iso)) return iso;
 
             // Keep only the leading dd.MM.yyyy token (digits and dots).
-            var sb = new System.Text.StringBuilder();
+            var sb = new StringBuilder();
             foreach (var c in t)
             {
                 if (char.IsDigit(c) || c == '.') sb.Append(c);

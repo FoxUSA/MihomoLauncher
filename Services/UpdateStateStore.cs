@@ -18,7 +18,11 @@ namespace MihomoLauncher.Services
     {
         // Built-in defaults (days) used when a period field is 0/absent.
         public const int DefaultGeoPeriodDays = 180;
-        public const int DefaultTemplatesPeriodDays = 7;
+        // Daily: api.byfox.dev asks consumers to look at its manifest once a day (a 1–2 KB file;
+        // the catalog itself is downloaded only when its date moves).
+        public const int DefaultTemplatesPeriodDays = 1;
+        // The weekly default before 2026-11-03 — a stored 7 is that old default, not a choice.
+        private const int LegacyTemplatesPeriodDays = 7;
         public const int DefaultEnginePeriodDays = 7;
         public const int DefaultAppPeriodDays = 7;
 
@@ -49,7 +53,9 @@ namespace MihomoLauncher.Services
 
         // Effective, defaulted period accessors.
         public static int GeoPeriodDays => State.GeoPeriodDays > 0 ? State.GeoPeriodDays : DefaultGeoPeriodDays;
-        public static int TemplatesPeriodDays => State.TemplatesPeriodDays > 0 ? State.TemplatesPeriodDays : DefaultTemplatesPeriodDays;
+        public static int TemplatesPeriodDays =>
+            State.TemplatesPeriodDays > 0 && State.TemplatesPeriodDays != LegacyTemplatesPeriodDays
+                ? State.TemplatesPeriodDays : DefaultTemplatesPeriodDays;
         public static int EnginePeriodDays => State.EnginePeriodDays > 0 ? State.EnginePeriodDays : DefaultEnginePeriodDays;
         public static int AppPeriodDays => State.AppPeriodDays > 0 ? State.AppPeriodDays : DefaultAppPeriodDays;
 

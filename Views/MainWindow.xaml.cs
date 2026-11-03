@@ -202,6 +202,28 @@ namespace MihomoLauncher.Views
             // logon, those apps never reach the internet directly, even before connecting.
             SizeChanged += OnWindowSizeChanged;
             InitTileDrag();
+
+            // A tile icon is fetched once, when the rule is saved (and at startup). If the network
+            // blinked right then — an engine reload is enough — the tile stayed blank until the next
+            // launch. Every few minutes, fill in whatever is still missing.
+            var iconRetry = new DispatcherTimer { Interval = TimeSpan.FromMinutes(3) };
+            iconRetry.Tick += async (s, e) =>
+            {
+                if (IconFetcher.AnyMissing(_config.Apps)) await EnsureAutoIconsAsync(checkServer: false).ConfigureAwait(true);
+            };
+            iconRetry.Start();
+            // The template catalog and its lists live on api.byfox.dev, which asks to be checked
+            // daily — and this window may stay open for weeks. Each tick costs a 1–2 KB manifest
+            // at most once a day (the period gate); lists download only when their template moved.
+            var contentRefresh = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+            contentRefresh.Tick += async (s, e) =>
+            {
+                try { await UpdateService.UpdateTemplatesAsync(false, null, CancellationToken.None).ConfigureAwait(true); }
+                catch { }
+                await RefreshLinkRulesAsync().ConfigureAwait(true);
+                await EnsureAsnDbAsync().ConfigureAwait(true);
+            };
+            contentRefresh.Start();
             Loaded += async (s, e) =>
             {
                 // Show the engine status (install banner / status banner) immediately, BEFORE
@@ -253,7 +275,9 @@ namespace MihomoLauncher.Views
                     SyncFirewallSoon();
                     await AutoHealStoreAppsAsync().ConfigureAwait(true);
                     await EnsureAutoIconsAsync().ConfigureAwait(true);
+                    MigrateTemplateUrls();
                     await RefreshLinkRulesAsync().ConfigureAwait(true);
+                    await EnsureAsnDbAsync().ConfigureAwait(true);
                 }
                 catch (Exception ex) { Log.Error("startup", ex); }
 
@@ -2163,11 +2187,11 @@ namespace MihomoLauncher.Views
         // IconPath pointed at it. Runs at startup because a launcher update wipes Data\ (and
         // thus the icon cache) while the saved AutoIcon flag survives — so icons re-download
         // automatically. Saves + refreshes tiles only if anything changed. Best-effort/quiet.
-        private async Task EnsureAutoIconsAsync()
+        private async Task EnsureAutoIconsAsync(bool checkServer = true)
         {
             try
             {
-                bool changed = await IconFetcher.EnsureAsync(_config.Apps, CancellationToken.None).ConfigureAwait(true);
+                bool changed = await IconFetcher.EnsureAsync(_config.Apps, CancellationToken.None, checkServer).ConfigureAwait(true);
                 if (changed)
                 {
                     AppConfigStore.Save(_config);
@@ -2197,19 +2221,70 @@ namespace MihomoLauncher.Views
                 if (!changed) return;
 
                 AppConfigStore.Save(_config);
-                try
-                {
-                    if (await EnsureMihomoRunningAsync(CancellationToken.None).ConfigureAwait(true))
-                    {
-                        // Connected → reload the fresh ranges into the LIVE config so routes stay
-                        // up (re-arming here would kick every working rule offline). Idle → arm.
-                        if (_hasChecked) ApplyFinalConfig(CurrentAssignedProxies());
-                        else await ArmKillSwitchAsync(CancellationToken.None).ConfigureAwait(true);
-                    }
-                }
-                catch { }
+                await ApplyRuleListChangesAsync().ConfigureAwait(true);
             }
             catch { }
+        }
+
+        // Rule lists changed underneath the running config — put them into effect.
+        private async Task ApplyRuleListChangesAsync()
+        {
+            try
+            {
+                if (await EnsureMihomoRunningAsync(CancellationToken.None).ConfigureAwait(true))
+                {
+                    // Connected → reload the fresh ranges into the LIVE config so routes stay
+                    // up (re-arming here would kick every working rule offline). Idle → arm.
+                    if (_hasChecked) ApplyFinalConfig(CurrentAssignedProxies());
+                    else await ArmKillSwitchAsync(CancellationToken.None).ConfigureAwait(true);
+                }
+            }
+            catch { }
+        }
+
+        // Template list URLs saved by builds before 2026-11-03 point at raw.githubusercontent.com
+        // (often unreachable from RU) or byfox.dev/data/awg-panel, and for the big domain-set
+        // templates at a file holding only part of the list (Apple: 45 lines of 1604). Move each
+        // to its api.byfox.dev classical list and let the refresh below re-download it; the
+        // cached items keep routing until then.
+        private void MigrateTemplateUrls()
+        {
+            try
+            {
+                int moved = 0;
+                foreach (var site in _config.Apps.Where(a => a != null).SelectMany(a => a.Sites ?? new List<RuleSite>()))
+                {
+                    if (site == null || !site.HasRuleList) continue;
+                    var now = BlackMatrixCatalog.MigrateUrl(site.ClashRuleUrl);
+                    if (string.Equals(now, site.ClashRuleUrl, StringComparison.Ordinal)) continue;
+                    Log.Info("Шаблон: " + site.ClashRuleUrl + " → " + now);
+                    site.ClashRuleUrl = now;
+                    site.RuleFetchedUtc = "";
+                    moved++;
+                }
+                if (moved == 0) return;
+                AppConfigStore.Save(_config);
+                Log.Info("Шаблоны: " + moved + " адрес(ов) переведено на api.byfox.dev.");
+            }
+            catch (Exception ex) { Log.Error("template-url-migrate", ex); }
+        }
+
+        // IP-ASN rules from template lists take effect only once the engine has ASN.mmdb (see
+        // MihomoConfigBuilder.AsnDbReady). Fetched only when some list actually has them.
+        private async Task EnsureAsnDbAsync()
+        {
+            try
+            {
+                bool needed = _config.Apps.Where(a => a != null)
+                    .SelectMany(a => a.Sites ?? new List<RuleSite>())
+                    .Any(s => s?.RuleItems != null && s.RuleItems.Any(i => (i ?? "").StartsWith("IP-ASN,", StringComparison.OrdinalIgnoreCase)));
+                if (!needed || _mihomo == null) return;
+                bool had = System.IO.File.Exists(System.IO.Path.Combine(_mihomo.WorkDir, "ASN.mmdb"));
+                // A refresh of an existing base needs no reload; the first one brings the rules in.
+                if (await UpdateService.EnsureAsnDbAsync(_mihomo.WorkDir, CancellationToken.None).ConfigureAwait(true) && !had)
+                    await ApplyRuleListChangesAsync().ConfigureAwait(true);
+            }
+            catch (Exception ex) { Log.Error("asn-db", ex); }
         }
 
         // A variant ready for a config. A subscription is fetched first, with its rule lists, and
@@ -2976,6 +3051,16 @@ namespace MihomoLauncher.Views
                         LogEngineFailureOnce("twin", "Движков снова больше одного — порт не переношу.");
                         return false;
                     }
+                    // The one we just started is the listener: the scheduler respawned it. It is
+                    // ours, and moving the port would start a second one beside it — the two-tunnel
+                    // state the whole block above exists to prevent. It's silent for another reason.
+                    if (ourName.Length > 0 && string.Equals(PortGuard.ProcessNameOf(ownerPid), ourName,
+                                                            StringComparison.OrdinalIgnoreCase))
+                    {
+                        LogEngineFailureOnce("ownsilent", "Порт " + port + " держит наш только что запущенный движок ("
+                                             + owner + "), но он не отвечает — порт не переношу, второй движок не запускаю.");
+                        return false;
+                    }
                 }
 
                 if (_apiPortMoves >= MaxApiPortMoves)
@@ -3080,7 +3165,8 @@ namespace MihomoLauncher.Views
                     + "; config.yaml=" + cfg + " (" + (cfg.Length > 0 && System.IO.File.Exists(cfg)
                         ? "есть, " + (_mihomo?.DescribeConfigVerdict() ?? "?") : "НЕТ") + ")"
                     + "; API=" + api + " (" + (owner.Length > 0 ? "занят: " + owner : "никто не слушает") + ")"
-                    + "; безопасный режим " + (_config?.RemoteDesktopSafeMode == true ? "ВКЛ" : "выкл"));
+                    + "; безопасный режим " + (_config?.RemoteDesktopSafeMode == true ? "ВКЛ" : "выкл")
+                    + "; другой VPN: " + (OtherVpn.Running() is string v && v.Length > 0 ? v : "нет"));
             }
             catch { }
         }
@@ -3095,6 +3181,11 @@ namespace MihomoLauncher.Views
             // Second suspect: something else owns the control port. We try to move off it on
             // our own, so reaching this message means even that didn't help — then the least
             // useless thing to say is WHICH program is in the way.
+            // Third: another VPN running beside us. Two tunnels fight over the routes and the
+            // firewall; the cure is closing the other one, which only the user can do.
+            var otherVpn = OtherVpn.Running();
+            if (otherVpn.Length > 0) return Loc.T("Main_EngineNoStartOtherVpn", otherVpn);
+
             string host; int port;
             if (PortGuard.SplitAddr(_config?.MihomoApiAddr ?? "", out host, out port))
             {

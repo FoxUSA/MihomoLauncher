@@ -422,6 +422,7 @@ burpsuite
 buxfer
 buypass
 buzz
+byfox
 byparr
 bytestash
 c
@@ -3663,3 +3664,7 @@ epic games=epic-games
 @dropboxusercontent.com=dropbox
 ноушн=notion
 @notion.so=notion
+byfox=byfox
+xbyfox=byfox
+@byfox.dev=byfox
+@xbyfox.com=byfox

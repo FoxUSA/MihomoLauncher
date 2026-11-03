@@ -55,19 +55,13 @@ namespace MihomoLauncher.Services
         private const string ZipUrl = BaseUrl + "update.zip";
         private const string MihomoUrl = BaseUrl + "mihomo-windows-amd64.exe";
 
-        // Geo (MaxMind GeoLite2-City): the installed date + refresh period live in the local
-        // manifest (VersionInfo.GeoDate / VersionInfo.GeoPeriodDays); the remote date + DB
-        // sit under maxmind/. Default period is ~half a year (see CheckGeoAsync).
-        private const string GeoDateUrl = "https://byfox.dev/data/maxmind/geolite2_data.txt";
-        private const string GeoDbUrl = "https://byfox.dev/data/maxmind/GeoLite2-City.mmdb";
-
-        // Template catalog sources, merged into DataUser\rules. blackmatrix7 gives rule names +
-        // curated availability sites; the byfox awg-panel folder list adds our own templates
-        // (each folder is a template name and, when it looks like a domain, its own check site).
-        // Refreshed SILENTLY on the period timer (no prompt, no button) — see
+        // Geo (MaxMind GeoLite2-City) and the template catalog both come from api.byfox.dev
+        // (ByfoxApi). The installed geo date + refresh period live in updates.json; the default
+        // geo period is ~half a year (see CheckGeoAsync). The catalog is checked daily against
+        // the API's root manifest and refreshed SILENTLY (no prompt, no button) — see
         // TryUpdateCatalogSilentlyAsync — and on demand from Settings → «Обновление».
-        private const string CatalogUrl = "https://byfox.dev/data/maxmind/blackmatrix7+www.txt";
-        private const string FoldersUrl = "https://byfox.dev/data/awg-panel/rules/folders.txt";
+        private const string GeoDateUrl = ByfoxApi.GeoDateUrl;
+        private const string GeoDbUrl = ByfoxApi.GeoCityUrl;
 
         private const string ZipName = "update.zip";
 
@@ -141,66 +135,12 @@ namespace MihomoLauncher.Services
             return res;
         }
 
-        // A freshly merged template catalog: the file text plus its content date (dd.MM.yyyy).
-        private class MergedCatalog
-        {
-            public string Content;
-            public string Date;
-            public int Count;
-        }
-
-        // Fetch BOTH template sources (blackmatrix7 + byfox folders) and merge them into the
-        // DataUser\rules text. Each source is fetched independently so one being down doesn't
-        // sink the other. Returns null only when BOTH are unreachable/empty.
-        private static async Task<MergedCatalog> FetchMergedCatalogAsync(CancellationToken ct)
-        {
-            string bmContent = null, foldersContent = null;
-            try { bmContent = await Http.GetStringAsync(CatalogUrl).ConfigureAwait(false); } catch { }
-            try { foldersContent = await Http.GetStringAsync(FoldersUrl).ConfigureAwait(false); } catch { }
-
-            if (string.IsNullOrWhiteSpace(bmContent) && string.IsNullOrWhiteSpace(foldersContent))
-                return null;
-
-            var folders = string.IsNullOrWhiteSpace(foldersContent)
-                ? new string[0]
-                : foldersContent.Replace("\r\n", "\n").Split('\n');
-
-            // Content date: the blackmatrix7 first-line date when present (the meaningful catalog
-            // version), else today. byfox folders.txt carries no date of its own.
-            var bmDate = BlackMatrixCatalog.ParseDate(bmContent);
-            var header = (bmDate ?? DateTime.UtcNow).ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
-
-            var merged = BlackMatrixCatalog.BuildMergedContent(bmContent, folders, header);
-            if (merged == null) return null;
-            var parsed = BlackMatrixCatalog.ParseCatalog(merged);
-            return new MergedCatalog { Content = merged, Date = header, Count = parsed?.Count ?? 0 };
-        }
-
-        // Write a merged catalog to the canonical DataUser\rules, stamp the date, drop the cache.
-        private static void WriteMergedCatalog(MergedCatalog merged)
-        {
-            var path = BlackMatrixCatalog.CanonicalCatalogPath;
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
-            File.WriteAllText(path, merged.Content);
-            VersionInfo.UpdateLocalCatalogDate(merged.Date);
-            BlackMatrixCatalog.Reset();
-
-            // The merged DataUser\rules supersedes the old blackmatrix7+www.txt — remove any
-            // lingering legacy copies now that the single table exists.
-            var root = VersionInfo.InstallRoot;
-            foreach (var legacy in new[]
-            {
-                Path.Combine(VersionInfo.DataUserDir, "blackmatrix7+www.txt"),
-                Path.Combine(root, "Data", "blackmatrix7+www.txt"),
-                Path.Combine(root, "blackmatrix7+www.txt"),
-            })
-                try { if (File.Exists(legacy)) File.Delete(legacy); } catch { }
-        }
-
-        // Template-catalog refresh. Silent path (force=false) only runs when due on the period
-        // timer; the manual path (force=true, from Settings → «Обновление») always runs. Fetches
-        // + merges both sources and rewrites DataUser\rules. Returns the rule count written, or
-        // -1 when nothing was done (not due / offline). onPercent reports 0..100 (may be null).
+        // Template-catalog refresh from api.byfox.dev. Silent path (force=false) runs when due
+        // (daily) and downloads templates.json only when the API's rule.date is newer than the
+        // catalog in use; the manual path (force=true, Settings → «Обновление») always downloads.
+        // The file is checked against rule/manifest.json's sha256 and must parse before it
+        // replaces DataUser\templates.json. Returns the template count in use afterwards, or -1
+        // when nothing was checked (not due / offline). onPercent reports 0..100 (may be null).
         public static async Task<int> UpdateTemplatesAsync(bool force, Action<int> onPercent, CancellationToken ct)
         {
             var state = UpdateStateStore.State;
@@ -208,18 +148,122 @@ namespace MihomoLauncher.Services
                 return -1;
 
             onPercent?.Invoke(force ? 10 : 0);
-            var merged = await FetchMergedCatalogAsync(ct).ConfigureAwait(false);
-            if (merged == null)
+            try
             {
-                if (force) throw new IOException(Loc.T("Upd_ErrCatalogNotDownloaded"));
-                return -1;   // silent + offline: retry next startup, don't stamp lastCheck
-            }
+                var root = await ByfoxApi.RootManifestAsync(ct).ConfigureAwait(false);
+                var local = BlackMatrixCatalog.LoadedDate;
+                bool newer = root.RuleDate.Length > 0 && string.CompareOrdinal(root.RuleDate, local) > 0;
+                if (!force && !newer)
+                {
+                    UpdateStateStore.MarkTemplatesChecked();
+                    StampCatalogDate(local);
+                    onPercent?.Invoke(100);
+                    return BlackMatrixCatalog.All().Count;
+                }
 
-            onPercent?.Invoke(70);
-            WriteMergedCatalog(merged);
-            UpdateStateStore.MarkTemplatesChecked();
-            onPercent?.Invoke(100);
-            return merged.Count;
+                onPercent?.Invoke(30);
+                var hashes = await ByfoxApi.RuleFileHashesAsync(ct).ConfigureAwait(false);
+                var bytes = ByfoxApi.Gunzip(await ByfoxApi.GetBytesAsync(ByfoxApi.TemplatesUrl + ".gz", 120, ct).ConfigureAwait(false));
+                if (hashes.TryGetValue("templates.json", out var want) && want.Length > 0
+                    && !string.Equals(ByfoxApi.Sha256(bytes), want, StringComparison.OrdinalIgnoreCase))
+                    throw new IOException("templates.json: sha256 не совпал с rule/manifest.json");
+
+                onPercent?.Invoke(70);
+                var json = System.Text.Encoding.UTF8.GetString(bytes);
+                var parsed = BlackMatrixCatalog.ParseTemplates(json, out var date);
+                if (parsed == null || parsed.Count == 0) throw new IOException("templates.json: каталог пуст");
+
+                var path = BlackMatrixCatalog.TemplatesPath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                var tmp = path + ".new";
+                File.WriteAllBytes(tmp, bytes);
+                if (File.Exists(path)) File.Delete(path);
+                File.Move(tmp, path);
+                BlackMatrixCatalog.Reset();
+                DeleteLegacyCatalogs();
+
+                UpdateStateStore.MarkTemplatesChecked();
+                StampCatalogDate(date);
+                Log.Info("Каталог шаблонов обновлён с api.byfox.dev: " + parsed.Count + " шт., от " + date + ".");
+                onPercent?.Invoke(100);
+                return parsed.Count;
+            }
+            catch (Exception ex)
+            {
+                if (force) throw new IOException(Loc.T("Upd_ErrCatalogNotDownloaded") + " " + ex.Message, ex);
+                return -1;   // silent + offline: retry later, don't stamp lastCheck
+            }
+        }
+
+        // updates.json keeps the catalog date the way Settings shows it (dd.MM.yyyy).
+        private static void StampCatalogDate(string isoDate)
+        {
+            var d = BlackMatrixCatalog.ParseDate(isoDate);
+            if (d == null) return;
+            var shown = d.Value.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
+            if (!string.Equals(VersionInfo.CatalogDate, shown, StringComparison.Ordinal))
+                VersionInfo.UpdateLocalCatalogDate(shown);
+        }
+
+        // The pre-api catalog files: superseded once DataUser\templates.json exists.
+        private static void DeleteLegacyCatalogs()
+        {
+            var root = VersionInfo.InstallRoot;
+            foreach (var legacy in new[]
+            {
+                Path.Combine(VersionInfo.DataUserDir, "rules"),
+                Path.Combine(VersionInfo.DataUserDir, "blackmatrix7+www.txt"),
+                Path.Combine(root, "Data", "blackmatrix7+www.txt"),
+                Path.Combine(root, "blackmatrix7+www.txt"),
+            })
+                try { if (File.Exists(legacy)) File.Delete(legacy); } catch { }
+        }
+
+        // The engine's ASN database (GeoLite2-ASN, ~9 MB) beside its config, from api.byfox.dev
+        // instead of GitHub releases (often blocked from RU). Template lists carry IP-ASN rules
+        // (Telegram: 5), and the engine refuses a config with IP-ASN while it has no ASN.mmdb and
+        // can't download one — so the config builder writes those rules only once this file
+        // exists. Refreshed when older than 90 days. Returns true when a file was (re)written.
+        public static async Task<bool> EnsureAsnDbAsync(string workDir, CancellationToken ct)
+        {
+            if (string.IsNullOrWhiteSpace(workDir)) return false;
+            var target = Path.Combine(workDir, "ASN.mmdb");
+            try
+            {
+                if (File.Exists(target) && (DateTime.UtcNow - File.GetLastWriteTimeUtc(target)).TotalDays < 90) return false;
+
+                var geo = ByfoxApi.ParseJson(await ByfoxApi.GetStringAsync(ByfoxApi.GeoBase + "manifest.json", 30, ct).ConfigureAwait(false));
+                var want = ByfoxApi.Str(ByfoxApi.Obj(ByfoxApi.Obj(ByfoxApi.Obj(geo, "geolite2"), "files"), "GeoLite2-ASN.mmdb"), "sha256");
+                var bytes = await ByfoxApi.GetBytesAsync(ByfoxApi.GeoAsnUrl, 300, ct).ConfigureAwait(false);
+                if (want.Length > 0 && !string.Equals(ByfoxApi.Sha256(bytes), want, StringComparison.OrdinalIgnoreCase))
+                {
+                    Log.Info("ASN.mmdb с api.byfox.dev не совпал по sha256 — оставляю прежний.");
+                    return false;
+                }
+
+                Directory.CreateDirectory(workDir);
+                var tmp = target + ".new";
+                File.WriteAllBytes(tmp, bytes);
+                try
+                {
+                    if (File.Exists(target)) File.Delete(target);
+                    File.Move(tmp, target);
+                }
+                catch (Exception ex)
+                {
+                    // The engine holds the file open while it uses it — the next run retries.
+                    try { File.Delete(tmp); } catch { }
+                    Log.Info("ASN.mmdb занят движком, обновлю позже: " + ex.Message);
+                    return false;
+                }
+                Log.Info("ASN.mmdb скачан с api.byfox.dev (" + bytes.Length / 1024 + " КБ).");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Info("ASN.mmdb скачать не удалось: " + ex.Message);
+                return false;
+            }
         }
 
         private static async Task TryUpdateCatalogSilentlyAsync(bool force, CancellationToken ct)

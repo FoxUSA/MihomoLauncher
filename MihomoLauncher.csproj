@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -17,7 +17,7 @@
     <Company>byFox</Company>
     <Authors>byFox</Authors>
     <Copyright>Copyright (c) 2026 byFox</Copyright>
-    <Version>2.2.2</Version>
+    <Version>2.2.5</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>fox.ico</ApplicationIcon>
   </PropertyGroup>
@@ -84,13 +84,11 @@
     <Content Include="help.html" Link="Data\help.html">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <!-- Merged rule-template catalog (blackmatrix7 + byfox awg-panel folders), 3 columns
-         Name|CheckUrl|ClashUrl. Ships straight into DataUser\ (survives updates) as the offline
-         baseline; refreshed at runtime (UpdateService.UpdateTemplatesAsync writes DataUser\rules).
-         Regenerate the baseline with build\gen-rules.ps1. NOTE: manifest_geo.json and the old
-         blackmatrix7+www.txt are NO LONGER shipped — update state lives in DataUser\updates.json;
-         the app deletes any lingering legacy copies of both on first run. -->
-    <Content Include="rules" Link="DataUser\rules">
+    <!-- Rule-template catalog: api.byfox.dev/rule/templates.json as is (titles, descriptions,
+         tags, list paths). Ships in Data\ as the offline baseline — every app update brings a
+         fresh one; the daily refresh writes DataUser\templates.json, which wins when present.
+         Regenerate with build\gen-rules.ps1. -->
+    <Content Include="templates.json" Link="Data\templates.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- Bundled tile icons: only our own (all_trafic.png, api.ru.dog.png), shipped into

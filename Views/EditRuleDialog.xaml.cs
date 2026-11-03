@@ -347,9 +347,7 @@ namespace MihomoLauncher.Views
                 int n = s.RuleItems?.Count ?? 0;
                 bool isTemplate = !string.IsNullOrWhiteSpace(s.ClashRuleUrl);
                 // Recover the template's display name from the catalog by its rule URL.
-                var tplName = isTemplate
-                    ? (BlackMatrixCatalog.All().FirstOrDefault(c => string.Equals(c.ClashUrl, s.ClashRuleUrl, StringComparison.OrdinalIgnoreCase))?.Name ?? "")
-                    : "";
+                var tplName = isTemplate ? BlackMatrixCatalog.NameForUrl(s.ClashRuleUrl) : "";
                 return new ItemRow
                 {
                     IsSite = true,

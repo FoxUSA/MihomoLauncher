@@ -188,10 +188,9 @@ namespace MihomoLauncher.Services
 
             foreach (var site in sites)
             {
-                // blackmatrix7 template ".../YouTube/YouTube.yaml" -> "youtube".
+                // Template ".../YouTube/YouTube.yaml" -> "youtube" (Apple_Classical.yaml -> "apple").
                 if (!site.HasRuleList) continue;
-                var tpl = "";
-                try { tpl = Path.GetFileNameWithoutExtension(new Uri(site.ClashRuleUrl).AbsolutePath); } catch { }
+                var tpl = BlackMatrixCatalog.NameForUrl(site.ClashRuleUrl);
                 s = Lookup(ix, tpl);
                 if (s.Length > 0) return s;
             }
@@ -270,7 +269,12 @@ namespace MihomoLauncher.Services
                 var url = BaseUrl + Uri.EscapeDataString(slug) + ".png";
                 using (var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
                 {
-                    if (!resp.IsSuccessStatusCode) return File.Exists(dest) ? dest : "";
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        // 404 = the set simply has no such icon (the tile shows the program's own).
+                        if ((int)resp.StatusCode != 404) NoteFailure(slug, "HTTP " + (int)resp.StatusCode);
+                        return File.Exists(dest) ? dest : "";
+                    }
                     var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                     if (bytes == null || bytes.Length == 0) return File.Exists(dest) ? dest : "";
 
@@ -281,17 +285,40 @@ namespace MihomoLauncher.Services
                     return dest;
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Offline / 404 / IO — keep whatever was cached before (may be nothing).
+                // Offline / IO — keep whatever was cached before (may be nothing). Said once per
+                // icon in app.log: a tile without its icon used to leave no trace at all.
+                NoteFailure(slug, (ex.InnerException ?? ex).Message);
                 return File.Exists(dest) ? dest : "";
             }
+        }
+
+        private static readonly HashSet<string> _failLogged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        private static void NoteFailure(string slug, string why)
+        {
+            lock (_failLogged)
+                if (!_failLogged.Add(slug)) return;
+            Log.Info("Иконка «" + slug + "» не скачалась с byfox.dev: " + why + " — попробую ещё раз позже.");
+        }
+
+        // Some AutoIcon rule still has no icon file — worth another try.
+        public static bool AnyMissing(IEnumerable<AppEntry> apps)
+        {
+            try
+            {
+                return (apps ?? Enumerable.Empty<AppEntry>()).Any(a => a != null && a.AutoIcon && !a.IsAllTraffic
+                    && SlugFor(a).Length > 0 && !File.Exists(Path.Combine(IcoDir, SlugFor(a) + ".png")));
+            }
+            catch { return false; }
         }
 
         // Startup pass: for every AutoIcon entry make sure its cached icon is present and
         // IconPath points at it. Re-downloads any that are missing (e.g. after an update
         // wiped Data\ico). Returns true if any entry's IconPath changed (caller should save).
-        public static async Task<bool> EnsureAsync(IEnumerable<AppEntry> apps, CancellationToken ct = default)
+        // checkServer=false: only fill in what's missing (the periodic retry), no HEAD per icon.
+        public static async Task<bool> EnsureAsync(IEnumerable<AppEntry> apps, CancellationToken ct = default, bool checkServer = true)
         {
             if (apps == null) return false;
             bool changed = false;
@@ -309,7 +336,7 @@ namespace MihomoLauncher.Services
                     var got = await TryFetchAsync(app, force: false, ct).ConfigureAwait(false);
                     if (string.IsNullOrEmpty(got)) continue;   // nothing on server (yet)
                 }
-                else if (await ServerDiffersAsync(slug, dest, ct).ConfigureAwait(false))
+                else if (checkServer && await ServerDiffersAsync(slug, dest, ct).ConfigureAwait(false))
                 {
                     // The icon was replaced on the server — the cache would show the old one forever.
                     await TryFetchAsync(app, force: true, ct).ConfigureAwait(false);

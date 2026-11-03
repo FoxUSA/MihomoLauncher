@@ -16,7 +16,6 @@ namespace MihomoLauncher.Services
     public class MihomoController
     {
         private readonly string _apiAddr;
-        private readonly string _secret;
         private readonly int _mixedPort;
         private readonly string _workDir;
         private readonly AppConfig _cfg;
@@ -58,7 +57,6 @@ namespace MihomoLauncher.Services
         public MihomoController(AppConfig cfg)
         {
             _apiAddr = string.IsNullOrWhiteSpace(cfg.MihomoApiAddr) ? "127.0.0.1:9090" : cfg.MihomoApiAddr.Trim();
-            _secret = cfg.MihomoSecret ?? "";
             _mixedPort = cfg.MixedPort > 0 ? cfg.MixedPort : 7890;
             _workDir = AppConfigStore.ResolveMihomoWorkDir(cfg);
             _cfg = cfg;
@@ -75,9 +73,15 @@ namespace MihomoLauncher.Services
         private HttpClient NewClient(int timeoutSeconds)
         {
             var http = new HttpClient { Timeout = TimeSpan.FromSeconds(timeoutSeconds) };
-            if (!string.IsNullOrEmpty(_secret))
+            // The secret is read live, not copied in the constructor: first-run setup creates
+            // the controller before EnsureSecret generates the key, and a copied (empty) key
+            // made the brand-new engine answer 401. The launcher then took its own engine for
+            // a stale one, killed it, moved the port and ended up with two tunnels (Gluk,
+            // 2026-11-03) — only «Переустановить движок», which re-creates the controller, fixed it.
+            var secret = _cfg?.MihomoSecret ?? "";
+            if (secret.Length > 0)
                 http.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _secret);
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", secret);
             return http;
         }
 
