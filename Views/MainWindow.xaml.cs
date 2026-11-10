@@ -187,6 +187,7 @@ namespace MihomoLauncher.Views
             _healthTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(HealthPeriodSeconds) };
             _healthTimer.Tick += HealthTick;
             _healthTimer.Start();
+            InitStats();
 
             _retryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(RuleRetryPeriodSeconds) };
             _retryTimer.Tick += RetryTick;
@@ -285,6 +286,10 @@ namespace MihomoLauncher.Views
                 // show/hide the install banner and re-render the status banner accordingly.
                 RefreshEngineState();
 
+                // An install from before the engine service: move it over, by itself (silently
+                // when the old firewall task can do it, else with Windows' own admin prompt).
+                _ = MoveEngineToServiceAsync();
+
                 // Check for updates in the background; reveal the button if any is available.
                 try { await CheckForUpdatesAsync().ConfigureAwait(true); }
                 catch (Exception ex) { Log.Error("update-check", ex); }
@@ -359,6 +364,7 @@ namespace MihomoLauncher.Views
                 if (_state == UiState.Idle) SetState(UiState.Idle);
                 else if (_state == UiState.Done) UpdateDoneBanner();
                 RebuildTiles();
+                RenderStats();
 
                 // Tile geo (country/city) is language-specific — drop the cached names and
                 // re-resolve in the new language; ResolveProxyGeosAsync refreshes the tiles.
@@ -598,6 +604,10 @@ namespace MihomoLauncher.Views
                     }
                 }
                 if (_engineLost) { _engineLost = false; Log.Info("Движок снова отвечает."); }
+                // An engine-failure dialog still on screen is now a wrong question: «переустановить?»
+                // pressed after the engine had come back by itself was a second, pointless
+                // reinstall (PAPA2, 2026-11-08). Take it down.
+                _engineFailureDismiss?.Cancel();
                 return;
             }
 
@@ -717,7 +727,7 @@ namespace MihomoLauncher.Views
                     _retryNextAt[entry.Id] = DateTime.UtcNow.AddSeconds(RuleRetryPeriodSeconds * factor);
 
                     // Say once, when it settles into the hourly rhythm, that this rule is not
-                    // coming back on its own. Silence here is what let «api.ru.dog» look healthy
+                    // coming back on its own. Silence here is what let «api.xbyfox.com» look healthy
                     // in the log for a week while it had never connected once.
                     if (fails == RetryFailsBeforeQuiet)
                         Log.Info("Правило «" + entry.Name + "» не подключается " + fails
@@ -1259,65 +1269,36 @@ namespace MihomoLauncher.Views
             }
             RebuildTiles();
             UpdateTrayText();
+            // New servers get measured right away instead of on the next 30-s round.
+            MeasureStatsPing(force: false);
+            RenderStats();
         }
 
+        // After a connect the banner only says what the tiles can't: that there are no rules yet.
+        // Which tiles are connected and which are not is on the tiles themselves (plate colour and
+        // text); repeating it under them — green «всё работает», amber «плитки … не подключены» —
+        // was noise (2026-11-10: «не писать очевидное — что не подключено и так видно, так же как
+        // и что подключено»). No engine: the install button says it, no banner either.
         private void UpdateDoneBanner()
         {
-            // No engine → never claim "Всё работает": nothing is actually tunnelled. The
-            // install button already shows the message, so just hide the banner (no duplicate).
-            if (!_engineReady)
+            if (_engineReady && (_config.Apps == null || _config.Apps.Count == 0))
             {
-                TopBanner.Visibility = Visibility.Collapsed;
-                return;
-            }
-            TopBanner.Visibility = Visibility.Visible;
-
-            // No rules at all → there's nothing to launch yet; don't show a green "works".
-            if (_config.Apps == null || _config.Apps.Count == 0)
-            {
+                TopBanner.Visibility = Visibility.Visible;
                 SetBanner(Theme.BannerInfoBg, Theme.BannerInfoBorder, Theme.BannerInfoText,
                     Loc.T("Main_BannerNoApps"));
                 return;
             }
-
-            // «Всё остальное» is never named here: its name read as "everything else is broken"
-            // and confused people; its own tile already shows whether it's connected.
-            var notWorking = _config.Apps
-                .Where(a => a.RequiresVpn && !a.IsAllTraffic && !_workingApps.Contains(a.Id))
-                .ToList();
-
-            if (notWorking.Count == 0)
-            {
-                SetBanner(Theme.BannerOkBg, Theme.BannerOkBorder, Theme.BannerOkText,
-                    Loc.T("Main_BannerAllWorks"));
-                return;
-            }
-
-            // "Продолжаю подключать их сам" is a promise, so only make it where it is true.
-            // The retry loop takes a NARROWER set than this list: it needs a connect to have
-            // happened at all, it skips safe mode, and it only touches rules somebody switched
-            // on (AutoConnect) — the ✕ on a tile clears that flag on purpose. With every rule
-            // stopped by hand the old text claimed work that RetryTick was never going to do.
-            bool retriesRun = _hasChecked && _config.RemoteDesktopSafeMode != true;
-            int retried = retriesRun ? notWorking.Count(a => a.AutoConnect) : 0;
-            string key = retried == 0 ? "Main_BannerNotWorkingIdle"
-                       : retried == notWorking.Count ? "Main_BannerNotWorking"
-                       : "Main_BannerNotWorkingMixed";
-            // One tile gets its own singular wording; names are always quoted — a bare
-            // «Не работают: Всё остальное» read as "everything else is broken", not as the
-            // name of the «Всё остальное» tile.
-            if (notWorking.Count == 1 && key != "Main_BannerNotWorkingMixed") key += "1";
-            SetBanner(Theme.BannerWarnBg, Theme.BannerWarnBorder, Theme.BannerWarnText,
-                Loc.T(key, string.Join(", ", notWorking.Select(a => Loc.T("Main_QuotedName", a.Name)))));
+            TopBanner.Visibility = Visibility.Collapsed;
         }
 
-        // Set the status banner's colours + text in one go.
+        // Set the status message. It is a line of the bottom plate now (2026-11-10: «не резервируй
+        // место под объявление, пиши их в этой же плашке»), so only its text colour follows the
+        // kind of message; bg/border are kept in the signature for the callers, unused.
         private void SetBanner(Brush bg, Brush border, Brush fg, string text)
         {
-            TopBanner.Background = bg;
-            TopBanner.BorderBrush = border;
             BannerText.Foreground = fg;
             BannerText.Text = text;
+            RenderStats();
         }
 
         // Recompute whether the VPN engine is installed + set up (exe present AND scheduled
@@ -1453,11 +1434,12 @@ namespace MihomoLauncher.Views
         private FrameworkElement CreateTile(AppEntry entry)
         {
             bool reconnecting = entry.Id == _reconnectingId;
+            bool launching = _launchingIds.Contains(entry.Id);
             bool enabled = IsAppEnabled(entry);
             bool notChecked = !_hasChecked && entry.RequiresVpn;
 
             const double TileSize = 112;
-            const double IconSize = 44;
+            const double IconSize = 40;   // 44 before the VPN plate took the bottom 37 px
 
             var border = new Border
             {
@@ -1468,7 +1450,8 @@ namespace MihomoLauncher.Views
                 Background = enabled ? Theme.TileBg : Theme.TileDisabledBg,
                 BorderBrush = enabled ? Theme.TileBorder : Theme.TileDisabledBorder,
                 BorderThickness = new Thickness(1),
-                Cursor = Cursors.Arrow,   // hand cursor is reserved for actual buttons
+                // hand cursor is reserved for actual buttons; "arrow + hourglass" while it launches
+                Cursor = launching ? Cursors.AppStarting : Cursors.Arrow,
                 Tag = entry,              // drag-to-reorder finds the rule by it
                 Effect = enabled ? new System.Windows.Media.Effects.DropShadowEffect
                 {
@@ -1481,12 +1464,13 @@ namespace MihomoLauncher.Views
 
             // Pinned to the top at a fixed offset, NOT centred: centring moved the icon up or down
             // with the number of text lines under it (name / VPN / country), so neighbouring tiles
-            // had their icons at different heights. 11 px = where a two-line tile had it.
+            // had their icons at different heights. Only icon + name live here now; the VPN /
+            // status lines moved into the plate at the bottom (MakeVpnPlate).
             var stack = new StackPanel
             {
                 VerticalAlignment = VerticalAlignment.Top,
                 HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 11, 0, 0),
+                Margin = new Thickness(0, 8, 0, 0),
             };
 
             // Fallback when there's no IconPath: the icon of the rule's first program exe.
@@ -1501,9 +1485,9 @@ namespace MihomoLauncher.Views
                     Height = IconSize,
                     Source = iconSource,
                     Stretch = Stretch.Uniform,
-                    Margin = new Thickness(0, 0, 0, 6),
+                    Margin = new Thickness(0, 0, 0, 4),
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    Opacity = enabled ? 1.0 : 0.4,
+                    Opacity = launching ? 0.35 : enabled ? 1.0 : 0.4,
                 };
                 // WPF's default (bilinear) samples only a few source pixels per output pixel, so a
                 // 1024 px icon squeezed into ~66 px came out grainy and jagged. HighQuality (Fant)
@@ -1526,113 +1510,30 @@ namespace MihomoLauncher.Views
                 Foreground = enabled ? Theme.TextPrimary : Theme.TextDisabled,
             });
 
-            if (reconnecting)
-            {
-                stack.Children.Add(new TextBlock
-                {
-                    Text = Loc.T("Main_TileReconnecting"),
-                    FontSize = 10.5,
-                    Margin = new Thickness(0, 3, 0, 0),
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = TileSize - 12,
-                    Foreground = Theme.AccentGreen,
-                });
-            }
-            else if (!enabled)
-            {
-                // All VPN variants unchecked for this rule → it can never connect; show that
-                // explicitly (amber) instead of the generic "нужен VPN" / "не работает".
-                bool noVpn = HasNoAllowedVpnVariant(entry);
-                // Switched off by hand (tile ✕, or simply never started) is a decision, not a
-                // fault: red "не работает" is for a rule that was tried and no node opened it.
-                bool stopped = !notChecked && !noVpn && !entry.AutoConnect;
-                stack.Children.Add(new TextBlock
-                {
-                    Text = noVpn ? Loc.T("Main_TileNoVpnSelected")
-                                 : notChecked ? Loc.T("Main_TileNeedVpn")
-                                 : stopped ? Loc.T("Main_TileStopped")
-                                 : Loc.T("Main_TileNotWorking"),
-                    FontSize = 10.5,
-                    Margin = new Thickness(0, 3, 0, 0),
-                    TextAlignment = TextAlignment.Center,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = TileSize - 12,
-                    Foreground = noVpn ? Theme.BannerWarnText
-                               : (notChecked || stopped) ? Theme.TextMuted : Theme.AccentRed,
-                });
-            }
-            else
-            {
-                // Which VPN this app uses (variant), or "напрямую" for non-VPN apps.
-                var vpnLabel = TileVpnLabel(entry);
-                if (!string.IsNullOrEmpty(vpnLabel))
-                {
-                    bool direct = !entry.RequiresVpn;
-                    stack.Children.Add(new TextBlock
-                    {
-                        Text = vpnLabel,
-                        FontSize = 10,
-                        Margin = new Thickness(0, 4, 0, 0),
-                        TextAlignment = TextAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        TextTrimming = TextTrimming.CharacterEllipsis,
-                        MaxWidth = TileSize - 14,
-                        Foreground = direct ? Theme.AccentGrey : Theme.AccentGreen,
-                    });
-
-                    // Country/city of the VPN server this app exits through ("Франция, Париж").
-                    if (entry.RequiresVpn && _assignment.TryGetValue(entry.Id, out var proxyName)
-                        && _proxyGeo.TryGetValue(proxyName, out var geo) && !string.IsNullOrEmpty(geo))
-                    {
-                        stack.Children.Add(new TextBlock
-                        {
-                            Text = geo,
-                            FontSize = 9.5,
-                            Margin = new Thickness(0, 1, 0, 0),
-                            TextAlignment = TextAlignment.Center,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            TextTrimming = TextTrimming.CharacterEllipsis,
-                            MaxWidth = TileSize - 14,
-                            Foreground = Theme.TextMuted,
-                        });
-                    }
-                }
-            }
-
             // Every tile gets a settings-gear in the top-LEFT that opens this rule's editor.
-            // VPN tiles additionally get a "reconnect just this one" control in the top-right.
+            // VPN tiles additionally get "reconnect" and "disconnect" chips in the top-right,
+            // and every tile the VPN/status plate along the bottom.
             var grid = new Grid();
             grid.Children.Add(stack);
-
-            // Gear — same look/size as the reconnect control, mirrored to the left corner.
-            var gearHit = new Border
+            grid.Children.Add(MakeVpnPlate(entry, enabled, reconnecting, notChecked));
+            if (launching)
             {
-                Width = 26,
-                Height = 26,
-                CornerRadius = new CornerRadius(13),
-                Background = System.Windows.Media.Brushes.Transparent,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(4, 4, 0, 0),
-                Cursor = Cursors.Hand,
-                ToolTip = Loc.T("Main_TipEditRule"),
-                Child = new Wpf.Ui.Controls.SymbolIcon
+                // Spinning over the (dimmed) icon: the click went through, the program is starting.
+                grid.Children.Add(new Wpf.Ui.Controls.ProgressRing
                 {
-                    Symbol = Wpf.Ui.Controls.SymbolRegular.Settings24,
-                    FontSize = 16,
-                    Foreground = Theme.AccentGrey,
+                    IsIndeterminate = true,
+                    Width = 34,
+                    Height = 34,
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center,
-                },
-            };
-            gearHit.MouseEnter += (s, e) => gearHit.Opacity = 0.6;
-            gearHit.MouseLeave += (s, e) => gearHit.Opacity = 1.0;
-            // Handle the up so it doesn't fall through to the tile's launch handler.
-            gearHit.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenRuleEditor(entry); };
-            grid.Children.Add(gearHit);
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 11, 0, 0),
+                    IsHitTestVisible = false,
+                });
+            }
+
+            grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Settings24, 14,
+                new Thickness(5, 5, 0, 0), HorizontalAlignment.Left, Loc.T("Main_TipEditRule"), false,
+                () => OpenRuleEditor(entry)));
 
             if (entry.RequiresVpn)
             {
@@ -1652,77 +1553,18 @@ namespace MihomoLauncher.Views
                 }
                 else
                 {
-                    // Plain transparent Border (NOT a ui:Button — a custom button template
-                    // swallowed Click). A filled-transparent Border is fully hit-testable and
-                    // MouseLeftButtonUp always fires, with zero button chrome (no hover/focus plate).
                     bool busyElsewhere = _reconnectingId != null;
-                    var reconnectHit = new Border
-                    {
-                        Width = 26,
-                        Height = 26,
-                        CornerRadius = new CornerRadius(13),
-                        Background = System.Windows.Media.Brushes.Transparent,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        VerticalAlignment = VerticalAlignment.Top,
-                        Margin = new Thickness(0, 4, 4, 0),
-                        Cursor = busyElsewhere ? Cursors.Arrow : Cursors.Hand,
-                        ToolTip = Loc.T("Main_TipReconnectOne"),
-                        Opacity = busyElsewhere ? 0.3 : 1.0,
-                        Child = new Wpf.Ui.Controls.SymbolIcon
-                        {
-                            Symbol = Wpf.Ui.Controls.SymbolRegular.ArrowSync24,
-                            FontSize = 16,
-                            Foreground = Theme.AccentGrey,
-                            HorizontalAlignment = HorizontalAlignment.Center,
-                            VerticalAlignment = VerticalAlignment.Center,
-                        },
-                    };
-                    if (!busyElsewhere)
-                    {
-                        reconnectHit.MouseEnter += (s, e) => reconnectHit.Opacity = 0.6;
-                        reconnectHit.MouseLeave += (s, e) => reconnectHit.Opacity = 1.0;
-                        // Handle the up so it doesn't fall through to the tile's launch handler.
-                        reconnectHit.MouseLeftButtonUp += async (s, e) =>
-                        {
-                            e.Handled = true;
-                            await ReconnectOneAsync(entry, manual: true);   // switches the rule on, see there
-                        };
-                    }
-                    grid.Children.Add(reconnectHit);
+                    grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.ArrowSync24, 14,
+                        new Thickness(0, 5, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipReconnectOne"), busyElsewhere,
+                        async () => await ReconnectOneAsync(entry, manual: true)));   // switches the rule on, see there
                 }
 
-                // ✕ directly under the ⟳ reconnect icon (top-right, offset down by ~one icon).
-                // Busy only with ANOTHER rule: on the tile that is reconnecting the ✕ is exactly
-                // how to stop it (it used to be greyed out right then).
+                // ✕ directly under the ⟳. Busy only with ANOTHER rule: on the tile that is
+                // reconnecting the ✕ is exactly how to stop it (it used to be greyed out right then).
                 bool offBusy = _reconnectingId != null && _reconnectingId != entry.Id;
-                var offHit = new Border
-                {
-                    Width = 26,
-                    Height = 26,
-                    CornerRadius = new CornerRadius(13),
-                    Background = System.Windows.Media.Brushes.Transparent,
-                    HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, 32, 4, 0),
-                    Cursor = offBusy ? Cursors.Arrow : Cursors.Hand,
-                    ToolTip = Loc.T("Main_TipDisconnectOne"),
-                    Opacity = offBusy ? 0.3 : 1.0,
-                    Child = new Wpf.Ui.Controls.SymbolIcon
-                    {
-                        Symbol = Wpf.Ui.Controls.SymbolRegular.Dismiss24,
-                        FontSize = 14,
-                        Foreground = Theme.AccentGrey,
-                        HorizontalAlignment = HorizontalAlignment.Center,
-                        VerticalAlignment = VerticalAlignment.Center,
-                    },
-                };
-                if (!offBusy)
-                {
-                    offHit.MouseEnter += (s, e) => offHit.Opacity = 0.6;
-                    offHit.MouseLeave += (s, e) => offHit.Opacity = 1.0;
-                    offHit.MouseLeftButtonUp += (s, e) => { e.Handled = true; DisconnectOneRule(entry); };
-                }
-                grid.Children.Add(offHit);
+                grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Dismiss24, 12,
+                    new Thickness(0, 31, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDisconnectOne"), offBusy,
+                    () => DisconnectOneRule(entry)));
             }
 
             border.Child = grid;
@@ -1734,10 +1576,7 @@ namespace MihomoLauncher.Views
                 border.MouseRightButtonUp += async (s, e) =>
                 {
                     e.Handled = true;
-                    RepairProgramPaths("запуск", force: true);
-                    var res = AppLauncher.Launch(entry);
-                    if (!res.Item1)
-                        await ShowDialog(Loc.T("Main_OpenFailTitle"), Loc.T("Main_OpenFailBody", entry.Name, res.Item2)).ConfigureAwait(true);
+                    await LaunchFromTileAsync(entry).ConfigureAwait(true);
                 };
             }
 
@@ -1778,7 +1617,7 @@ namespace MihomoLauncher.Views
                 Height = size,
                 CornerRadius = new CornerRadius(size / 2),
                 Background = enabled ? Theme.PlaceholderBg : Theme.TileDisabledBorder,
-                Margin = new Thickness(0, 0, 0, 8),
+                Margin = new Thickness(0, 0, 0, 4),
                 HorizontalAlignment = HorizontalAlignment.Center,
             };
             border.Child = new TextBlock
@@ -1801,10 +1640,7 @@ namespace MihomoLauncher.Views
                 StatusFoot.Text = Loc.T("Main_FootAllTrafficOn", TileVpnLabel(entry).Replace("🛡 ", ""));
                 return;
             }
-            RepairProgramPaths("запуск", force: true);
-            var res = AppLauncher.Launch(entry);
-            if (!res.Item1)
-                await ShowDialog(Loc.T("Main_OpenFailTitle"), Loc.T("Main_OpenFailBody", entry.Name, res.Item2)).ConfigureAwait(true);
+            await LaunchFromTileAsync(entry).ConfigureAwait(true);
         }
 
         // ---------- Check flow ----------
@@ -2183,7 +2019,7 @@ namespace MihomoLauncher.Views
             catch { }
         }
 
-        // Make sure every AutoIcon entry has its server icon cached under Data\ico and its
+        // Make sure every AutoIcon entry has its server icon on disk (IconFetcher) and its
         // IconPath pointed at it. Runs at startup because a launcher update wipes Data\ (and
         // thus the icon cache) while the saved AutoIcon flag survives — so icons re-download
         // automatically. Saves + refreshes tiles only if anything changed. Best-effort/quiet.
@@ -2510,11 +2346,28 @@ namespace MihomoLauncher.Views
         // Re-run the connect logic for ONE service, keeping every other app on its node:
         // build a config with the existing assignments + this entry (and the launcher) on a
         // trial node, then probe (or assign immediately if its "force connect" switch is on).
-        private async Task ReconnectOneAsync(AppEntry entry, bool manual = false)
+        private readonly HashSet<string> _waitingReconnect = new HashSet<string>();
+
+        private async Task ReconnectOneAsync(AppEntry entry, bool manual = false, string onlySlotId = null)
         {
             var unreadable = new Dictionary<string, string>();   // slot name → why it didn't parse
             if (entry == null || !entry.RequiresVpn) return;
-            if (_state == UiState.Checking) return;
+            if (_state == UiState.Checking)
+            {
+                // A press while another connect is running (the one at startup, say) used to be
+                // dropped without a word — the tile "worked only the second time" (2026-11-09).
+                // A press is kept: it waits for that connect to finish and then runs.
+                if (!manual || !_waitingReconnect.Add(entry.Id)) return;   // ten presses = one wait
+                try
+                {
+                    StatusFoot.Text = Loc.T("Main_FootWaitingForConnect", entry.Name);
+                    var until = DateTime.UtcNow.AddMinutes(3);
+                    while (_state == UiState.Checking && DateTime.UtcNow < until)
+                        await Task.Delay(300).ConfigureAwait(true);
+                }
+                finally { _waitingReconnect.Remove(entry.Id); }
+                if (_state == UiState.Checking || _reconnectingId != null) return;
+            }
 
             // The tile's ⟳ means "switch this rule on", and that is exactly the state that has
             // to persist: from now on the rule comes back by itself after a restart, and the
@@ -2562,7 +2415,10 @@ namespace MihomoLauncher.Views
                 var forcedId = EffectiveForcedSlot(entry, enabledSlotIds);
                 // Same ranking the full connect uses — the ⟳ on a tile must reach for this
                 // rule's preferred variant first, not for whatever is on top in Settings.
-                var candidates = string.IsNullOrEmpty(forcedId)
+                // onlySlotId: picked by hand from the tile's VPN plate — that variant and no other.
+                var candidates = !string.IsNullOrEmpty(onlySlotId)
+                    ? slots.Where(s => s.Id == onlySlotId).ToList()
+                    : string.IsNullOrEmpty(forcedId)
                     ? RuleSlotOrder(entry, slots)
                     : slots.Where(s => s.Id == forcedId).ToList();
 
@@ -2654,13 +2510,9 @@ namespace MihomoLauncher.Views
                 if (!ct.IsCancellationRequested || stoppedByHand)
                 {
                     SetState(UiState.Done);
-                    StatusFoot.Text = !entry.AutoConnect
-                        ? (entry.IsAllTraffic ? Loc.T("Main_FootAllTrafficOff") : Loc.T("Main_FootAppDisconnected", entry.Name))
-                        : entry.IsAllTraffic
-                        ? (assigned ? Loc.T("Main_FootAllTrafficOn", TileVpnLabel(entry).Replace("🛡 ", ""))
-                                    : Loc.T("Main_FootAllTrafficFailed"))
-                        : assigned
-                        ? Loc.T("Main_FootReconnected", entry.Name)
+                    // Connected / switched off is on the tile; only a failure gets a line.
+                    StatusFoot.Text = !entry.AutoConnect || assigned ? ""
+                        : entry.IsAllTraffic ? Loc.T("Main_FootAllTrafficFailed")
                         : Loc.T("Main_FootReconnectFailed", entry.Name);
                     _ = ResolveProxyGeosAsync();
                 }
@@ -3178,6 +3030,12 @@ namespace MihomoLauncher.Views
         {
             if (_config?.RemoteDesktopSafeMode == true) return Loc.T("Main_EngineNoStartSafeMode");
 
+            // The engine is fine, Windows just hasn't run its scheduled task yet — it holds tasks
+            // back on an almost empty battery and right after an update restart (PAPA2,
+            // 2026-11-08: four minutes «в очереди», then sleep). Reinstalling moves the engine
+            // to the Windows service, which Windows does not hold back.
+            if (MihomoSetup.LegacyTaskQueued()) return Loc.T("Main_EngineNoStartQueued");
+
             // Second suspect: something else owns the control port. We try to move off it on
             // our own, so reaching this message means even that didn't help — then the least
             // useless thing to say is WHICH program is in the way.
@@ -3391,6 +3249,8 @@ namespace MihomoLauncher.Views
         // The engine didn't come up. Never a bare "sorry": the message carries the repair
         // button, so the way out is one tap instead of a phone call. Hidden (autostarted)
         // windows can't show a dialog at all — they only get the log line.
+        private CancellationTokenSource _engineFailureDismiss;
+
         private async Task ShowEngineFailureAsync(string title)
         {
             if (_hidden)
@@ -3398,8 +3258,11 @@ namespace MihomoLauncher.Views
                 try { Log.Info("(скрыт) " + title + ": " + EngineNoStartBody()); } catch { }
                 return;
             }
+            try { _engineFailureDismiss?.Cancel(); } catch { }
+            var dismiss = _engineFailureDismiss = new CancellationTokenSource();
             bool fix = await OverlayDialog.ConfirmAsync(this, title, EngineNoStartBody(),
-                Loc.T("Main_ReinstallEngineBtn"), Loc.T("Dlg_Close")).ConfigureAwait(true);
+                Loc.T("Main_ReinstallEngineBtn"), Loc.T("Dlg_Close"), dismiss.Token).ConfigureAwait(true);
+            if (dismiss.IsCancellationRequested) { StatusFoot.Text = Loc.T("Main_FootEngineRestored"); return; }
             if (fix) await ReinstallEngineAsync().ConfigureAwait(true);
         }
 
@@ -3709,9 +3572,7 @@ namespace MihomoLauncher.Views
             if (_reconnectingId == entry.Id)
             {
                 try { _checkCts?.Cancel(); } catch { }
-                StatusFoot.Text = entry.IsAllTraffic
-                    ? Loc.T("Main_FootAllTrafficOff")
-                    : Loc.T("Main_FootAppDisconnected", entry.Name);
+                StatusFoot.Text = "";   // «отключено» is on the tile
                 return;
             }
 
@@ -3720,9 +3581,7 @@ namespace MihomoLauncher.Views
             {
                 RebuildTiles();
                 if (_state == UiState.Done) UpdateDoneBanner();
-                StatusFoot.Text = entry.IsAllTraffic
-                    ? Loc.T("Main_FootAllTrafficOff")
-                    : Loc.T("Main_FootAppDisconnected", entry.Name);
+                StatusFoot.Text = "";   // «отключено» is on the tile
                 return;
             }
 
@@ -3733,9 +3592,7 @@ namespace MihomoLauncher.Views
 
             RebuildTiles();
             if (_state == UiState.Done) UpdateDoneBanner();   // or the list keeps the stopped rule out of it
-            StatusFoot.Text = entry.IsAllTraffic
-                ? Loc.T("Main_FootAllTrafficOff")
-                : Loc.T("Main_FootAppDisconnected", entry.Name);
+            StatusFoot.Text = "";   // «отключено» is on the tile
             _ = ResolveProxyGeosAsync();
         }
 

@@ -37,7 +37,26 @@ namespace MihomoLauncher.Services
 
             if (progToRun.Count == 0 && siteToRun.Count == 0)
                 return (false, Loc.T("Svc_RuleNothingToLaunch"));
+            return LaunchAll(progToRun, siteToRun.Select(x => x.Url).ToList());
+        }
 
+        // Image names (no ".exe") of the desktop programs a click on this rule starts — what the
+        // tile's spinner watches for. Store apps and sites have none to watch.
+        public static List<string> LaunchImageNames(AppEntry rule)
+        {
+            var programs = (rule?.Programs ?? new List<RuleProgram>()).Where(p => p != null).ToList();
+            var run = programs.Where(p => p.Launch).ToList();
+            bool anySiteMarked = (rule?.Sites ?? new List<RuleSite>()).Any(s => s != null && s.Launch);
+            if (run.Count == 0 && !anySiteMarked) run = programs;   // same default as Launch
+            return run.Where(p => !p.IsStoreApp && !string.IsNullOrWhiteSpace(p.Path))
+                      .Select(p => { try { return Path.GetFileNameWithoutExtension(p.Path.Trim()); } catch { return ""; } })
+                      .Where(n => !string.IsNullOrEmpty(n))
+                      .Distinct(StringComparer.OrdinalIgnoreCase)
+                      .ToList();
+        }
+
+        private static (bool ok, string error) LaunchAll(List<RuleProgram> progToRun, List<string> urls)
+        {
             var errors = new List<string>();
             bool any = false;
 
@@ -46,9 +65,9 @@ namespace MihomoLauncher.Services
                 var r = LaunchProgram(prog);
                 if (r.ok) any = true; else errors.Add(r.error);
             }
-            foreach (var site in siteToRun)
+            foreach (var url in urls)
             {
-                var r = OpenUrl(site.Url);
+                var r = OpenUrl(url);
                 if (r.ok) any = true; else errors.Add(r.error);
             }
 

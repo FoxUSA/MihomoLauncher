@@ -94,10 +94,9 @@ namespace MihomoLauncher.Services
             return "https://www." + key.ToLowerInvariant() + ".com/";
         }
 
-        // Downloaded catalog (DataUser survives app updates) and the one shipped in Data\
-        // (refreshed by every app update). The newer of the two by its "date" wins.
+        // The one catalog file. A release ships it fresh from api.byfox.dev (build\layout-release.ps1
+        // runs gen-rules.ps1), the daily refresh overwrites it, and DataUser survives app updates.
         public static string TemplatesPath => Path.Combine(VersionInfo.DataUserDir, "templates.json");
-        public static string ShippedTemplatesPath => Path.Combine(VersionInfo.InstallRoot, "Data", "templates.json");
 
         // Pre-2026-11 catalog files, read only when no templates.json exists anywhere.
         private static IEnumerable<string> LegacyCatalogPaths => new[]
@@ -158,19 +157,15 @@ namespace MihomoLauncher.Services
         private static List<BlackMatrixService> LoadNewestTemplates(out string date)
         {
             date = "";
-            List<BlackMatrixService> best = null;
-            foreach (var p in new[] { TemplatesPath, ShippedTemplatesPath })
+            try
             {
-                try
-                {
-                    if (!File.Exists(p)) continue;
-                    var list = ParseTemplates(File.ReadAllText(p, Encoding.UTF8), out var d);
-                    if (list == null || list.Count == 0) continue;
-                    if (best == null || string.CompareOrdinal(d, date) > 0) { best = list; date = d; }
-                }
-                catch { }
+                if (!File.Exists(TemplatesPath)) return null;
+                var list = ParseTemplates(File.ReadAllText(TemplatesPath, Encoding.UTF8), out var d);
+                if (list == null || list.Count == 0) return null;
+                date = d;
+                return list;
             }
-            return best;
+            catch { return null; }
         }
 
         // templates.json text → templates (sorted by name). Null when it isn't a usable catalog,

@@ -37,6 +37,32 @@ namespace MihomoLauncher.Services
         public static readonly SolidColorBrush TileDisabledBg = B("#FF222226");
         public static readonly SolidColorBrush TileDisabledBorder = B("#FF2E2E34");
 
+        // Tile corner chips (gear / reconnect / disconnect): same shape as the VPN plate.
+        public static readonly SolidColorBrush ChipBg = B("#09FFFFFF");
+        public static readonly SolidColorBrush ChipBorder = B("#17FFFFFF");
+        public static readonly SolidColorBrush ChipBgHover = B("#2E5E82C4");
+
+        // The VPN plate at the bottom of a tile, tinted by the tile's state.
+        public static readonly SolidColorBrush PlateGreenBg = B("#1A8FB89B");
+        public static readonly SolidColorBrush PlateGreenBorder = B("#428FB89B");
+        public static readonly SolidColorBrush PlateGreenBgHover = B("#338FB89B");
+        public static readonly SolidColorBrush PlateGreenBorderHover = B("#808FB89B");
+        public static readonly SolidColorBrush PlateAmberBg = B("#1AD9BC8C");
+        public static readonly SolidColorBrush PlateAmberBorder = B("#4DD9BC8C");
+        public static readonly SolidColorBrush PlateAmberBgHover = B("#33D9BC8C");
+        public static readonly SolidColorBrush PlateAmberBorderHover = B("#8CD9BC8C");
+        public static readonly SolidColorBrush PlateRedBg = B("#1AD98C84");
+        public static readonly SolidColorBrush PlateRedBorder = B("#4DD98C84");
+        public static readonly SolidColorBrush PlateRedBgHover = B("#33D98C84");
+        public static readonly SolidColorBrush PlateRedBorderHover = B("#8CD98C84");
+        public static readonly SolidColorBrush PlateNeutralBg = B("#08FFFFFF");
+        public static readonly SolidColorBrush PlateNeutralBorder = B("#0FFFFFFF");
+
+        // The VPN dropdown that opens from the plate.
+        public static readonly SolidColorBrush PickerBorder = B("#FF45454F");
+        public static readonly SolidColorBrush PickerRowHover = B("#0FFFFFFF");
+        public static readonly SolidColorBrush PickerRowCurrent = B("#0DFFFFFF");
+
         // ----- Text -----
         public static readonly SolidColorBrush TextPrimary = B("#FFF1F1F4");
         public static readonly SolidColorBrush TextSecondary = B("#FFA2A2AC");

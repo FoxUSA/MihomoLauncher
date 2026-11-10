@@ -46,6 +46,14 @@
     <sys:String x:Key="Main_BannerNotWorkingIdle">Tiles {0} are not connected. Press ⟳ on a tile to connect it.</sys:String>
     <sys:String x:Key="Main_BannerNotWorkingIdle1">Tile {0} is not connected. Press ⟳ on that tile to connect it.</sys:String>
     <sys:String x:Key="Main_BannerNotWorkingMixed">Tiles {0} are not connected. Some are being retried; the rest are waiting for ⟳ on their tile.</sys:String>
+    <sys:String x:Key="Main_StatsPing">Server:</sys:String>
+    <sys:String x:Key="Main_StatsMs">{0} ms</sys:String>
+    <sys:String x:Key="Main_StatsNoAnswer">no answer</sys:String>
+    <sys:String x:Key="Main_StatsMeasuring">measuring…</sys:String>
+    <sys:String x:Key="Main_StatsCounters">Kill-switch: {0} · DNS: {1}</sys:String>
+    <sys:String x:Key="Main_StatsLast">{0}: {1} → {2} · {3}</sys:String>
+    <sys:String x:Key="Main_StatsNothing">nothing blocked yet</sys:String>
+    <sys:String x:Key="Main_StatsTip">Latency is the time to connect through the VPN server (refreshed every 30 s). Counters show how many times since launch the kill-switch or DNS cut a connection. Click to open the log.</sys:String>
     <sys:String x:Key="Main_QuotedName">“{0}”</sys:String>
     <sys:String x:Key="Main_TileDirect">direct</sys:String>
     <sys:String x:Key="Main_TileReconnecting">reconnecting…</sys:String>
@@ -56,8 +64,11 @@
     <sys:String x:Key="Main_TipEditRule">Edit rule</sys:String>
     <sys:String x:Key="Main_TipReconnectOne">Reconnect just this service</sys:String>
     <sys:String x:Key="Main_TipDisconnectOne">Disconnect just this service</sys:String>
+    <sys:String x:Key="Main_TipPickVpn">Choose the VPN for this tile</sys:String>
     <sys:String x:Key="Main_FootPressConnectFirst">First tap the “ON” button.</sys:String>
     <sys:String x:Key="Main_FootAppNotWorking">“{0}” isn’t working right now. Tap “Reconnect”.</sys:String>
+    <sys:String x:Key="Main_FootWaitingForConnect">Will connect «{0}» as soon as the current connect finishes…</sys:String>
+    <sys:String x:Key="Main_FootLaunching">Starting «{0}»…</sys:String>
     <sys:String x:Key="Main_OpenFailTitle">Couldn’t open</sys:String>
     <sys:String x:Key="Main_OpenFailBody">“{0}” didn’t open.&#10;&#10;Reason: {1}</sys:String>
     <sys:String x:Key="Main_NoVariantsTitle">No variants</sys:String>
@@ -76,6 +87,7 @@
     <sys:String x:Key="Main_EngineNoStartBody">The mihomo engine is installed but not responding. Try again or restart your computer.</sys:String>
     <sys:String x:Key="Main_EngineNoStartPortBusy">Control port {0} is taken by another program: {1}. It is most likely another VPN client. Close it and try again, or restart your computer.</sys:String>
     <sys:String x:Key="Main_EngineNoStartOtherVpn">The mihomo engine isn’t responding. Another VPN is running on this computer: {0}. Two VPNs get in each other’s way — close {0} (and turn off its Firewall / Kill switch), then try again.</sys:String>
+    <sys:String x:Key="Main_EngineNoStartQueued">Windows has postponed starting the engine — this happens when the battery is almost empty or right after a Windows update. Press “Reinstall engine”: the launcher will switch to a Windows service, which Windows does not postpone. Or plug in the charger and wait a minute.</sys:String>
     <sys:String x:Key="Main_EngineNoStartSafeMode">The mihomo engine isn’t responding. “Remote desktop session” is most likely the cause: it stops the engine every 60 seconds. Turn it off on the main screen and try again.</sys:String>
     <sys:String x:Key="Main_DetailCheckingVariants">Checking which connections answer…</sys:String>
     <sys:String x:Key="Main_DetailConnectingVariant">Connecting variant {0} of {1}: {2}</sys:String>
@@ -274,9 +286,9 @@
     <sys:String x:Key="Log_HintAds">What DNS filtered out — your router, your ISP, your own NextDNS/AdGuard or your DNS from the «DNS» tab: ads, counters, trackers. Normal, not a fault; the row says which one.</sys:String>
     <sys:String x:Key="Log_HintOutside">Direct connections of programs that match no rule: the program itself failed to connect, nothing to do with the launcher.</sys:String>
     <sys:String x:Key="Log_HintAll">Everything the engine saw, including what passed fine.</sys:String>
-    <sys:String x:Key="Log_Listening">Listening to the engine…</sys:String>
     <sys:String x:Key="Log_NoEngine">The engine isn’t answering — waiting for it (details in the tooltip).</sys:String>
     <sys:String x:Key="Log_Clear">Clear</sys:String>
+    <sys:String x:Key="Log_CopyRow">Copy row</sys:String>
     <sys:String x:Key="Log_ColTime">Time</sys:String>
     <sys:String x:Key="Log_ColVerdict">Result</sys:String>
     <sys:String x:Key="Log_ColCount">Repeats</sys:String>

@@ -46,6 +46,14 @@
     <sys:String x:Key="Main_BannerNotWorkingIdle">Плитки {0} не подключены. Нажмите ⟳ на плитке, чтобы подключить.</sys:String>
     <sys:String x:Key="Main_BannerNotWorkingIdle1">Плитка {0} не подключена. Нажмите ⟳ на этой плитке, чтобы подключить.</sys:String>
     <sys:String x:Key="Main_BannerNotWorkingMixed">Плитки {0} не подключены. Часть из них подключаю сам, остальные ждут ⟳ на плитке.</sys:String>
+    <sys:String x:Key="Main_StatsPing">Сервер:</sys:String>
+    <sys:String x:Key="Main_StatsMs">{0} мс</sys:String>
+    <sys:String x:Key="Main_StatsNoAnswer">нет ответа</sys:String>
+    <sys:String x:Key="Main_StatsMeasuring">замеряю…</sys:String>
+    <sys:String x:Key="Main_StatsCounters">Kill-switch: {0} · DNS: {1}</sys:String>
+    <sys:String x:Key="Main_StatsLast">{0}: {1} → {2} · {3}</sys:String>
+    <sys:String x:Key="Main_StatsNothing">ничего не блокировалось</sys:String>
+    <sys:String x:Key="Main_StatsTip">Задержка — время соединения с VPN-сервером (обновляется раз в 30 с). Счётчики — сколько раз с запуска утилиты соединение отрезал kill-switch или DNS. Нажмите, чтобы открыть журнал.</sys:String>
     <sys:String x:Key="Main_QuotedName">«{0}»</sys:String>
     <sys:String x:Key="Main_TileDirect">напрямую</sys:String>
     <sys:String x:Key="Main_TileReconnecting">переподключаю…</sys:String>
@@ -56,8 +64,11 @@
     <sys:String x:Key="Main_TipEditRule">Изменить правило</sys:String>
     <sys:String x:Key="Main_TipReconnectOne">Переподключить только этот сервис</sys:String>
     <sys:String x:Key="Main_TipDisconnectOne">Отключить только этот сервис</sys:String>
+    <sys:String x:Key="Main_TipPickVpn">Выбрать VPN для этой плитки</sys:String>
     <sys:String x:Key="Main_FootPressConnectFirst">Сначала нажмите кнопку «ON».</sys:String>
     <sys:String x:Key="Main_FootAppNotWorking">«{0}» сейчас не работает. Нажмите «Подключить заново».</sys:String>
+    <sys:String x:Key="Main_FootWaitingForConnect">Подключу «{0}», как только закончится текущее подключение…</sys:String>
+    <sys:String x:Key="Main_FootLaunching">Запускаю «{0}»…</sys:String>
     <sys:String x:Key="Main_OpenFailTitle">Не получилось открыть</sys:String>
     <sys:String x:Key="Main_OpenFailBody">«{0}» не открылась.&#10;&#10;Причина: {1}</sys:String>
     <sys:String x:Key="Main_NoVariantsTitle">Нет вариантов</sys:String>
@@ -76,6 +87,7 @@
     <sys:String x:Key="Main_EngineNoStartBody">Движок mihomo установлен, но не отвечает. Попробуйте ещё раз или перезагрузите компьютер.</sys:String>
     <sys:String x:Key="Main_EngineNoStartPortBusy">Порт управления {0} занят другой программой: {1}. Скорее всего это другой VPN-клиент. Закройте его и попробуйте снова или перезагрузите компьютер.</sys:String>
     <sys:String x:Key="Main_EngineNoStartOtherVpn">Движок mihomo не отвечает. На компьютере работает другой VPN: {0}. Два VPN мешают друг другу — закройте {0} (и выключите в нём Firewall / Kill switch), затем попробуйте снова.</sys:String>
+    <sys:String x:Key="Main_EngineNoStartQueued">Windows отложила запуск движка — так бывает, когда батарея почти разряжена или сразу после обновления Windows. Нажмите «Переустановить движок»: утилита перейдёт на запуск через службу Windows, и такого больше не будет. Или подключите зарядку и подождите минуту.</sys:String>
     <sys:String x:Key="Main_EngineNoStartSafeMode">Движок mihomo не отвечает. Скорее всего мешает включённый «Remote desktop session»: он останавливает движок каждые 60 секунд. Выключите его на главном экране и попробуйте снова.</sys:String>
     <sys:String x:Key="Main_DetailCheckingVariants">Проверяю, какие подключения отвечают…</sys:String>
     <sys:String x:Key="Main_DetailConnectingVariant">Подключаю вариант {0} из {1}: {2}</sys:String>
@@ -274,9 +286,9 @@
     <sys:String x:Key="Log_HintAds">Что вырезал DNS — роутер, провайдер, ваш NextDNS/AdGuard или ваш DNS из вкладки «DNS»: реклама, счётчики, трекеры. Это норма, а не сбой; кто именно — написано в строке.</sys:String>
     <sys:String x:Key="Log_HintOutside">Прямые соединения программ, не попавшие ни под одно правило: не дозвонилась сама программа, утилита ни при чём.</sys:String>
     <sys:String x:Key="Log_HintAll">Всё, что видел движок, включая успешно пропущенное.</sys:String>
-    <sys:String x:Key="Log_Listening">Слушаю движок…</sys:String>
     <sys:String x:Key="Log_NoEngine">Движок не отвечает — жду его (подробности во всплывающей подсказке).</sys:String>
     <sys:String x:Key="Log_Clear">Очистить</sys:String>
+    <sys:String x:Key="Log_CopyRow">Копировать строку</sys:String>
     <sys:String x:Key="Log_ColTime">Время</sys:String>
     <sys:String x:Key="Log_ColVerdict">Итог</sys:String>
     <sys:String x:Key="Log_ColCount">Повторов</sys:String>

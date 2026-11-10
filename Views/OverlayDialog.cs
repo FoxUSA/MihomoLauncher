@@ -18,6 +18,12 @@ namespace MihomoLauncher.Views
             Wpf.Ui.Controls.ControlAppearance okAppearance = Wpf.Ui.Controls.ControlAppearance.Primary)
             => ShowAsync(owner, title, body, okText ?? Services.Loc.T("Dlg_Yes"), cancelText ?? Services.Loc.T("Dlg_Cancel"), okAppearance);
 
+        // Same, but the caller can take the dialog down itself (as "cancel") — for a question
+        // that stops being a question, e.g. "reinstall the engine?" once the engine answers.
+        public static Task<bool> ConfirmAsync(Window owner, string title, string body, string okText, string cancelText,
+            System.Threading.CancellationToken dismiss)
+            => ShowAsync(owner, title, body, okText, cancelText, Wpf.Ui.Controls.ControlAppearance.Primary, null, 400, dismiss);
+
         // Result of a confirm dialog that carries an extra toggle switch.
         public class ToggleConfirm
         {
@@ -43,7 +49,7 @@ namespace MihomoLauncher.Views
 
         private static Task<bool> ShowAsync(Window owner, string title, string body, string okText, string cancelText,
             Wpf.Ui.Controls.ControlAppearance okAppearance = Wpf.Ui.Controls.ControlAppearance.Primary,
-            UIElement content = null, double width = 400)
+            UIElement content = null, double width = 400, System.Threading.CancellationToken dismiss = default(System.Threading.CancellationToken))
         {
             var tcs = new TaskCompletionSource<bool>();
 
@@ -132,6 +138,8 @@ namespace MihomoLauncher.Views
             card.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             rootGrid.Children.Add(overlay);
+            if (dismiss.CanBeCanceled)
+                dismiss.Register(() => owner.Dispatcher.BeginInvoke(new System.Action(() => Close(false))));
             return tcs.Task;
         }
 

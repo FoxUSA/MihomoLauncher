@@ -135,7 +135,7 @@ namespace MihomoLauncher.Views
             if (q.IsEmpty)
             {
                 FindBox.Visibility = Visibility.Collapsed;
-                foreach (var v in _views) { v.Card.Opacity = 1; v.HitLine.Visibility = Visibility.Collapsed; }
+                foreach (var v in _views) { v.Card.Visibility = Visibility.Visible; v.HitLine.Visibility = Visibility.Collapsed; }
                 return;
             }
 
@@ -166,7 +166,8 @@ namespace MihomoLauncher.Views
                 var h = hits[i];
                 if (h == null)
                 {
-                    v.Card.Opacity = 0.45;
+                    // Couldn't read the list — stays visible: "no match" isn't known.
+                    v.Card.Visibility = Visibility.Visible;
                     v.HitLine.Visibility = Visibility.Visible;
                     v.HitLine.Foreground = Theme.TextMuted;
                     v.HitLine.Text = Loc.T("Sub_HitUnreadable");
@@ -174,12 +175,12 @@ namespace MihomoLauncher.Views
                 }
                 if (h.Count == 0)
                 {
-                    v.Card.Opacity = 0.45;
+                    v.Card.Visibility = Visibility.Collapsed;
                     v.HitLine.Visibility = Visibility.Collapsed;
                     continue;
                 }
                 lists++;
-                v.Card.Opacity = 1;
+                v.Card.Visibility = Visibility.Visible;
                 v.HitLine.Visibility = Visibility.Visible;
                 if (h.Catch != null && first == null) { first = v; firstHit = h; }
                 bool catches = h.Catch != null;

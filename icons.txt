@@ -130,7 +130,7 @@ apache-subversion
 apache-superset
 apache-tomcat
 apc
-api.ru.dog
+api.xbyfox.com
 apiscp
 appdaemon
 appflowy
@@ -3529,7 +3529,7 @@ z-wave-js-ui
 zyxel-communications
 zyxel-networks
 zyxel-networks-wordmark
-@ru.dog=api.ru.dog
+@api.xbyfox.com=api.xbyfox.com
 claude=anthropic
 anthropic=claude-ai
 клод=anthropic

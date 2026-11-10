@@ -13,4 +13,6 @@ desktop.ini
 
 # The full tile icon set (~150 MB) lives on byfox.dev, not in the repo;
 # build\gen-icons.ps1 reads it from here when regenerating icons.txt.
+# (ico\ since 2026-10; ico_web\ before.) Tiles bundled in the build: app ico\.
 /ico_web/
+/ico/

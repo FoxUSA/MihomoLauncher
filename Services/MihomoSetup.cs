@@ -11,7 +11,7 @@ namespace MihomoLauncher.Services
     // with highest privileges. After this (single UAC prompt), mihomo starts
     // elevated automatically on every logon and the non-admin launcher controls
     // it purely via the RESTful API.
-    public static class MihomoSetup
+    public static partial class MihomoSetup
     {
         public const string TaskName = "MihomoLauncher_mihomo";
 
@@ -96,6 +96,7 @@ namespace MihomoLauncher.Services
         // mihomo's API is up — the caller polls for that).
         public static bool RunTask()
         {
+            if (IsServiceInstalled()) return SendServiceCommand(SvcCmdStartEngine, "запуск движка");
             string output;
             var code = RunSchtasks("/Run /TN \"" + TaskName + "\"", out output);
             if (code != 0)
@@ -110,6 +111,7 @@ namespace MihomoLauncher.Services
         // and it lands in the log as mojibake.
         public static string TaskState()
         {
+            if (IsServiceInstalled()) return ServiceState();
             object svc = null, folder = null, task = null;
             try
             {
@@ -166,6 +168,7 @@ namespace MihomoLauncher.Services
         // Allowed for the task owner without elevation, same as /Run.
         public static void EndTask()
         {
+            if (IsServiceInstalled()) { StopService(); return; }
             string output;
             RunSchtasks("/End /TN \"" + TaskName + "\"", out output);
         }
@@ -305,6 +308,7 @@ namespace MihomoLauncher.Services
         public static bool TaskMatchesConfig(AppConfig cfg, out string reason)
         {
             reason = "";
+            if (IsServiceInstalled()) return ServiceMatchesConfig(cfg, out reason);
             string taskExe, args;
             if (!InstalledTaskCommand(out taskExe, out args)) return true;   // unreadable → don't nag
 
@@ -346,9 +350,11 @@ namespace MihomoLauncher.Services
                                  StringComparison.OrdinalIgnoreCase);
         }
 
-        // Is the scheduled task already registered?
+        // Is the engine set up to be started — the service, or (installs from before it) the
+        // scheduled task?
         public static bool IsTaskInstalled()
         {
+            if (IsServiceInstalled()) return true;
             string output;
             return RunSchtasks("/Query /TN \"" + TaskName + "\"", out output) == 0;
         }
@@ -383,6 +389,7 @@ namespace MihomoLauncher.Services
 
         public static bool IsStopTaskInstalled()
         {
+            if (IsServiceInstalled()) return true;   // the service kills engines itself
             string output;
             return RunSchtasks("/Query /TN \"" + StopTaskName + "\"", out output) == 0;
         }
@@ -415,6 +422,7 @@ namespace MihomoLauncher.Services
 
         public static bool IsFirewallTaskInstalled()
         {
+            if (IsServiceInstalled()) return true;   // the service runs the sync
             string output;
             return RunSchtasks("/Query /TN \"" + FirewallTaskName + "\"", out output) == 0;
         }
@@ -423,6 +431,7 @@ namespace MihomoLauncher.Services
         // task you are allowed to start is not an elevation prompt.
         public static bool RunFirewallTask()
         {
+            if (IsServiceInstalled()) return SendServiceCommand(SvcCmdFirewallSync, "синхронизация брандмауэра");
             string output;
             var code = RunSchtasks("/Run /TN \"" + FirewallTaskName + "\"", out output);
             if (code != 0)
@@ -448,6 +457,11 @@ namespace MihomoLauncher.Services
         // installed at all, so the caller's single "needs the elevated install" path covers both.
         public static bool FirewallTaskMatchesExe()
         {
+            if (IsServiceInstalled())
+            {
+                var launcher = ImageArg(ServiceImagePath(), "launcher");
+                return launcher.Length == 0 || SamePath(launcher, LauncherExePath());
+            }
             if (!IsFirewallTaskInstalled()) return false;
             string exe, args;
             if (!TaskCommand(FirewallTaskName, out exe, out args)) return true;   // unreadable → don't nag
@@ -521,6 +535,18 @@ namespace MihomoLauncher.Services
 
             KillLeftoverEngines(cfg, blockerPid);
             if (WaitEngineGone(name, 1000)) return true;
+
+            if (IsServiceInstalled())
+            {
+                SendServiceCommand(SvcCmdKillEngines, "принудительная остановка движка");
+                if (WaitEngineGone(name, 5000))
+                {
+                    Log.Info("Движок остановлен принудительно (служба " + ServiceName + ").");
+                    return true;
+                }
+                Log.Info("Движок не остановился даже принудительно — процесс " + name + " ещё жив.");
+                return false;
+            }
 
             if (!IsStopTaskInstalled())
             {
@@ -632,19 +658,29 @@ namespace MihomoLauncher.Services
                 // A tiny batch avoids nested-quote hell. Kill+delete any previous task
                 // (incl. an old visible-console variant) and stray mihomo first.
                 var bat = Path.Combine(Path.GetTempPath(), "mihomolauncher_mihomo_setup.bat");
+                // The service first (see MihomoSetup.Service); the three tasks only as the
+                // fallback when it could not be registered. Either way the old tasks go, so
+                // exactly one mechanism is left to start the engine.
+                // chcp 65001 + a UTF-8 file: paths with Cyrillic in them (a user folder, an
+                // install dir) survive the trip through cmd.
                 var content =
                     "@echo off\r\n" +
+                    "chcp 65001 >nul\r\n" +
                     "schtasks /End /TN \"" + TaskName + "\" >nul 2>&1\r\n" +
                     "schtasks /Delete /TN \"" + TaskName + "\" /F >nul 2>&1\r\n" +
                     "taskkill /F /IM \"" + Path.GetFileName(exe) + "\" >nul 2>&1\r\n" +
                     "schtasks /Delete /TN \"" + StopTaskName + "\" /F >nul 2>&1\r\n" +
-                    "schtasks /Create /TN \"" + StopTaskName + "\" /XML \"" + stopXmlPath + "\" /F >nul 2>&1\r\n" +
                     "schtasks /Delete /TN \"" + FirewallTaskName + "\" /F >nul 2>&1\r\n" +
+                    ServiceInstallBatch(exe, workDir) +
+                    "if \"%SVC_OK%\"==\"1\" goto done\r\n" +
+                    "schtasks /Create /TN \"" + StopTaskName + "\" /XML \"" + stopXmlPath + "\" /F >nul 2>&1\r\n" +
                     "schtasks /Create /TN \"" + FirewallTaskName + "\" /XML \"" + fwXmlPath + "\" /F >nul 2>&1\r\n" +
                     "schtasks /Create /TN \"" + TaskName + "\" /XML \"" + xmlPath + "\" /F\r\n" +
                     "schtasks /Run /TN \"" + TaskName + "\"\r\n" +
-                    "exit /b %errorlevel%\r\n";
-                File.WriteAllText(bat, content);
+                    "exit /b %errorlevel%\r\n" +
+                    ":done\r\n" +
+                    "exit /b 0\r\n";
+                File.WriteAllText(bat, content, new System.Text.UTF8Encoding(false));
 
                 var psi = new ProcessStartInfo
                 {
@@ -660,6 +696,11 @@ namespace MihomoLauncher.Services
                     p.WaitForExit(20000);
                 }
 
+                Log.Info("Настройка движка: " + (IsServiceInstalled()
+                    ? "служба " + ServiceName + "."
+                    : "задачи планировщика (службу зарегистрировать не удалось)."));
+                // Same as the task path above (its /Run): the engine comes up at the end of setup.
+                if (IsServiceInstalled()) RunTask();
                 return IsTaskInstalled();
             }
             catch (System.ComponentModel.Win32Exception wex) when (wex.NativeErrorCode == 1223)

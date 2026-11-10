@@ -602,7 +602,11 @@ namespace MihomoLauncher.Services
             sb.AppendLine("mixed-port: " + mixed);
             sb.AppendLine("allow-lan: false");
             sb.AppendLine("mode: rule");
-            sb.AppendLine("log-level: warning");
+            // The level the launcher's log feed keeps the engine at anyway (EngineLog sets it on
+            // start and re-asserts it every 20 s). "warning" here only made every reload switch
+            // the engine quiet for up to 20 s — exactly while it reloaded, so the lines that say
+            // why a reload took seconds never came out (slow-reload diagnostics, 2026-11-09).
+            sb.AppendLine("log-level: debug");
             // Always resolve the owning process so PROCESS-NAME rules (the kill-switch)
             // reliably match under TUN.
             sb.AppendLine("find-process-mode: always");
@@ -767,7 +771,7 @@ namespace MihomoLauncher.Services
                 if (pol != null) policies[n] = pol;
             }
             SubscriptionPolicy.NoteBuilt(cfg, subscribed);
-            SubscriptionPolicy.AppendBlocks(sb, policies.Values);
+            SubscriptionPolicy.AppendBlocks(sb, policies.Values, AppConfigStore.ResolveMihomoWorkDir(cfg));
 
             // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
             // on, in which case its target (a proxy, or REJECT under its kill-switch).

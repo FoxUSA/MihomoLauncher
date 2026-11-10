@@ -1,5 +1,5 @@
 # Tile icon aliases — hand-maintained. build\gen-icons.ps1 merges this with the file list of
-# ico_web\ (the icon set uploaded to https://byfox.dev/data/mihomolauncher/ico/) into the
+# ico\ (the icon set uploaded to https://byfox.dev/data/mihomolauncher/ico/) into the
 # shipped icons.txt. IconFetcher recognises a rule by: its name, its programs' exe names,
 # its sites' domains, its blackmatrix7 template name and the template's domains.
 #
@@ -10,7 +10,7 @@
 # telegram, chatgpt…) needs no line here.
 
 # ---- our own icons ----
-@ru.dog=api.ru.dog
+@api.xbyfox.com=api.xbyfox.com
 
 # ---- AI ----
 # dashboard-icons names are swapped: anthropic.png = the Claude starburst, claude-ai.png = the Anthropic «A\» logo
@@ -161,7 +161,7 @@ epic games=epic-games
 ноушн=notion
 @notion.so=notion
 
-# Our own: the byFox fox (ico\byfox.png is shipped in the build, and uploaded to ico_web too)
+# Our own: the byFox fox (app ico\byfox.png is shipped in the build, and uploaded from ico\ too)
 byfox=byfox
 xbyfox=byfox
 @byfox.dev=byfox

@@ -96,6 +96,7 @@ namespace MihomoLauncher.Services
                 var row = new LogRow(category, verdict, why, process, host, rule);
                 LogRow existing;
                 PersistProblem(row);
+                CountBlock(row);
                 if (_index.TryGetValue(row.Key, out existing)) { existing.Bump(DateTime.Now); return; }
                 _index[row.Key] = row;
                 Rows.Add(row);
@@ -116,6 +117,7 @@ namespace MihomoLauncher.Services
                 var owner = EngineLog.FindOwner(_owners, e.RulePayload, e.Host);
                 var row = new LogRow(e, owner);
                 PersistProblem(row);
+                CountBlock(row);
 
                 LogRow existing;
                 if (_index.TryGetValue(row.Key, out existing)) { existing.Bump(e.Time); return; }
@@ -128,6 +130,22 @@ namespace MihomoLauncher.Services
                     Rows.RemoveAt(0);
                 }
             });
+        }
+
+        // Every block since the launcher started, counted per EVENT (rows fold repeats, these
+        // don't) — the main window's stats strip shows them while there's nothing else to say.
+        public int KillSwitchHits { get; private set; }
+        public int DnsHits { get; private set; }
+
+        // The latest blocked event, whatever row it folded into — the strip's «последнее».
+        public LogRow LastBlock { get; private set; }
+
+        private void CountBlock(LogRow row)
+        {
+            if (row == null || row.Block == BlockKind.None) return;
+            if (row.Block == BlockKind.KillSwitch) KillSwitchHits++;
+            else DnsHits++;
+            LastBlock = row;
         }
 
         // Row key → when it last went to problems.log. A blocked page repeats the same verdict
@@ -187,6 +205,10 @@ namespace MihomoLauncher.Services
         Passed,     // routed fine
     }
 
+    // Who cut a connection, for the main window's counters: the launcher's kill-switch
+    // (engine REJECT or the Windows firewall) or a DNS server that answered with a stub/nothing.
+    public enum BlockKind { None, KillSwitch, Dns }
+
     // One line of the log. Repeats of the same host+reason fold into it, so Time is the LAST
     // time it happened and Count says how often.
     public class LogRow : INotifyPropertyChanged
@@ -213,6 +235,8 @@ namespace MihomoLauncher.Services
             Host = host ?? "";
             RuleText = rule ?? "";
             Key = "own|" + VerdictText + "|" + ProcessName + "|" + Host + "|" + WhyText;
+            // The only Problem the launcher writes itself is the firewall cutting traffic.
+            Block = category == LogCategory.Problem ? BlockKind.KillSwitch : BlockKind.None;
         }
 
         public LogRow(EngineLogEntry e, EngineLog.RuleHit owner)
@@ -277,6 +301,7 @@ namespace MihomoLauncher.Services
                         : Loc.T("Log_WhyForeignDirect", e.Detail);
                 RuleText = owner != null ? owner.RuleName : "";
                 Key = ((int)e.Kind) + "|" + Host + "|" + ProcessName + "|" + WhyText;
+                Block = adBlocked ? BlockKind.Dns : BlockKind.None;
                 return;
             }
 
@@ -324,7 +349,12 @@ namespace MihomoLauncher.Services
 
             RuleText = owner != null ? owner.RuleName : "";
             Key = ((int)e.Kind) + "|" + Host + "|" + ProcessName + "|" + WhyText;
+            Block = e.Kind == EngineLogKind.Blocked ? BlockKind.KillSwitch
+                  : ownDnsFailed || (e.Kind == EngineLogKind.Dns && IsOwnServer(e.Detail)) ? BlockKind.Dns
+                  : BlockKind.None;
         }
+
+        public BlockKind Block { get; private set; }
 
         // Grouping key for the optional per-application collapse. One program hammering fifty
         // different hosts with the same verdict is one fact, not fifty — and while it spams, the

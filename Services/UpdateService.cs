@@ -52,6 +52,7 @@ namespace MihomoLauncher.Services
         private const string ManifestUrl = BaseUrl + "manifest.json";
         // The launcher self-update archive. It contains MihomoLauncher.exe + Data\ (and optionally
         // help/uninstall shortcuts) but NOT DataUser\ — everything in it is applied as-is.
+        // (The site's clean-install archive is the separate, full mihomolauncher.zip.)
         private const string ZipUrl = BaseUrl + "update.zip";
         private const string MihomoUrl = BaseUrl + "mihomo-windows-amd64.exe";
 

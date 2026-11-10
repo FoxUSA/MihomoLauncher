@@ -234,7 +234,8 @@ namespace MihomoLauncher.Views
         private void ShowStatus(string message)
         {
             bool ok = string.IsNullOrWhiteSpace(message);
-            LblStatus.Text = ok ? Loc.T("Log_Listening") : Loc.T("Log_NoEngine");
+            // Nothing to say while the stream is fine — the label only speaks up when it isn't.
+            LblStatus.Text = ok ? "" : Loc.T("Log_NoEngine");
             // The engine's error text is a whole .NET sentence — useful when something really is
             // wrong, far too long for a line that sits next to the tabs. It lives in the tooltip.
             LblStatus.ToolTip = ok ? null : message;
@@ -252,10 +253,35 @@ namespace MihomoLauncher.Views
             {
                 var r = o as LogRow;
                 if (r == null) continue;
-                sb.AppendLine(string.Join("\t", r.TimeText, r.CountText, r.VerdictText,
-                                                r.RuleText, r.ProcessName, r.Host, r.WhyText));
+                sb.AppendLine(RowLine(r));
             }
             try { Clipboard.SetText(sb.ToString()); } catch { }
+        }
+
+        private static string RowLine(LogRow r) =>
+            string.Join("\t", r.TimeText, r.CountText, r.VerdictText,
+                              r.RuleText, r.ProcessName, r.Host, r.WhyText);
+
+        // Right-click picks the row under the mouse first, so «Копировать строку» copies the row
+        // that was clicked, not whichever one happened to be selected. Off a row — no menu.
+        private void OnGridRightDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // A click on a <Run> (the «chrome.exe · Chrome» line) lands on a ContentElement,
+            // which has no visual parent — walk its logical parent until we're back in visuals.
+            var dep = e.OriginalSource as DependencyObject;
+            while (dep != null && !(dep is System.Windows.Controls.DataGridRow))
+                dep = dep is System.Windows.Media.Visual
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(dep) : LogicalTreeHelper.GetParent(dep);
+            var row = dep as System.Windows.Controls.DataGridRow;
+            if (row == null) { e.Handled = true; return; }
+            row.IsSelected = true;
+        }
+
+        private void OnCopyRow(object sender, RoutedEventArgs e)
+        {
+            var r = Grid.SelectedItem as LogRow;
+            if (r == null) return;
+            try { Clipboard.SetText(RowLine(r)); } catch { }
         }
 
         private void OnClose(object sender, RoutedEventArgs e) => Close();

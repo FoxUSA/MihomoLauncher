@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -165,6 +166,7 @@ namespace MihomoLauncher.Services
                             {
                                 var line = await reader.ReadLineAsync().ConfigureAwait(false);
                                 if (line == null) break;               // engine went away
+                                RememberSystemLine(line);
                                 var entry = Parse(line);
                                 if (entry != null) Entry?.Invoke(entry);
                             }
@@ -185,6 +187,42 @@ namespace MihomoLauncher.Services
                 // The engine may be restarting (reconnect, don't spin).
                 try { await Task.Delay(1500, ct).ConfigureAwait(false); } catch { return; }
             }
+        }
+
+        // ---- the engine's own lines (not per-connection), for the slow-reload note ----
+        //
+        // A reload that takes seconds left app.log with nothing but «за 7 с» (PAPA2, 2026-11-09):
+        // what the engine spent them on is in its own lines — TUN, DNS, providers, rule sets.
+        // The last few hundred of those are kept here; MihomoController asks for the window of
+        // a slow reload. Connection and DNS-query chatter is left out: it is per-request noise.
+
+        private static readonly object SysLock = new object();
+        private static readonly LinkedList<KeyValuePair<DateTime, string>> SysLines = new LinkedList<KeyValuePair<DateTime, string>>();
+        private const int SysLinesMax = 300;
+
+        private static void RememberSystemLine(string line)
+        {
+            try
+            {
+                var m = JsonLine.Match(line ?? "");
+                var payload = m.Success ? Unescape(m.Groups["payload"].Value) : (line ?? "");
+                var type = m.Success ? m.Groups["type"].Value : "";
+                if (payload.StartsWith("[TCP]") || payload.StartsWith("[UDP]") || payload.StartsWith("[DNS]")) return;
+                var text = (type.Length > 0 ? type + ": " : "") + payload;
+                lock (SysLock)
+                {
+                    SysLines.AddLast(new KeyValuePair<DateTime, string>(DateTime.Now, text));
+                    while (SysLines.Count > SysLinesMax) SysLines.RemoveFirst();
+                }
+            }
+            catch { }
+        }
+
+        // The engine's own lines seen between the two moments, oldest first.
+        public static List<string> SystemLinesBetween(DateTime from, DateTime to)
+        {
+            lock (SysLock)
+                return SysLines.Where(kv => kv.Key >= from && kv.Key <= to).Select(kv => kv.Value).ToList();
         }
 
         // ---- parsing ----

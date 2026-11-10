@@ -137,7 +137,9 @@ namespace MihomoLauncher.Services
                 var args = "/c start /wait \"\" \"" + self + "\" --firewall-clear"
                          + " & schtasks /Delete /TN \"" + MihomoSetup.TaskName + "\" /F"
                          + " & schtasks /Delete /TN \"" + MihomoSetup.StopTaskName + "\" /F"
-                         + " & schtasks /Delete /TN \"" + MihomoSetup.FirewallTaskName + "\" /F";
+                         + " & schtasks /Delete /TN \"" + MihomoSetup.FirewallTaskName + "\" /F"
+                         + " & sc stop " + MihomoSetup.ServiceName
+                         + " & sc delete " + MihomoSetup.ServiceName;
                 var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",

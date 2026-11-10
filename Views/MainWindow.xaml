@@ -328,27 +328,56 @@
                     </ItemsControl.ItemsPanel>
                 </ItemsControl>
 
-                <!-- Bottom status banner (green when ok, red when not) + footer note -->
-                <StackPanel Grid.Row="2" Margin="18,12,18,12">
-                    <Border x:Name="TopBanner"
-                            Padding="14,9"
-                            CornerRadius="7"
-                            Background="{x:Static svc:Theme.BannerOkBg}"
-                            BorderThickness="1"
-                            BorderBrush="{x:Static svc:Theme.BannerOkBorder}">
-                        <TextBlock x:Name="BannerText"
-                                   FontSize="13.5"
-                                   FontWeight="Medium"
-                                   Foreground="{x:Static svc:Theme.BannerOkText}"
-                                   TextWrapping="Wrap"
-                                   Text="{DynamicResource Main_BannerAllWorks}" />
-                    </Border>
-                    <TextBlock x:Name="StatusFoot"
-                               Margin="2,6,0,0"
-                               VerticalAlignment="Center"
-                               FontSize="12"
-                               Opacity="0.6" />
-                </StackPanel>
+                <!-- ONE plate at the bottom (MainWindow.Stats.cs) — no space reserved for anything:
+                     the status message (TopBanner/BannerText), the footer note (StatusFoot), the
+                     latency to each VPN server in use, how often the kill-switch / DNS cut
+                     something + the latest such cut. Each line is there only when it has
+                     something to say; with nothing at all the plate is gone. Click = the log. -->
+                <Border x:Name="StatsStrip"
+                        Grid.Row="2"
+                        Margin="18,12,18,14"
+                        Visibility="Collapsed"
+                        Padding="12,7"
+                        CornerRadius="7"
+                        Background="#FF1E2027"
+                        BorderThickness="1"
+                        BorderBrush="#FF2C303A"
+                        MouseLeftButtonUp="OnStatsClick">
+                        <StackPanel x:Name="StatsLines">
+                            <Border x:Name="TopBanner" Visibility="Collapsed">
+                                <TextBlock x:Name="BannerText"
+                                           FontSize="13"
+                                           FontWeight="Medium"
+                                           Foreground="{x:Static svc:Theme.BannerInfoText}"
+                                           TextWrapping="Wrap" />
+                            </Border>
+                            <TextBlock x:Name="StatusFoot"
+                                       Visibility="Collapsed"
+                                       FontSize="12.5"
+                                       Foreground="{x:Static svc:Theme.TextSecondary}"
+                                       TextWrapping="Wrap" />
+                            <WrapPanel x:Name="StatsPing" Orientation="Horizontal" Visibility="Collapsed" />
+                            <Grid x:Name="StatsBlocksRow" Visibility="Collapsed">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <ui:SymbolIcon Symbol="ShieldError24" FontSize="14"
+                                                   Foreground="{x:Static svc:Theme.TextSecondary}"
+                                                   Margin="0,0,6,0" VerticalAlignment="Center" />
+                                    <TextBlock x:Name="StatsCounters" FontSize="12.5"
+                                               Foreground="{x:Static svc:Theme.TextSecondary}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock x:Name="StatsTicker" Grid.Column="1"
+                                           Margin="10,0,0,0" FontSize="12.5"
+                                           Foreground="{x:Static svc:Theme.TextMuted}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                            </Grid>
+                        </StackPanel>
+                </Border>
             </Grid>
 
             <!-- Connecting overlay -->

@@ -188,6 +188,26 @@ namespace MihomoLauncher.Services
                 Directory.CreateDirectory(Path.GetDirectoryName(userCat));
                 try { File.Copy(dataCat, userCat, overwrite: false); } catch { }
             }
+
+            // Tile icons downloaded by builds that cached them in Data\ico (up to 2.2.8): keep
+            // them in DataUser\ico, where the cache lives now (IconFetcher) — otherwise the first
+            // start after the update shows tiles without icons until it manages to re-download.
+            // Shipped ones come along too; harmless, Data\ico is looked up first.
+            var dataIco = Path.Combine(root, "Data", "ico");
+            var userIco = Path.Combine(root, "DataUser", "ico");
+            if (Directory.Exists(dataIco))
+            {
+                try
+                {
+                    Directory.CreateDirectory(userIco);
+                    foreach (var f in Directory.GetFiles(dataIco, "*.png"))
+                    {
+                        var to = Path.Combine(userIco, Path.GetFileName(f));
+                        if (!File.Exists(to)) try { File.Copy(f, to); } catch { }
+                    }
+                }
+                catch { }
+            }
         }
 
         // Recursively clear attributes (ReadOnly/Hidden/System) and delete a directory.

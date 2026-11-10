@@ -605,7 +605,7 @@ namespace MihomoLauncher.Services
                         {
                             _lastFailedSig = want;
                             Log.Info("Брандмауэр: защита не установлена — нужна кнопка «Переустановить движок» "
-                                     + "(она регистрирует задачу " + MihomoSetup.FirewallTaskName + ").");
+                                     + "(она регистрирует службу " + MihomoSetup.ServiceName + ").");
                         }
                         return false;
                     }
@@ -634,8 +634,8 @@ namespace MihomoLauncher.Services
                     if (_lastFailedSig != want)
                     {
                         _lastFailedSig = want;
-                        Log.Info("Брандмауэр: правила применить не удалось (задача "
-                                 + MihomoSetup.FirewallTaskName + " не отчиталась).");
+                        Log.Info("Брандмауэр: правила применить не удалось ("
+                                 + MihomoSetup.FirewallHelperName() + " не отчиталась).");
                     }
                     return false;
                 }

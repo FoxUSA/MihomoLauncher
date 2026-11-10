@@ -44,6 +44,7 @@ namespace MihomoLauncher.Services
         public List<string> ProviderLines { get; } = new List<string>();  // lines under `rule-providers:`
         public List<string> RuleLines { get; } = new List<string>();      // the block's rules, already quoted
         public List<RuleListFile> Lists { get; } = new List<RuleListFile>();
+        public List<ListProvider> Providers { get; } = new List<ListProvider>();  // ProviderLines, per list
         public List<string> Dropped { get; } = new List<string>();        // what could not be carried over, for the log
         public string Final { get; set; } = "DIRECT";                     // where the block's MATCH sends the rest
         public string Signature { get; set; } = "";                       // changes iff the emitted text changes
@@ -87,6 +88,18 @@ namespace MihomoLauncher.Services
         public string Key { get; set; } = "";
         public string Url { get; set; } = "";
         public string RelPath { get; set; } = "";   // as written in the config: ./providers/rules/…
+        public int IntervalSeconds { get; set; } = 86400;   // the subscription's own, else a day
+        public string Behavior { get; set; } = "classical";
+        public string Format { get; set; } = "yaml";
+    }
+
+    // One `rule-providers:` entry of a subscription, under our key: its lines as the subscription
+    // wrote them, and where its file lives — so the config can swap in the converted parts.
+    public sealed class ListProvider
+    {
+        public string Key { get; set; } = "";
+        public List<string> Lines { get; set; } = new List<string>();
+        public string RelPath { get; set; }          // null = inline, nothing on disk
     }
 
     public static class SubscriptionPolicy
@@ -146,6 +159,8 @@ namespace MihomoLauncher.Services
             if (policy == null) return null;   // a plain server list: nothing to carry over
 
             await FetchListsAsync(cfg, policy, all: false, report: null, ct: ct);
+            await Task.Run(() => CompileLists(cfg, policy, ct), ct);
+            RefreshStaleListsSoon(cfg, policy);
 
             var why = await Task.Run(() => Validate(cfg, policy), ct);
             if (why != null)
@@ -187,6 +202,7 @@ namespace MihomoLauncher.Services
 
             await FetchListsAsync(cfg, policy, all: true, report: report, ct: ct);
             report.Checking();
+            await Task.Run(() => CompileLists(cfg, policy, ct), ct);
             var why = await Task.Run(() => Validate(cfg, policy), ct);
             report.Finish();
             if (why != null) return Loc.T("Svc_SubRulesRejected", why);
@@ -253,6 +269,56 @@ namespace MihomoLauncher.Services
                 Log.Info("Подписка «" + policy.Name + "»: пока движок не скачает " + string.Join(", ", failed)
                          + " сам, сайты из них пойдут по концу правил подписки (" + policy.Final + ").");
             report?.Failed.AddRange(failed);
+        }
+
+        // A list in the fast form is a plain file to the engine, which used to keep it fresh itself
+        // (http provider, interval). So the launcher does: when such a list is older than its
+        // interval it is fetched again and converted — in the background, never on the connect's
+        // time; the next config build picks the new parts up. Small lists the engine still
+        // fetches as before. One refresh at a time.
+        private static int _staleRefreshRunning;
+
+        private static void RefreshStaleListsSoon(AppConfig cfg, SubPolicy policy)
+        {
+            var workDir = AppConfigStore.ResolveMihomoWorkDir(cfg);
+            var stale = policy.Lists.Where(l =>
+            {
+                var full = Path.Combine(workDir, l.RelPath.Substring(2).Replace('/', Path.DirectorySeparatorChar));
+                return RuleListCompiler.Lookup(workDir, l.RelPath) != null && File.Exists(full)
+                    && DateTime.UtcNow - File.GetLastWriteTimeUtc(full) > TimeSpan.FromSeconds(Math.Max(3600, l.IntervalSeconds));
+            }).ToList();
+            if (stale.Count == 0 || Interlocked.Exchange(ref _staleRefreshRunning, 1) == 1) return;
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    foreach (var l in stale)
+                    {
+                        var full = Path.Combine(workDir, l.RelPath.Substring(2).Replace('/', Path.DirectorySeparatorChar));
+                        try
+                        {
+                            await DownloadToAsync(l.Url, full, null, CancellationToken.None).ConfigureAwait(false);
+                            RuleListCompiler.Compile(cfg, l.RelPath, l.Behavior, l.Format);
+                        }
+                        catch (Exception ex) { Log.Info("Подписка «" + policy.Name + "»: список " + l.Key + " не обновился — " + ex.Message + " (остаётся прежний)."); }
+                    }
+                }
+                finally { Interlocked.Exchange(ref _staleRefreshRunning, 0); }
+            });
+        }
+
+        // The lists in the engine's fast form (see RuleListCompiler). Lists already converted from
+        // their current text are skipped in a file read; a failure leaves the list as it was.
+        private static void CompileLists(AppConfig cfg, SubPolicy policy, CancellationToken ct)
+        {
+            foreach (var l in policy.Lists)
+            {
+                ct.ThrowIfCancellationRequested();
+                try { RuleListCompiler.Compile(cfg, l.RelPath, l.Behavior, l.Format, ct); }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { Log.Error("rule-list-compile " + l.RelPath, ex); }
+            }
         }
 
         // ---------- progress ----------
@@ -362,22 +428,45 @@ namespace MihomoLauncher.Services
         public const string CatchAllMatcher = "(OR,((NETWORK,TCP),(NETWORK,UDP)))";
 
         // `rule-providers:` and `sub-rules:` for the subscriptions some rule actually points at.
-        public static void AppendBlocks(StringBuilder sb, IEnumerable<SubPolicy> policies)
+        // workDir: where the lists live — a list converted to the fast form from its current text
+        // is emitted as its parts (RuleListCompiler); null = exactly as the subscription wrote it.
+        public static void AppendBlocks(StringBuilder sb, IEnumerable<SubPolicy> policies, string workDir = null)
         {
             var list = policies.Where(p => p != null).ToList();
             if (list.Count == 0) return;
+
+            var compiled = new Dictionary<string, RuleListCompiler.Parts>(StringComparer.Ordinal);
+            if (workDir != null)
+                foreach (var prov in list.SelectMany(p => p.Providers))
+                {
+                    var parts = prov.RelPath != null ? RuleListCompiler.Lookup(workDir, prov.RelPath) : null;
+                    if (parts != null) compiled[prov.Key] = parts;
+                }
+
             if (list.Any(p => p.ProviderLines.Count > 0))
             {
                 sb.AppendLine("rule-providers:");
                 foreach (var p in list)
-                    foreach (var line in p.ProviderLines) sb.AppendLine(line);
+                    foreach (var prov in p.Providers)
+                    {
+                        RuleListCompiler.Parts parts;
+                        var lines = compiled.TryGetValue(prov.Key, out parts)
+                            ? RuleListCompiler.ProviderLines(prov.Key, parts)
+                            : prov.Lines;
+                        foreach (var line in lines) sb.AppendLine(line);
+                    }
                 sb.AppendLine();
             }
             sb.AppendLine("sub-rules:");
             foreach (var p in list)
             {
                 sb.AppendLine("  " + p.Name + ":");
-                foreach (var rule in p.RuleLines) sb.AppendLine("    - " + rule);
+                foreach (var rule in p.RuleLines)
+                {
+                    if (compiled.Count == 0) { sb.AppendLine("    - " + rule); continue; }
+                    foreach (var r in RuleListCompiler.ExpandRule(Unquote(rule), compiled))
+                        sb.AppendLine("    - " + Quote(r));
+                }
             }
             sb.AppendLine();
         }
@@ -541,10 +630,19 @@ namespace MihomoLauncher.Services
                     {
                         var ext = format == "text" ? ".txt" : format == "mrs" ? ".mrs" : ".yaml";
                         relPath = "./providers/rules/" + key + ext;
+                        int interval;
                         if (!string.IsNullOrEmpty(url))
-                            policy.Lists.Add(new RuleListFile { Key = prov.Key, Url = url, RelPath = relPath });
+                            policy.Lists.Add(new RuleListFile
+                            {
+                                Key = prov.Key, Url = url, RelPath = relPath,
+                                IntervalSeconds = int.TryParse(prov.Get("interval"), out interval) && interval > 0 ? interval : 86400,
+                                Behavior = (prov.Get("behavior") ?? "classical").ToLowerInvariant(),
+                                Format = format,
+                            });
                     }
-                    policy.ProviderLines.AddRange(prov.Emit(key, relPath));
+                    var emitted = prov.Emit(key, relPath).ToList();
+                    policy.ProviderLines.AddRange(emitted);
+                    policy.Providers.Add(new ListProvider { Key = key, Lines = emitted, RelPath = relPath });
                     rowOf[prov.Key] = new SubRow
                     {
                         Title = ListTitle(prov.Key, url),

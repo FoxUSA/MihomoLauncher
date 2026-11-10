@@ -1,12 +1,12 @@
 # Regenerate the shipped icon index <repo>\icons.txt from
-#   * <repo>\ico_web\*.png     - the tile icon set; the SAME folder is uploaded by hand to
+#   * <repo>\ico\*.png     - the tile icon set; the SAME folder is uploaded by hand to
 #                                /var/www/byfox.dev/data/mihomolauncher/ico/
 #   * <repo>\icon-aliases.txt  - hand-maintained aliases (key=slug, @domain=slug)
 # Output format (read by Services\IconFetcher): one icon slug per line, then the alias lines.
 # Run after adding/removing icons or aliases:
 #   powershell -ExecutionPolicy Bypass -File build\gen-icons.ps1
 $repo = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
-$web = Join-Path $repo "ico_web"
+$web = Join-Path $repo "ico"
 $outPath = Join-Path $repo "icons.txt"
 
 $slugs = Get-ChildItem -LiteralPath $web -Filter *.png | ForEach-Object { $_.BaseName.ToLowerInvariant() } | Sort-Object -Unique
@@ -23,7 +23,7 @@ foreach ($raw in [System.IO.File]::ReadAllLines((Join-Path $repo "icon-aliases.t
   $eq = $line.LastIndexOf('=')
   if ($eq -le 0) { Write-Warning "skip (no '='): $line"; $bad++; continue }
   $target = $line.Substring($eq + 1).Trim()
-  if (-not $have.Contains($target)) { Write-Warning "skip (no ico_web\$target.png): $line"; $bad++; continue }
+  if (-not $have.Contains($target)) { Write-Warning "skip (no ico\$target.png): $line"; $bad++; continue }
   $lines.Add($line.ToLowerInvariant())
 }
 [System.IO.File]::WriteAllLines($outPath, $lines, (New-Object System.Text.UTF8Encoding($false)))

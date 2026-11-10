@@ -738,7 +738,7 @@ namespace MihomoLauncher.Views
             }
         }
 
-        // Auto mode: download by name into Data\ico (force-refresh). Manual: copy the chosen
+        // Auto mode: download by name into the icon cache (force-refresh). Manual: copy the chosen
         // file into the icon store. Mirrors the old per-app/per-link behaviour.
         private async Task ApplyIconAsync(AppEntry entry, string name)
         {

@@ -360,11 +360,65 @@ namespace MihomoLauncher.Services
         public async Task<bool> ReloadAsync(CancellationToken ct = default, string reason = null)
         {
             var why = string.IsNullOrEmpty(reason) ? "" : " (" + reason + ")";
+            var took = System.Diagnostics.Stopwatch.StartNew();
+            var startedAt = DateTime.Now;
+            try { return await ReloadCoreAsync(ct, why, took).ConfigureAwait(false); }
+            finally
+            {
+                if (took.Elapsed.TotalSeconds >= SlowReloadSeconds) _ = NoteSlowReloadAsync(startedAt, took.Elapsed);
+            }
+        }
+
+        // A reload slower than this gets the engine's own lines from its window into app.log.
+        private const int SlowReloadSeconds = 3;
+        private const int SlowReloadMaxLines = 15;
+        private static readonly HashSet<string> SlowReloadSeen = new HashSet<string>(StringComparer.Ordinal);
+
+        // What the engine said while a reload took seconds. Once per distinct picture per run (a
+        // machine where every reload is slow for the same reason says it once), at most
+        // SlowReloadMaxLines lines. A moment's wait first: the last lines arrive right after the
+        // reload answers.
+        private static async Task NoteSlowReloadAsync(DateTime from, TimeSpan took)
+        {
+            try
+            {
+                await Task.Delay(1500).ConfigureAwait(false);
+                var lines = EngineLog.SystemLinesBetween(from.AddMilliseconds(-200), from + took + TimeSpan.FromSeconds(1.5));
+                // The same reload, told with other numbers (times, ports), is the same picture.
+                var key = string.Join("|", lines.Select(l => System.Text.RegularExpressions.Regex.Replace(l, @"\d+", "#")));
+                lock (SlowReloadSeen)
+                {
+                    if (SlowReloadSeen.Count > 50) SlowReloadSeen.Clear();
+                    if (!SlowReloadSeen.Add(key)) return;
+                }
+                if (lines.Count == 0)
+                {
+                    Log.Info("Движок: перезагрузка шла " + (int)took.TotalSeconds + " с, своих строк движок за это время не написал.");
+                    return;
+                }
+                var shown = lines.Count > SlowReloadMaxLines
+                    ? lines.Take(SlowReloadMaxLines / 2).Concat(new[] { "… ещё " + (lines.Count - SlowReloadMaxLines + 1) + " …" })
+                           .Concat(lines.Skip(lines.Count - (SlowReloadMaxLines - SlowReloadMaxLines / 2 - 1)))
+                    : lines;
+                Log.Info("Движок: перезагрузка шла " + (int)took.TotalSeconds + " с, движок писал:\n    "
+                         + string.Join("\n    ", shown.Select(l => l.Length > 220 ? l.Substring(0, 220) + "…" : l)));
+            }
+            catch { }
+        }
+
+        private async Task<bool> ReloadCoreAsync(CancellationToken ct, string why, System.Diagnostics.Stopwatch took)
+        {
             try
             {
                 var jsonPath = ConfigPath.Replace("\\", "\\\\").Replace("\"", "\\\"");
                 var body = "{\"path\":\"" + jsonPath + "\"}";
-                using (var http = NewClient(10))
+                // Patient, not 10 s: a reload with a Clash subscription in it makes the engine
+                // fetch that subscription (and its rule lists) before it answers whenever the
+                // cached copy is older than its interval — from PAPA2 well over 10 s. Giving up
+                // early did not stop the reload, it only made us believe the OLD config was still
+                // on, and every connect through that subscription failed («не могу запустить VPN
+                // на плитке», 2026-11-09; 19 such failures since the first pick of «fox clach»).
+                using (var http = NewClient(ReloadTimeoutSeconds))
                 using (var content = new StringContent(body, Encoding.UTF8, "application/json"))
                 using (var resp = await http.PutAsync(ApiBase + "/configs?force=true", content, ct).ConfigureAwait(false))
                 {
@@ -398,6 +452,7 @@ namespace MihomoLauncher.Services
                     }
                     lock (PrevLock) PreviousByPath.Remove(ConfigPath);   // accepted: nothing to undo
                     Log.Info("Движок: конфиг перезагружен" + why
+                             + (took.Elapsed.TotalSeconds >= 5 ? " за " + (int)took.Elapsed.TotalSeconds + " с" : "")
                              + " — трафик всей машины прерывается на время перезагрузки.");
                     LogRouting();
                     // A reload re-reads everything, routing included, so whatever Windows cached
@@ -413,11 +468,20 @@ namespace MihomoLauncher.Services
             }
             catch (Exception ex)
             {
-                Log.Info("Движок: перезагрузка конфига не удалась" + why + " — " + ex.Message
+                // "Отменена задача" meant two different things and the log could not tell them
+                // apart: our own cancel (a newer connect took over) vs the engine not answering.
+                var what = ct.IsCancellationRequested
+                    ? "прервана (начато другое подключение)"
+                    : ex is TaskCanceledException
+                    ? "движок не ответил за " + (int)took.Elapsed.TotalSeconds + " с"
+                    : ex.Message;
+                Log.Info("Движок: перезагрузка конфига не удалась" + why + " — " + what
                          + ", продолжает работать СТАРЫЙ конфиг.");
                 return false;
             }
         }
+
+        private const int ReloadTimeoutSeconds = 60;
 
         // Routing line → when it was last written. Static: the window recreates the controller on
         // every settings change. A connect alternates trial and final configs, and the auto-retry
@@ -454,7 +518,7 @@ namespace MihomoLauncher.Services
         //
         // mihomo carries every connection under TUN, so it can close them: GET /connections
         // lists them with their host and owning process, DELETE /connections/{id} drops one.
-        // Matching is on the host suffix (so api.ru.dog also takes www.api.ru.dog) and on the
+        // Matching is on the host suffix (so api.xbyfox.com also takes www.api.xbyfox.com) and on the
         // process image name, which together are exactly what a rule is made of.
         //
         // Best-effort by design: an engine that is down has no connections to close anyway.
@@ -728,6 +792,29 @@ namespace MihomoLauncher.Services
                     return resp.IsSuccessStatusCode;
             }
             catch { return false; }
+        }
+
+        // How long a connection through this node takes, in ms (the engine's own /delay: handshake
+        // with the server + one tiny HTTP request) — for the main window's stats strip, NOT for
+        // deciding anything; reachability stays with IsNodeUpAsync. Null = no answer in 5 s.
+        public async Task<int?> MeasureDelayAsync(string proxyName, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(proxyName)) return null;
+            try
+            {
+                var url = ApiBase + "/proxies/" + Uri.EscapeDataString(proxyName)
+                          + "/delay?timeout=5000&url=" + Uri.EscapeDataString(NodeProbeUrls[0]);
+                using (var http = NewClient(10))
+                using (var resp = await http.GetAsync(url, ct).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode) return null;
+                    var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    var m = System.Text.RegularExpressions.Regex.Match(body ?? "", "\"delay\"\\s*:\\s*(\\d+)");
+                    int ms;
+                    return m.Success && int.TryParse(m.Groups[1].Value, out ms) && ms > 0 ? ms : (int?)null;
+                }
+            }
+            catch { return null; }
         }
 
         // The "test all" of any Clash dashboard: same check, whole list of nodes, all at

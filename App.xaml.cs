@@ -73,6 +73,9 @@ namespace MihomoLauncher
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            // Every window fits the screen it opens on (UiHelpers.KeepOnScreen).
+            EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+                new RoutedEventHandler((s, a) => { if (ReferenceEquals(a.OriginalSource, s)) UiHelpers.KeepOnScreen((Window)s); }));
 
             // Force the dark theme for the whole app (title-bar buttons + Mica backdrop
             // follow this, not just the merged ThemesDictionary).
@@ -112,7 +115,13 @@ namespace MihomoLauncher
                     if (string.Equals(e.Args[0], "--firewall-clear", StringComparison.OrdinalIgnoreCase))
                         FirewallGuard.ClearAll();
                     else
+                    {
+                        // Running as SYSTEM through the old firewall task: the moment to move
+                        // a pre-service install onto the engine service, no UAC needed.
+                        try { Services.MihomoSetup.MigrateToServiceAsSystem(); }
+                        catch (Exception ex) { Log.Error("migrate-to-service", ex); }
                         FirewallGuard.ApplyFromState();
+                    }
                 }
                 catch (Exception ex) { Log.Crash("FirewallSync", ex); }
                 Shutdown();
@@ -253,6 +262,7 @@ namespace MihomoLauncher
         protected override void OnExit(ExitEventArgs e)
         {
             _shuttingDown = true;
+            MihomoSetup.ShuttingDown = true;
             // Stop the VPN engine together with the launcher (only the primary instance).
             // Not a bare kill: EngineShutdown drops TUN through the API and flushes the DNS
             // cache first, so the machine doesn't lose the network for a few seconds after us.
@@ -261,6 +271,9 @@ namespace MihomoLauncher
             // while there is a tunnel to force the traffic into; left behind they are a silent
             // "this program has no internet" that outlives the launcher — see ReleaseOnExit.
             if (_ownsInstance) { try { FirewallGuard.ReleaseOnExit(); } catch { } }
+            // The firewall release above runs through the engine service and starts it again;
+            // stop it right away so nothing of ours is left running (or locked) after we exit.
+            if (_ownsInstance) { try { MihomoSetup.StopServiceOnExit(); } catch { } }
             try { VpnMonitor.StopProcessWatchers(); } catch { }
             try { _showEvent?.Set(); } catch { }
             try { _showEvent?.Dispose(); } catch { }

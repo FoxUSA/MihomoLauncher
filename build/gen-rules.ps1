@@ -1,9 +1,9 @@
 # Regenerate the shipped rule-template catalog: <repo>\templates.json, a verbatim copy of
 # https://api.byfox.dev/rule/templates.json (blackmatrix7 mirror + byfox templates, titles,
-# descriptions, list paths). It ships in Data\ as the offline baseline; the app refreshes
-# DataUser\templates.json daily on its own. The download is checked against the sha256 in
-# rule/manifest.json before it replaces anything.
-# Run from the repo root:  powershell -ExecutionPolicy Bypass -File build\gen-rules.ps1
+# descriptions, list paths). layout-release.ps1 runs this on every Release build and ships the
+# result as DataUser\templates.json — the same file the app refreshes daily on its own. The
+# download is checked against the sha256 in rule/manifest.json before it replaces anything.
+# By hand:  powershell -ExecutionPolicy Bypass -File build\gen-rules.ps1
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $outPath = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\templates.json"))
 $base = "https://api.byfox.dev/rule/"
