@@ -44,6 +44,11 @@ namespace MihomoLauncherSvc
         public const int CmdStopEngine = 131;
         public const int CmdKillEngines = 132;
         public const int CmdFirewallSync = 133;
+        // Last resort: every process with OUR engine's file name, wherever it lives — what the
+        // old MihomoLauncher_stop task (taskkill /IM) always did. Sent only after 132 failed, i.e.
+        // a same-named engine from another folder (a pre-rename MomLauncher install on mom's PC,
+        // 2026-11-11) holds the port and nothing else can remove it.
+        public const int CmdKillEnginesAnyPath = 134;
 
         private readonly string _engine, _workDir, _launcher;
         private readonly object _gate = new object();
@@ -82,6 +87,7 @@ namespace MihomoLauncherSvc
                     case CmdStartEngine: StartEngine(); break;
                     case CmdStopEngine: StopEngine(); break;
                     case CmdKillEngines: KillEngines(); break;
+                    case CmdKillEnginesAnyPath: KillEngines(true); break;
                     case CmdFirewallSync: ThreadPool.QueueUserWorkItem(_ => FirewallSync()); break;
                 }
             }
@@ -135,7 +141,7 @@ namespace MihomoLauncherSvc
 
         // Every process running OUR engine image, child or not — as SYSTEM we may kill them all,
         // which the launcher itself (a medium-integrity process) never could.
-        private void KillEngines()
+        private void KillEngines(bool anyPath = false)
         {
             string name;
             try { name = Path.GetFileNameWithoutExtension(_engine); } catch { return; }
@@ -146,7 +152,8 @@ namespace MihomoLauncherSvc
                 {
                     string path = "";
                     try { path = p.MainModule.FileName; } catch { }
-                    if (path.Length > 0 && !string.Equals(path, _engine, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!anyPath && path.Length > 0 && !string.Equals(path, _engine, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (anyPath && path.Length > 0) Note("killing engine from another folder: " + path);
                     p.Kill();
                     p.WaitForExit(3000);
                 }

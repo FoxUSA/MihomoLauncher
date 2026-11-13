@@ -26,6 +26,7 @@ namespace MihomoLauncher.Views
         public AppEntry Result { get; private set; }
 
         private readonly AppEntry _editing;
+        private readonly SaveGuard _saveGuard;
         private readonly ObservableCollection<ItemRow> _items = new ObservableCollection<ItemRow>();
         // Rows stay in the Settings order; each one carries its own rank, and a click renumbers
         // the whole set, so every row has to be able to push its new number to the UI.
@@ -80,11 +81,25 @@ namespace MihomoLauncher.Views
 
             TxtName.LostFocus += (s, e) => AutoFillCheckUrl();
 
+            // «Сохранить» only when something differs: the table rows, the VPN ranks + the fields.
+            _saveGuard = SaveGuard.Attach(this, BtnSave, () =>
+                SaveGuard.Join(_items, o =>
+                {
+                    var r = (ItemRow)o;
+                    return (r.IsSite ? "S|" : "P|") + r.Url + "|" + r.ClashRuleUrl + "|" + r.Name + "|" + r.Path
+                         + "|" + r.Arguments + "|" + r.Aumid + "|" + (r.Launch ? "1" : "0");
+                })
+                + "#" + SaveGuard.Join(_allowChoices, o => ((SlotAllowChoice)o).Id + ":" + ((SlotAllowChoice)o).Rank),
+                // A new rule: on as soon as it has a name or anything in the table.
+                existing == null
+                    ? (Func<bool>)(() => !string.IsNullOrWhiteSpace(TxtName.Text) || _items.Count > 0)
+                    : null);
+
             // «Весь трафик» has nothing to list, name or check: what is left of the rule is which
             // VPN it goes through and whether the internet stops when that VPN is down.
             if (existing != null && existing.IsAllTraffic)
             {
-                Title = Bar.Title = Loc.T("AllTraffic_Name");
+                Title = Bar.Title = existing.Name;
                 RowName.Visibility = Visibility.Collapsed;
                 RowIcon.Visibility = Visibility.Collapsed;
                 RowItems.Visibility = Visibility.Collapsed;
@@ -309,6 +324,11 @@ namespace MihomoLauncher.Views
             // A template is a site that carries a Clash rule-list URL; its table cell shows the
             // template path (read-only), a plain site shows an editable URL box.
             public bool IsTemplate => IsSite && !string.IsNullOrWhiteSpace(ClashRuleUrl);
+            // «Плитка» on any row again (2026-11-13): a rule of nothing but templates had no tile at
+            // all. A template's tile opens the rule's check address (AppLauncher.LaunchUrl).
+            public Visibility LaunchVisibility => Visibility.Visible;
+            // Who gets the tile automatically when a row is added: program > address > template.
+            internal int TileRank => !IsSite ? 3 : IsTemplate ? 1 : 2;
             public Visibility SiteVisibility => (IsSite && !IsTemplate) ? Visibility.Visible : Visibility.Collapsed;
             public Visibility TemplatePathVisibility => IsTemplate ? Visibility.Visible : Visibility.Collapsed;
             public Visibility ProgVisibility => IsSite ? Visibility.Collapsed : Visibility.Visible;
@@ -386,8 +406,16 @@ namespace MihomoLauncher.Views
                 => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
         }
 
-        // At least one item should be marked to launch — default the first added one.
-        private bool NothingLaunches() => !_items.Any(i => i.Launch);
+        // Should a newly added row take the tile? Yes when nothing has it yet, or when the row
+        // outranks the one that has it (program > address > template). Equal rank never steals,
+        // so the switch happens once per kind: the first program takes the tile from an address
+        // or a template, the first address takes it from a template; later ones leave it be, and
+        // a tick moved by hand stays where it was put as long as nothing higher is added.
+        private bool TakesTile(ItemRow row)
+        {
+            var cur = _items.FirstOrDefault(i => i.Launch);
+            return cur == null || row.TileRank > cur.TileRank;
+        }
 
         private void UpdateEmptyHint()
         {
@@ -466,7 +494,7 @@ namespace MihomoLauncher.Views
 
         private void OnAddSiteUrl(object sender, RoutedEventArgs e)
         {
-            AddRow(new ItemRow { IsSite = true, Launch = NothingLaunches(), Url = "" });
+            AddRow(new ItemRow { IsSite = true, Url = "" });
         }
 
         private async void OnAddSiteTemplate(object sender, RoutedEventArgs e)
@@ -488,10 +516,6 @@ namespace MihomoLauncher.Views
             var row = new ItemRow
             {
                 IsSite = true,
-                // A template has no URL of its own — its tile opens the rule's check address
-                // (auto-filled from the catalog just above). Default it on when nothing else
-                // launches, so a template-only rule still gets a tile.
-                Launch = NothingLaunches(),
                 Url = "",
                 ClashRuleUrl = svc.ClashUrl ?? "",
                 TemplateName = svc.Name ?? "",
@@ -549,7 +573,7 @@ namespace MihomoLauncher.Views
 
         private void AddProgram(string name, string path, string aumid)
         {
-            AddRow(new ItemRow { IsSite = false, Launch = NothingLaunches(), Name = name, Path = path, Aumid = aumid });
+            AddRow(new ItemRow { IsSite = false, Name = name, Path = path, Aumid = aumid });
             // Name the rule after the FILE (chrome, Telegram, …) rather than the picker's
             // friendly label, which for a running process is whatever the window/description
             // says and for a Store app is the display name — neither matches the process the
@@ -565,7 +589,10 @@ namespace MihomoLauncher.Views
         // Add a row and scroll the table to it so the newest item is always visible.
         private void AddRow(ItemRow row)
         {
+            bool take = TakesTile(row);
+            row.Owner = this;
             _items.Add(row);
+            if (take) row.Launch = true;   // the setter clears the previous holder
             ItemsGrid.UpdateLayout();
             ItemsGrid.ScrollIntoView(row);
         }
@@ -616,6 +643,7 @@ namespace MihomoLauncher.Views
         {
             if (_saving) return;
             _saving = true;
+            _saveGuard.Suspended = true;
             BtnSave.IsEnabled = false;
             try
             {
@@ -632,6 +660,7 @@ namespace MihomoLauncher.Views
                         AutoConnect = _editing.AutoConnect,
                         SkipCheck = _editing.SkipCheck,
                         AutoIcon = false,
+                        Block = _editing.Block,
                         IconPath = _editing.IconPath,
                         KillSwitch = ChkKillSwitch.IsChecked == true,
                         DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id)
@@ -734,7 +763,8 @@ namespace MihomoLauncher.Views
             finally
             {
                 _saving = false;
-                if (IsLoaded) BtnSave.IsEnabled = true;
+                _saveGuard.Suspended = false;
+                if (IsLoaded) BtnSave.IsEnabled = true;   // a refused save (validation) can be retried
             }
         }
 

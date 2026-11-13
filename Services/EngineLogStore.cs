@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -15,6 +15,10 @@ namespace MihomoLauncher.Services
     // So the feed starts with the app and the window is just a view onto this list.
     public class EngineLogStore
     {
+        // The live config (the main window replaces its object after Settings) — read to explain
+        // a REJECT by the catch-all, and by the log window's «Конфликт URL» tab.
+        public static Func<AppConfig> ConfigSource;
+
         private static EngineLogStore _instance;
         public static EngineLogStore Instance
         {
@@ -402,7 +406,19 @@ namespace MihomoLauncher.Services
         // the rejecting, because the rule has no working node right now.
         private static string BlockedWhy(EngineLogEntry e, EngineLog.RuleHit owner)
         {
-            if (owner == null) return Loc.T("Log_WhyBlockedBare", MatchText(e));
+            if (owner == null)
+            {
+                // The catch-all (MATCH) rejecting is «Всё остальное», not a leftover rule: its
+                // «Блокировать», or its kill-switch while its VPN is not up.
+                if (string.Equals(e.RuleType, "Match", StringComparison.OrdinalIgnoreCase))
+                {
+                    AppEntry all = null;
+                    try { all = EngineLogStore.ConfigSource?.Invoke()?.Apps?.FirstOrDefault(a => a != null && a.IsAllTraffic); } catch { }
+                    if (all != null && all.IsBlocking) return Loc.T("Log_WhyAllBlock", all.Name);
+                    if (all != null && all.KillSwitch) return Loc.T("Log_WhyAllKill", all.Name);
+                }
+                return Loc.T("Log_WhyBlockedBare", MatchText(e));
+            }
 
             string item;
             switch (owner.Kind)

@@ -66,6 +66,12 @@ namespace MihomoLauncher.Services
         public List<VpnSlot> VpnSlots { get; set; } = new List<VpnSlot>();
 
         public List<AppEntry> Apps { get; set; } = new List<AppEntry>();
+
+        // Access password (see AccessLock): salted PBKDF2 hash, its salt, and the hashed place
+        // (PC + Windows user + launcher copy) the data was locked in. All empty = no password.
+        public string LockHash { get; set; } = "";
+        public string LockSalt { get; set; } = "";
+        public string LockPlace { get; set; } = "";
     }
 
     public static class AppConfigStore
@@ -181,6 +187,20 @@ namespace MihomoLauncher.Services
             var d = dir.TrimEnd('\\');
             return string.Equals(d, LegacyMihomoWorkDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
                 || string.Equals(d, LegacyStdMihomoWorkDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
+        }
+
+        // A full, independent copy — through the same serializer that writes config.xml, so it
+        // carries every field that is saved (a field-by-field copy silently lost new ones).
+        public static AppConfig Clone(AppConfig c)
+        {
+            if (c == null) return null;
+            var ser = new XmlSerializer(typeof(AppConfig));
+            using (var w = new StringWriter())
+            {
+                ser.Serialize(w, c);
+                using (var r = new StringReader(w.ToString()))
+                    return (AppConfig)ser.Deserialize(r);
+            }
         }
 
         public static AppConfig Load()
@@ -334,7 +354,7 @@ namespace MihomoLauncher.Services
                 if (a == null) continue;
                 if (a.Programs == null) a.Programs = new List<RuleProgram>();
                 if (a.Sites == null) a.Sites = new List<RuleSite>();
-                if (a.IsAllTraffic) continue;   // empty by design, nothing to fold
+                if (a.IsAllTraffic) continue;   // built in, nothing to fold
 
                 // Already a rule (has contents) — just clear any stale legacy fields.
                 if (a.Programs.Count > 0 || a.Sites.Count > 0)
@@ -419,6 +439,8 @@ namespace MihomoLauncher.Services
             if (keep.Programs == null || keep.Programs.Count > 0) { keep.Programs = new List<RuleProgram>(); changed = true; }
             if (keep.Sites == null || keep.Sites.Count > 0) { keep.Sites = new List<RuleSite>(); changed = true; }
             if (!string.IsNullOrEmpty(keep.CheckUrl)) { keep.CheckUrl = ""; changed = true; }
+            // «Глобально» (2026-11-12, removed the same week): drop it from a config that has it.
+            if (apps.RemoveAll(a => a != null && a.IsGlobal) > 0) changed = true;
             return changed;
         }
 

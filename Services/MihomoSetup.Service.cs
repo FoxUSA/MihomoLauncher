@@ -26,6 +26,7 @@ namespace MihomoLauncher.Services
         private const int SvcCmdStartEngine = 130;
         private const int SvcCmdKillEngines = 132;
         private const int SvcCmdFirewallSync = 133;
+        private const int SvcCmdKillEnginesAnyPath = 134;
 
         // Start/stop/query/control for Authenticated Users; full control for SYSTEM and admins.
         private const string ServiceSddl =

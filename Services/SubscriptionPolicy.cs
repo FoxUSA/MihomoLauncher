@@ -81,6 +81,9 @@ namespace MihomoLauncher.Services
         public double BytesPerSecond { get; set; }
         public double Overall { get; set; }        // 0..1
         public double EtaSeconds { get; set; }     // -1 = not known yet
+        // The lists are fetched several at once: Step = how many are done (of Steps - 1), no
+        // per-file bytes. Title = the one that finished last.
+        public bool Batch { get; set; }
     }
 
     public sealed class RuleListFile
@@ -211,15 +214,29 @@ namespace MihomoLauncher.Services
 
         // Streamed to a ".part" next to the target and moved into place only when complete, so a
         // broken download never replaces a good copy. Off the UI thread: a list can be 8 MB.
+        //
+        // ONE client for every download, not one per file: a new client is a new TCP + TLS
+        // handshake each time, and with 33 small lists on the same couple of hosts «Обновить»
+        // spent most of its time on «соединяюсь…» (2026-11-10). Shared, the connections stay
+        // open and are reused. HttpClient is safe for concurrent requests.
+        private static readonly Lazy<HttpClient> SharedHttp = new Lazy<HttpClient>(() =>
+        {
+            if (ServicePointManager.DefaultConnectionLimit < 64) ServicePointManager.DefaultConnectionLimit = 64;
+            var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd(ClashUserAgent);
+            return http;
+        });
+
         private static async Task DownloadToAsync(string url, string path, ProgressReporter report, CancellationToken ct)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
-            var part = path + ".part";
+            // A unique temp name: two lists may download at once, and a retried one must not
+            // collide with a half-written copy of itself.
+            var part = path + "." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".part";
             await Task.Run(async () =>
             {
-                using (var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) })
+                var http = SharedHttp.Value;
                 {
-                    http.DefaultRequestHeaders.UserAgent.ParseAdd(ClashUserAgent);
                     using (var resp = await http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
                     {
                         resp.EnsureSuccessStatusCode();
@@ -240,8 +257,12 @@ namespace MihomoLauncher.Services
                     }
                 }
             }, ct).ConfigureAwait(false);
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(part, path);
+            try
+            {
+                if (File.Exists(path)) File.Delete(path);
+                File.Move(part, path);
+            }
+            finally { try { if (File.Exists(part)) File.Delete(part); } catch { } }
         }
 
         // The engine fetches rule lists itself, but only once it runs the config, through its own
@@ -257,13 +278,35 @@ namespace MihomoLauncher.Services
             var todo = policy.Lists
                 .Select(l => new { List = l, Full = Path.Combine(workDir, l.RelPath.Substring(2).Replace('/', Path.DirectorySeparatorChar)) })
                 .Where(x => all || !File.Exists(x.Full)).ToList();
-            for (int i = 0; i < todo.Count; i++)
+            // Several at once (they are small; the time went on waiting, not on bytes). Progress
+            // then counts finished lists — a per-file byte bar means nothing with six in flight.
+            const int Parallel = 6;
+            int done = 0;
+            using (var gate = new SemaphoreSlim(Parallel))
             {
-                var title = policy.Rows.FirstOrDefault(r => r.RelPath == todo[i].List.RelPath)?.Title ?? todo[i].List.Key;
-                report?.Begin(i + 1, todo.Count + 1, title);
-                try { await DownloadToAsync(todo[i].List.Url, todo[i].Full, report, ct); }
-                catch (OperationCanceledException) { throw; }
-                catch (Exception ex) { failed.Add(title); Log.Info("Подписка «" + policy.Name + "»: список " + title + " не скачался — " + ex.Message); }
+                var tasks = todo.Select(async x =>
+                {
+                    var title = policy.Rows.FirstOrDefault(r => r.RelPath == x.List.RelPath)?.Title ?? x.List.Key;
+                    await gate.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        await DownloadToAsync(x.List.Url, x.Full, null, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        lock (failed) failed.Add(title);
+                        Log.Info("Подписка «" + policy.Name + "»: список " + title + " не скачался — " + ex.Message);
+                    }
+                    finally
+                    {
+                        gate.Release();
+                        int n = Interlocked.Increment(ref done);
+                        report?.Lists(n, todo.Count, title);
+                    }
+                }).ToList();
+                if (todo.Count > 0) report?.Lists(0, todo.Count, null);
+                await Task.WhenAll(tasks).ConfigureAwait(false);
             }
             if (failed.Count > 0)
                 Log.Info("Подписка «" + policy.Name + "»: пока движок не скачает " + string.Join(", ", failed)
@@ -346,8 +389,22 @@ namespace MihomoLauncher.Services
             }
 
             public void Bytes(long done, long total) => Emit(SubStage.Downloading, done, total, false);
-            public void Checking() => Emit(SubStage.Checking, 0, -1, true);
-            public void Finish() => Emit(SubStage.Done, 0, -1, true);
+            public void Checking() { _batch = false; Emit(SubStage.Checking, 0, -1, true); }
+            public void Finish() { _batch = false; Emit(SubStage.Done, 0, -1, true); }
+
+            // Batch mode: `finished` of `total` lists are done (called from several threads).
+            public void Lists(int finished, int total, string lastTitle)
+            {
+                lock (this)
+                {
+                    _batch = true;
+                    _step = finished + 1; _steps = total + 1;   // overall = finished / total of the lists' share
+                    _title = lastTitle;
+                    Emit(SubStage.Downloading, 0, -1, true);
+                }
+            }
+
+            private bool _batch;
 
             private void Emit(SubStage stage, long done, long total, bool force)
             {
@@ -369,7 +426,8 @@ namespace MihomoLauncher.Services
                 _sink.Report(new SubProgress
                 {
                     Stage = stage,
-                    Step = _step,
+                    Batch = _batch,
+                    Step = _batch ? _step - 1 : _step,
                     Steps = _steps,
                     Title = _title,
                     Bytes = done,

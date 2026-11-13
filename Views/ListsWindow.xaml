@@ -1,0 +1,173 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.ListsWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:svc="clr-namespace:MihomoLauncher.Services"
+                 Width="950" Height="460"
+                 MinWidth="760" MinHeight="320"
+                 WindowStartupLocation="CenterOwner"
+                 ResizeMode="CanResize"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica">
+    <!-- Two windows in one class (ListsWindow.Mode): «VPN» shows only the variants table, «+»
+         only the rules table — what used to be the top and bottom half of Settings → «Основное».
+         No «Сохранить»: each add / edit / delete / drag is applied the moment it happens
+         (MainWindow.CommitLiveEditAsync), so the footer has «Закрыть» only. -->
+    <Grid x:Name="RootGrid" Background="Transparent"
+          Focusable="True" FocusVisualStyle="{x:Null}"
+          MouseDown="OnBackgroundMouseDown">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar x:Name="TitleBarMain" Grid.Row="0" ShowMaximize="False" ShowMinimize="False" />
+
+        <Grid Grid.Row="1" Margin="20,8,20,0">
+
+            <!-- ===== VPN variants ===== -->
+            <ui:Card x:Name="CardSlots" Padding="14"
+                     VerticalAlignment="Stretch" VerticalContentAlignment="Stretch">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <ui:Button Content="{DynamicResource Set_BtnAdd}" Margin="0,0,8,0" MinWidth="92" Click="OnAddSlot"
+                                       Foreground="{x:Static svc:Theme.AccentGreen}" />
+                            <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditSlot" />
+                            <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteSlot" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{DynamicResource Set_VpnVariants}" FontSize="17" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Margin="12,0,2,0" />
+                    </Grid>
+
+                    <DataGrid x:Name="GridSlots" Grid.Row="1"
+                              Style="{StaticResource AppDataGridStyle}"
+                              RowStyle="{StaticResource AppDataGridRowStyle}"
+                              CellStyle="{StaticResource AppDataGridCellStyle}"
+                              ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
+                              CanUserSortColumns="False"
+                              MouseDoubleClick="OnEditSlot">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Width="32" CanUserSort="False" CanUserResize="False"
+                                                    CellStyle="{StaticResource CheckboxCellStyle}"
+                                                    HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                Tag="slots" PreviewMouseLeftButtonDown="HeaderCheck_Click">
+                                            <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
+                                                      IsChecked="{Binding DataContext.AllSlotsChecked, RelativeSource={RelativeSource AncestorType=DataGrid}, Mode=OneWay}"
+                                                      IsThreeState="True" IsHitTestVisible="False" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                PreviewMouseLeftButtonDown="CellCheck_Click">
+                                            <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
+                                                      IsChecked="{Binding IsChecked, Mode=OneWay}"
+                                                      IsHitTestVisible="False" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="Auto" />
+                            <DataGridTextColumn Header="{DynamicResource Set_ColName}" Binding="{Binding Name}" Width="Auto" MaxWidth="260"
+                                                ElementStyle="{StaticResource TruncatedTextStyle}" />
+                            <DataGridTextColumn Header="{DynamicResource Set_ColType}" Binding="{Binding KindLabel}" Width="Auto" />
+                            <DataGridTextColumn Header="{DynamicResource Set_ColValue}" Binding="{Binding ValueLabel}" Width="*"
+                                                ElementStyle="{StaticResource TruncatedTextStyle}" />
+                            <DataGridTextColumn Header="{DynamicResource Set_ColEnabled}" Binding="{Binding EnabledLabel}" Width="Auto" />
+                            <DataGridTextColumn Header="{DynamicResource Set_ColSlotStatus}" Binding="{Binding StatusLabel}" Width="Auto" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </ui:Card>
+
+            <!-- ===== Rules (programs + sites in one list) ===== -->
+            <ui:Card x:Name="CardRules" Padding="6"
+                     VerticalAlignment="Stretch" VerticalContentAlignment="Stretch">
+                <Grid Margin="8,10,8,6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <ui:Button Content="{DynamicResource Set_BtnAdd}" Margin="0,0,8,0" MinWidth="92" Click="OnAddApp"
+                                       Foreground="{x:Static svc:Theme.AccentGreen}" />
+                            <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditApp" />
+                            <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteApp" />
+                            <ui:Button x:Name="BtnRefreshLink" Content="{DynamicResource Set_BtnRefreshLists}"
+                                       Margin="0,0,8,0" MinWidth="92" Click="OnRefreshRules" />
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="{DynamicResource Set_Rules}" FontSize="16" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Margin="12,0,2,0" />
+                    </Grid>
+
+                    <DataGrid x:Name="GridApps" Grid.Row="1"
+                              Style="{StaticResource AppDataGridStyle}"
+                              RowStyle="{StaticResource AppDataGridRowStyle}"
+                              CellStyle="{StaticResource AppDataGridCellStyle}"
+                              ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
+                              CanUserSortColumns="False"
+                              MouseDoubleClick="OnEditApp">
+                        <DataGrid.Columns>
+                            <DataGridTemplateColumn Width="32" CanUserSort="False" CanUserResize="False"
+                                                    CellStyle="{StaticResource CheckboxCellStyle}"
+                                                    HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
+                                <DataGridTemplateColumn.HeaderTemplate>
+                                    <DataTemplate>
+                                        <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                Tag="apps" PreviewMouseLeftButtonDown="HeaderCheck_Click">
+                                            <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
+                                                      IsChecked="{Binding DataContext.AllAppsChecked, RelativeSource={RelativeSource AncestorType=DataGrid}, Mode=OneWay}"
+                                                      IsThreeState="True" IsHitTestVisible="False" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.HeaderTemplate>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                PreviewMouseLeftButtonDown="CellCheck_Click">
+                                            <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
+                                                      IsChecked="{Binding IsChecked, Mode=OneWay}"
+                                                      IsHitTestVisible="False" />
+                                        </Border>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTextColumn Header="{DynamicResource Set_ColName}" Binding="{Binding Name}" Width="Auto" MaxWidth="260"
+                                                ElementStyle="{StaticResource TruncatedTextStyle}" />
+                            <DataGridTextColumn Header="{DynamicResource Set_ColPath}" Binding="{Binding DisplayPath}" Width="*"
+                                                ElementStyle="{StaticResource TruncatedTextStyle}" />
+                            <DataGridTextColumn Header="VPN" Binding="{Binding VpnLabel}" Width="Auto" />
+                            <DataGridTextColumn Header="Kill-switch" Binding="{Binding KillSwitchLabel}" Width="Auto" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </ui:Card>
+        </Grid>
+
+        <!-- Footer: «Закрыть» only — there is nothing unsaved to keep or throw away. -->
+        <Border Grid.Row="2" Padding="20,10,20,12">
+            <ui:Button Content="{DynamicResource Dlg_Close}" HorizontalAlignment="Right"
+                       FontSize="14" Padding="20,8" Click="OnClose" />
+        </Border>
+    </Grid>
+</ui:FluentWindow>

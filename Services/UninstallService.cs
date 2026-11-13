@@ -65,27 +65,51 @@ namespace MihomoLauncher.Services
             return any ? Loc.T("Uni_ResStopped") : Loc.T("Uni_ResNotRunning");
         }
 
+        // The product's name before 2026-06-26. Its installs were never cleaned up: on mom's PC
+        // the old engine (%LocalAppData%\MomLauncher) kept coming up on :9090 (2026-11-11).
+        // Uninstall takes those leftovers too.
+        private const string LegacyName = "MomLauncher";
+        private static readonly string[] LegacyTasks = { "MomLauncher_mihomo", "MomLauncher_stop" };
+
         // Remove the HKCU\Run autostart entry + any startup-folder shortcuts.
         public static string RemoveAutostart()
         {
-            try { Autostart.Disable(); return Loc.T("Uni_ResRemovedM"); }
+            try
+            {
+                Autostart.Disable();
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                    @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true))
+                    if (k != null && k.GetValue(LegacyName) != null) k.DeleteValue(LegacyName, false);
+                return Loc.T("Uni_ResRemovedM");
+            }
             catch (Exception ex) { Log.Error("uninstall.autostart", ex); return Loc.T("Uni_ResError", ex.Message); }
         }
 
-        // Delete the mihomo scheduled task. Non-admin /Delete usually fails (the task is
-        // SYSTEM), so retry once elevated (single UAC). Returns what happened.
+        private static bool AnythingToDelete()
+        {
+            if (MihomoSetup.IsTaskInstalled()) return true;
+            foreach (var t in LegacyTasks)
+            {
+                string exe, args;
+                if (MihomoSetup.TaskCommand(t, out exe, out args)) return true;
+            }
+            return false;
+        }
+
+        // Delete the engine service + scheduled tasks (ours and the pre-rename ones). Non-admin
+        // /Delete usually fails (they are SYSTEM), so retry once elevated (single UAC).
         public static async Task<string> DeleteTaskAsync(CancellationToken ct)
         {
-            if (!MihomoSetup.IsTaskInstalled()) return Loc.T("Uni_ResNoTask");
+            if (!AnythingToDelete()) return Loc.T("Uni_ResNoTask");
 
             RunSchtasksDelete(elevated: false);
             await Task.Delay(400, ct).ConfigureAwait(false);
-            if (!MihomoSetup.IsTaskInstalled()) return Loc.T("Uni_ResDeleted");
+            if (!AnythingToDelete()) return Loc.T("Uni_ResDeleted");
 
             // Needs admin — ask for UAC and try again.
             RunSchtasksDelete(elevated: true);
             await Task.Delay(600, ct).ConfigureAwait(false);
-            return MihomoSetup.IsTaskInstalled() ? Loc.T("Uni_ResTaskFail") : Loc.T("Uni_ResDeleted");
+            return AnythingToDelete() ? Loc.T("Uni_ResTaskFail") : Loc.T("Uni_ResDeleted");
         }
 
         // Clean the leftovers that live OUTSIDE the install folder (the user deletes the folder
@@ -103,6 +127,10 @@ namespace MihomoLauncher.Services
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MihomoLauncher"),
                 "AppData", removed, failed);
             TryWipe(AppConfigStore.DefaultMihomoWorkDir, "mihomo", removed, failed);
+            TryWipe(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), LegacyName),
+                LegacyName, removed, failed);
+            TryWipe(Path.Combine(Path.GetTempPath(), "MihomoLauncherUpdate"), "Temp", removed, failed);
 
             if (failed.Count > 0) return Loc.T("Uni_ResError", string.Join(", ", failed));
             if (removed.Count == 0) return Loc.T("Uni_ResNothing");
@@ -140,6 +168,11 @@ namespace MihomoLauncher.Services
                          + " & schtasks /Delete /TN \"" + MihomoSetup.FirewallTaskName + "\" /F"
                          + " & sc stop " + MihomoSetup.ServiceName
                          + " & sc delete " + MihomoSetup.ServiceName;
+                foreach (var t in LegacyTasks)
+                    args += " & schtasks /End /TN \"" + t + "\" & schtasks /Delete /TN \"" + t + "\" /F";
+                // The engine runs as SYSTEM: the user-level kill in StopMihomoAsync can't touch
+                // it, and the service only kills its own path. Here we have the rights.
+                args += " & taskkill /F /IM mihomo-windows-amd64.exe";
                 var psi = new ProcessStartInfo
                 {
                     FileName = "cmd.exe",

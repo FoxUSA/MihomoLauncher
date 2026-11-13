@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Windows;
@@ -230,6 +230,11 @@ namespace MihomoLauncher
 
             try { Log.Info("Запуск · " + VersionInfo.TitleCaption + (silent ? "  (автозапуск)" : "")); } catch { }
 
+            // Access password + data carried here from another place (another copy of the launcher,
+            // another PC or Windows user): nothing runs — no engine, no connect, no window — until
+            // the password is given. Given → the data is bound to this place and works as usual.
+            if (!UnlockMovedData()) { Shutdown(); return; }
+
             // Create the main window ourselves (no StartupUri — see App.xaml).
             try
             {
@@ -243,6 +248,33 @@ namespace MihomoLauncher
                 Log.Crash("MainWindow", ex);
                 Shutdown();
             }
+        }
+
+        private bool UnlockMovedData()
+        {
+            AppConfig cfg;
+            try { cfg = AppConfigStore.Load(); }
+            catch (Exception ex) { Log.Error("unlock-load", ex); return true; }
+            if (AccessLock.BoundHere(cfg)) return true;
+
+            Log.Info("Пароль доступа: данные перенесены из другого места — нужен пароль.");
+            var mode = ShutdownMode;
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;   // closing the prompt must not end the app by itself
+            try
+            {
+                var w = new Views.UnlockWindow(cfg, Loc.T("Lock_MovedReason"), Loc.T("Lock_BtnQuit"));
+                if (w.ShowDialog() != true || !w.Opened)
+                {
+                    Log.Info("Пароль доступа: не введён — утилита закрыта, данные не тронуты.");
+                    return false;
+                }
+                AccessLock.BindHere(cfg);
+                AppConfigStore.Save(cfg);
+                Log.Info("Пароль доступа: введён, данные привязаны к этому месту.");
+                return true;
+            }
+            catch (Exception ex) { Log.Error("unlock-moved", ex); return false; }
+            finally { ShutdownMode = mode; }
         }
 
         private void ShowEventLoop()

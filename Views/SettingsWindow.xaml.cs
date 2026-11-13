@@ -29,37 +29,48 @@ namespace MihomoLauncher.Views
         private void OnPropertyChanged([CallerMemberName] string name = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-        // Tri-state "select all" for each table header (true=all, false=none, null=mixed).
-        private bool? _allAppsChecked = false, _allSlotsChecked = false;
-        public bool? AllAppsChecked { get => _allAppsChecked; set { _allAppsChecked = value; OnPropertyChanged(); } }
-        public bool? AllSlotsChecked { get => _allSlotsChecked; set { _allSlotsChecked = value; OnPropertyChanged(); } }
-
         private readonly AppConfig _editing;
-        private readonly ObservableCollection<AppRow> _appRows = new ObservableCollection<AppRow>();
-        private readonly ObservableCollection<SlotRow> _slotRows = new ObservableCollection<SlotRow>();
         private readonly ObservableCollection<RouteRow> _routeRows = new ObservableCollection<RouteRow>();
 
-        public SettingsWindow(AppConfig source, bool openDns = false)
+        // dnsOnly: the «DNS» button on the main screen — its own window with the DNS page alone.
+        // Otherwise Settings without the DNS page (it has its own button now).
+        private readonly bool _dnsOnly;
+
+        public SettingsWindow(AppConfig source, bool dnsOnly = false)
         {
             InitializeComponent();
-            if (openDns) TabDns.IsSelected = true;
+            _dnsOnly = dnsOnly;
+            if (dnsOnly)
+            {
+                foreach (var it in Tabs.Items.OfType<System.Windows.Controls.TabItem>())
+                    it.Visibility = Visibility.Collapsed;   // headers only: the selected page still shows
+                TabDns.IsSelected = true;
+                Title = "DNS";
+                TitleBarCtl.Title = "DNS";
+                BtnExitAppFooter.Visibility = Visibility.Collapsed;
+                Width = 760; MinWidth = 600;
+                Height = 520; MinHeight = 400;
+            }
+            else
+            {
+                TabDns.Visibility = Visibility.Collapsed;
+                if (TabDns.IsSelected) Tabs.SelectedIndex = 0;
+            }
 
-            _editing = Clone(source);
-            DataContext = this;   // header "select all" checkboxes bind to AllXChecked
+            // A full copy: the hand-written field-by-field one used to drop FirewallKillSwitch
+            // (back to «on» after every Save) and a subscription's update interval.
+            _editing = AppConfigStore.Clone(source);
             FillUi();
 
-            GridApps.ItemsSource = _appRows;
-            GridSlots.ItemsSource = _slotRows;
             LstRoutes.ItemsSource = _routeRows;
-
-            RefreshAppRows();
-            RefreshSlotRows();
-            InitRowDrag();
+            RefreshLockUi();
 
             UpdateMihomoStatus();
             FillUpdatesUi();
 
             VpnStatus.Changed += OnVpnStatusChanged;
+            // «Сохранить» only when something differs: the whole edited config + every field.
+            _saveGuard = SaveGuard.Attach(this, BtnSave, () => SaveGuard.Xml(_editing));
             Loaded += (s, e) =>
             {
                 RefreshDiagnostics();
@@ -68,55 +79,58 @@ namespace MihomoLauncher.Views
             Closed += (s, e) => { _closed = true; try { VpnStatus.Changed -= OnVpnStatusChanged; } catch { } };
         }
 
-        private static AppConfig Clone(AppConfig c)
+        private readonly SaveGuard _saveGuard;
+
+        // ---------- Access password ----------
+
+        private void RefreshLockUi()
         {
-            return new AppConfig
+            bool set = AccessLock.IsSet(_editing);
+            BtnLockSet.Content = Loc.T(set ? "Lock_BtnChange" : "Lock_BtnSet");
+            BtnLockClear.Visibility = set ? Visibility.Visible : Visibility.Collapsed;
+            LblLockState.Text = Loc.T(set ? "Lock_StateOn" : "Lock_StateOff");
+        }
+
+        // Set / change: the current password first (if there is one), then the new one twice.
+        // Applies to the edited copy — takes effect on «Сохранить», like everything here.
+        private async void OnLockSet(object sender, RoutedEventArgs e)
+        {
+            if (AccessLock.IsSet(_editing) && !await LockPrompt.RequireAsync(this, _editing).ConfigureAwait(true)) return;
+            var p1 = new System.Windows.Controls.PasswordBox { FontSize = 14, Padding = new Thickness(8, 6, 8, 6) };
+            var p2 = new System.Windows.Controls.PasswordBox { FontSize = 14, Padding = new Thickness(8, 6, 8, 6) };
+            var sp = new StackPanel { Margin = new Thickness(0, 0, 0, 14) };
+            System.Windows.Controls.TextBlock Label(string key, double top) => new System.Windows.Controls.TextBlock
             {
-                Version = c.Version,
-                Language = c.Language,
-                RemoteDesktopSafeMode = c.RemoteDesktopSafeMode,
-                MihomoExePath = c.MihomoExePath,
-                MihomoWorkDir = c.MihomoWorkDir,
-                MihomoApiAddr = c.MihomoApiAddr,
-                MihomoSecret = c.MihomoSecret,
-                MixedPort = c.MixedPort,
-                DirectDnsEnabled = c.DirectDnsEnabled,
-                DirectDns = new List<string>(c.DirectDns ?? new List<string>()),
-                DirectDnsSource = c.DirectDnsSource ?? "",
-                VpnSlots =(c.VpnSlots ?? new List<VpnSlot>()).Select(s => new VpnSlot
-                {
-                    Id = s.Id,
-                    Name = s.Name,
-                    Kind = s.Kind,
-                    Value = s.Value,
-                    Enabled = s.Enabled,
-                }).ToList(),
-                Apps = (c.Apps ?? new List<AppEntry>()).Select(a => new AppEntry
-                {
-                    Id = a.Id,
-                    Name = a.Name,
-                    IsAllTraffic = a.IsAllTraffic,
-                    AutoConnect = a.AutoConnect,
-                    IconPath = a.IconPath,
-                    RequiresVpn = a.RequiresVpn,
-                    AutoIcon = a.AutoIcon,
-                    KillSwitch = a.KillSwitch,
-                    CheckUrl = a.CheckUrl,
-                    SkipCheck = a.SkipCheck,
-                    DisabledVpnSlotIds = new List<string>(a.DisabledVpnSlotIds ?? new List<string>()),
-                    VpnSlotOrder = new List<string>(a.VpnSlotOrder ?? new List<string>()),
-                    Programs = (a.Programs ?? new List<RuleProgram>()).Select(p => new RuleProgram
-                    {
-                        Name = p.Name, Path = p.Path, Arguments = p.Arguments, Aumid = p.Aumid, Launch = p.Launch,
-                    }).ToList(),
-                    Sites = (a.Sites ?? new List<RuleSite>()).Select(s => new RuleSite
-                    {
-                        Url = s.Url, ClashRuleUrl = s.ClashRuleUrl, Launch = s.Launch,
-                        RuleItems = new List<string>(s.RuleItems ?? new List<string>()),
-                        RuleFetchedUtc = s.RuleFetchedUtc,
-                    }).ToList(),
-                }).ToList(),
+                Text = Loc.T(key), FontSize = 13, Foreground = Theme.OverlayBody, Margin = new Thickness(0, top, 0, 4),
             };
+            sp.Children.Add(Label("Lock_New", 0));
+            sp.Children.Add(p1);
+            sp.Children.Add(Label("Lock_Repeat", 10));
+            sp.Children.Add(p2);
+            p1.Loaded += (s, a) => p1.Focus();
+            bool ok = await OverlayDialog.ConfirmContentAsync(this, Loc.T("Lock_SetTitle"), sp,
+                Loc.T("Lock_BtnSave"), Loc.T("Set_BtnCancel"), 400).ConfigureAwait(true);
+            if (!ok) return;
+            if (p1.Password.Length == 0)
+            {
+                await OverlayDialog.MessageAsync(this, Loc.T("Lock_SetTitle"), Loc.T("Lock_Empty")).ConfigureAwait(true);
+                return;
+            }
+            if (p1.Password != p2.Password)
+            {
+                await OverlayDialog.MessageAsync(this, Loc.T("Lock_SetTitle"), Loc.T("Lock_Mismatch")).ConfigureAwait(true);
+                return;
+            }
+            AccessLock.Set(_editing, p1.Password);
+            RefreshLockUi();
+            await OverlayDialog.MessageAsync(this, Loc.T("Lock_SetTitle"), Loc.T("Lock_SavedHint")).ConfigureAwait(true);
+        }
+
+        private async void OnLockClear(object sender, RoutedEventArgs e)
+        {
+            if (!await LockPrompt.RequireAsync(this, _editing).ConfigureAwait(true)) return;
+            AccessLock.Clear(_editing);
+            RefreshLockUi();
         }
 
         private void FillUi()
@@ -419,19 +433,6 @@ namespace MihomoLauncher.Views
             LblMihomoStatus.Foreground = running ? Theme.AccentGreen : Theme.AccentAmber;
         }
 
-        // ---------- Row collections ----------
-
-        private void RefreshAppRows()
-        {
-            int sel = GridApps.SelectedIndex;
-            _appRows.Clear();
-            foreach (var e in _editing.Apps.Where(a => a != null))
-                _appRows.Add(new AppRow(e, _editing.VpnSlots));
-            if (_appRows.Count > 0)
-                GridApps.SelectedIndex = sel >= 0 && sel < _appRows.Count ? sel : 0;
-            RecomputeAppsAll();
-        }
-
         // ---------- mihomo ----------
 
         private void OnBrowseMihomo(object sender, RoutedEventArgs e)
@@ -595,135 +596,9 @@ namespace MihomoLauncher.Views
             catch { }
         }
 
-        // ---------- Programs ----------
-
-        private void OnAddApp(object sender, RoutedEventArgs e)
-        {
-            var dlg = new EditRuleDialog(null, _editing.VpnSlots) { Owner = this };
-            if (dlg.ShowDialog() == true && dlg.Result != null)
-            {
-                _editing.Apps.Add(dlg.Result);
-                RefreshAppRows();
-                if (_appRows.Count > 0) GridApps.SelectedIndex = _appRows.Count - 1;
-            }
-        }
-
-        private void OnEditApp(object sender, RoutedEventArgs e)
-        {
-            var entry = (GridApps.SelectedItem as AppRow)?.Entry;
-            if (entry == null) return;
-            int idx = _editing.Apps.IndexOf(entry);
-            if (idx < 0) return;
-            int sel = GridApps.SelectedIndex;
-            var dlg = new EditRuleDialog(entry, _editing.VpnSlots) { Owner = this };
-            if (dlg.ShowDialog() == true && dlg.Result != null)
-            {
-                _editing.Apps[idx] = dlg.Result;
-                RefreshAppRows();
-                GridApps.SelectedIndex = sel;
-            }
-        }
-
-        private async void OnDeleteApp(object sender, RoutedEventArgs e)
-        {
-            // «Весь трафик» is built in — it can be switched off, never deleted.
-            var targets = CheckedOrSelected(_appRows, GridApps.SelectedItem as AppRow)
-                .Where(t => !t.IsAllTraffic).ToList();
-            if (targets.Count == 0) return;
-            string body = targets.Count == 1
-                ? Loc.T("Set_DeleteOneFromList", targets[0].Name)
-                : Loc.T("Set_DeleteRulesMany", targets.Count);
-            var ok = await OverlayDialog.ConfirmAsync(this, Loc.T("Set_DeleteRuleTitle"), body, Loc.T("Set_BtnDelete"), Loc.T("Set_BtnCancel")).ConfigureAwait(true);
-            if (!ok) return;
-            foreach (var t in targets) _editing.Apps.Remove(t);
-            RefreshAppRows();
-        }
-
-        // Entries to act on: the checked rows, or — if none are checked — the selected row.
-        private static List<AppEntry> CheckedOrSelected(IEnumerable<IHasEntry> rows, IHasEntry selected)
-        {
-            var checkedRows = rows.OfType<CheckRow>().Where(r => r.IsChecked)
-                                  .OfType<IHasEntry>().Select(r => r.Entry).ToList();
-            if (checkedRows.Count > 0) return checkedRows;
-            return selected?.Entry != null ? new List<AppEntry> { selected.Entry } : new List<AppEntry>();
-        }
-
-        // Refresh the blackmatrix7 rule lists of every site (with a template) across all rules.
-        private async void OnRefreshRules(object sender, RoutedEventArgs e)
-        {
-            var sites = _editing.Apps.Where(a => a != null)
-                                     .SelectMany(a => a.Sites ?? new List<RuleSite>())
-                                     .Where(s => s != null && !string.IsNullOrWhiteSpace(s.ClashRuleUrl))
-                                     .ToList();
-            if (sites.Count == 0)
-            {
-                await OverlayDialog.MessageAsync(this, Loc.T("Set_NoLists"), Loc.T("Set_NoListsDesc")).ConfigureAwait(true);
-                return;
-            }
-            int sel = GridApps.SelectedIndex;
-            BtnRefreshLink.IsEnabled = false;
-            int okCount = 0, total = 0;
-            try
-            {
-                foreach (var s in sites)
-                {
-                    try { await ClashRuleService.RefreshAsync(s).ConfigureAwait(true); okCount++; total += s.RuleItems?.Count ?? 0; }
-                    catch { }
-                }
-                RefreshAppRows();
-                GridApps.SelectedIndex = sel;
-                await OverlayDialog.MessageAsync(this, Loc.T("Set_Done"),
-                    Loc.T("Set_ListsRefreshed", okCount, sites.Count, total)).ConfigureAwait(true);
-            }
-            finally
-            {
-                BtnRefreshLink.IsEnabled = true;
-            }
-        }
-
-        // Both tables are reordered by dragging a row (GridRowDrag); «Всё остальное» stays first.
-        private void InitRowDrag()
-        {
-            new GridRowDrag<AppRow>(GridApps, _appRows, r => r.Entry != null && r.Entry.IsAllTraffic, OnRulesReordered);
-            new GridRowDrag<SlotRow>(GridSlots, _slotRows, null, OnSlotsReordered);
-        }
-
-        // The rows' new order → the master Apps list: rows take the positions rows held
-        // (null entries, which have no row, stay where they were).
-        private void OnRulesReordered(List<AppRow> order, AppRow dropped)
-        {
-            var slots = Enumerable.Range(0, _editing.Apps.Count).Where(i => _editing.Apps[i] != null).ToList();
-            if (slots.Count != order.Count) { RefreshAppRows(); return; }
-            for (int k = 0; k < slots.Count; k++) _editing.Apps[slots[k]] = order[k].Entry;
-            GridApps.SelectedItem = dropped;
-        }
-
-        private void OnSlotsReordered(List<SlotRow> order, SlotRow dropped)
-        {
-            _editing.VpnSlots.Clear();
-            _editing.VpnSlots.AddRange(order.Select(r => r.Slot));
-            int at = order.IndexOf(dropped);
-            RefreshSlotRows();   // renumbers «#»
-            GridSlots.SelectedIndex = at;
-        }
-
-        // ---------- VPN slots ----------
-
-        private void RefreshSlotRows()
-        {
-            int sel = GridSlots.SelectedIndex;
-            _slotRows.Clear();
-            for (int i = 0; i < _editing.VpnSlots.Count; i++)
-                _slotRows.Add(new SlotRow(_editing.VpnSlots[i], i + 1));
-            if (_slotRows.Count > 0)
-                GridSlots.SelectedIndex = sel >= 0 && sel < _slotRows.Count ? sel : 0;
-            RecomputeSlotsAll();
-        }
-
         // No scrolling in Settings: a tab whose content is taller than the window (Mihomo with its
         // routes table, DNS) grows the WINDOW to fit, up to the screen. Grow only — switching
-        // tabs back and forth shouldn't make it jump. «Основное» is left alone: its two tables
-        // share whatever height there is.
+        // tabs back and forth shouldn't make it jump.
         private void OnTabsSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (e.OriginalSource != Tabs) return;
@@ -734,7 +609,7 @@ namespace MihomoLauncher.Views
         {
             try
             {
-                if (!IsLoaded || WindowState != WindowState.Normal || Tabs.SelectedIndex <= 0) return;
+                if (!IsLoaded || WindowState != WindowState.Normal || Tabs.SelectedIndex < 0) return;
                 var root = Content as FrameworkElement;
                 if (root == null) return;
                 root.Measure(new Size(root.ActualWidth, double.PositiveInfinity));
@@ -748,129 +623,6 @@ namespace MihomoLauncher.Views
             catch (Exception ex) { Log.Error("settings-fit-height", ex); }
         }
 
-        // The variants card sizes to its rows but never past half of the «Основное» tab, so
-        // the rules table below gets whatever the variants don't use (50/50 at most).
-        private void OnMainTabSizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            CardSlots.MaxHeight = Math.Max(0, e.NewSize.Height / 2);
-        }
-
-        // «Обновить» (refresh: download at once, with progress) / «Состав» (what the subscription
-        // does, list by list) — opened from the variant's own window (EditSlotDialog).
-        private void ShowSubscription(VpnSlot slot, bool refresh, Window owner)
-        {
-            if (slot == null || slot.Kind != VpnSlotKind.ClashSub) return;
-            int idx = _editing.VpnSlots.IndexOf(slot);
-            var proxyName = ProxyParsers.ProxyNameFor(slot, idx + 1);
-
-            var dlg = new SubscriptionDialog(_editing, proxyName, slot.Value, slot.Name)
-            {
-                Owner = owner,
-                AutoRefresh = refresh,
-                // The engine holds a subscription only while some tile rides it; then it re-reads
-                // the nodes too. Changed rules reach the config through the main window's watchdog
-                // (EnsureSubscriptionsCurrent). A 404 here just means no tile rides it.
-                AfterRefresh = async () =>
-                {
-                    var controller = new MihomoController(_editing);
-                    if (await controller.IsApiReachableAsync().ConfigureAwait(true))
-                        await controller.RefreshProviderAsync(proxyName + "_prov").ConfigureAwait(true);
-                },
-            };
-            dlg.ShowDialog();
-        }
-
-        private void OnAddSlot(object sender, RoutedEventArgs e)
-        {
-            var dlg = new EditSlotDialog(null, _editing.VpnSlots.Select(s => s.Name)) { Owner = this };
-            if (dlg.ShowDialog() == true && dlg.Results.Count > 0)
-            {
-                // Several links pasted at once → several variants.
-                foreach (var added in dlg.Results)
-                {
-                    _editing.VpnSlots.Add(added);
-                    // A new variant joins NO existing rule's search: the user assigns it where it
-                    // is wanted (Routing table or the rule itself). Rules list what they may NOT
-                    // use, so without this every rule would silently start trying the new variant
-                    // on its next connect — «не надо сразу включать его в перебор для всех правил».
-                    foreach (var app in _editing.Apps ?? new List<AppEntry>())
-                    {
-                        if (app == null) continue;
-                        if (app.DisabledVpnSlotIds == null) app.DisabledVpnSlotIds = new List<string>();
-                        if (!app.DisabledVpnSlotIds.Contains(added.Id))
-                            app.DisabledVpnSlotIds.Add(added.Id);
-                    }
-                }
-                RefreshSlotRows();
-                if (_slotRows.Count > 0) GridSlots.SelectedIndex = _slotRows.Count - 1;
-            }
-        }
-
-        private void OnEditSlot(object sender, RoutedEventArgs e)
-        {
-            var idx = GridSlots.SelectedIndex;
-            if (idx < 0 || idx >= _editing.VpnSlots.Count) return;
-            var slot = _editing.VpnSlots[idx];
-            var dlg = new EditSlotDialog(slot,
-                _editing.VpnSlots.Where((s, i) => i != idx).Select(s => s.Name)) { Owner = this };
-            dlg.ShowSubscription = refresh => ShowSubscription(slot, refresh, dlg);
-            if (dlg.ShowDialog() == true && dlg.Result != null)
-            {
-                _editing.VpnSlots[idx] = dlg.Result;
-                RefreshSlotRows();
-                GridSlots.SelectedIndex = idx;
-            }
-        }
-
-        private async void OnDeleteSlot(object sender, RoutedEventArgs e)
-        {
-            var targets = _slotRows.Where(r => r.IsChecked).Select(r => r.Slot).ToList();
-            if (targets.Count == 0)
-            {
-                var sel = (GridSlots.SelectedItem as SlotRow)?.Slot;
-                if (sel != null) targets.Add(sel);
-            }
-            if (targets.Count == 0) return;
-            string body = targets.Count == 1
-                ? Loc.T("Set_DeleteOneFromList", targets[0].Name)
-                : Loc.T("Set_DeleteVariantsMany", targets.Count);
-            var ok = await OverlayDialog.ConfirmAsync(this, Loc.T("Set_DeleteVariantTitle"), body, Loc.T("Set_BtnDelete"), Loc.T("Set_BtnCancel")).ConfigureAwait(true);
-            if (!ok) return;
-            foreach (var t in targets) _editing.VpnSlots.Remove(t);
-            RefreshSlotRows();
-        }
-
-        // ---------- Checkboxes (multi-select) ----------
-
-        private void CellCheck_Click(object sender, MouseButtonEventArgs e)
-        {
-            if (sender is FrameworkElement fe && fe.DataContext is CheckRow row)
-            {
-                row.IsChecked = !row.IsChecked;
-                if (row is AppRow) RecomputeAppsAll();
-                else if (row is SlotRow) RecomputeSlotsAll();
-                e.Handled = true;
-            }
-        }
-
-        private void HeaderCheck_Click(object sender, MouseButtonEventArgs e)
-        {
-            var tag = (sender as FrameworkElement)?.Tag as string;
-            if (tag == "apps") { bool v = AllAppsChecked != true; foreach (var r in _appRows) r.IsChecked = v; RecomputeAppsAll(); }
-            else if (tag == "slots") { bool v = AllSlotsChecked != true; foreach (var r in _slotRows) r.IsChecked = v; RecomputeSlotsAll(); }
-            e.Handled = true;
-        }
-
-        private void RecomputeAppsAll() => AllAppsChecked = TriState(_appRows);
-        private void RecomputeSlotsAll() => AllSlotsChecked = TriState(_slotRows);
-
-        private static bool? TriState<T>(ObservableCollection<T> rows) where T : CheckRow
-        {
-            if (rows.Count == 0) return false;
-            int c = rows.Count(r => r.IsChecked);
-            return c == 0 ? (bool?)false : (c == rows.Count ? (bool?)true : null);
-        }
-
         // ---------- Clear selection on empty-space click ----------
 
         // Clicking anywhere that isn't a table row / button / input clears the highlighted
@@ -879,8 +631,6 @@ namespace MihomoLauncher.Views
         private void OnBackgroundMouseDown(object sender, MouseButtonEventArgs e)
         {
             if (IsWithinInteractive(e.OriginalSource as DependencyObject)) return;
-            GridSlots.SelectedIndex = -1;
-            GridApps.SelectedIndex = -1;
             // Move focus onto the (focusable) root grid so any text box — e.g. the «Обновление»
             // period fields — fully loses focus on an empty-space click. Just clearing keyboard
             // focus leaves some Fluent controls showing their accent border; focusing a real
@@ -1063,7 +813,7 @@ namespace MihomoLauncher.Views
                 SetUpdStatus(Loc.T("Upd_CheckingFmt", Loc.T("Upd_ItemEngine")));
                 var src = await UpdateService.ResolveMihomoSourceAsync(CancellationToken.None).ConfigureAwait(true);
                 UpdateStateStore.MarkEngineChecked();
-                // No version = GitHub unreachable, only the mirror answered: nothing to compare
+                // No version = api.byfox.dev and GitHub unreachable, only the old mirror answered: nothing to compare
                 // against, so no update can be offered from here.
                 if (src == null || string.IsNullOrWhiteSpace(src.Version)) { SetUpdStatus(Loc.T("Upd_NoConnection")); return; }
                 if (!VersionInfo.IsNewer(src.Version, VersionInfo.MihomoVersion))
@@ -1130,6 +880,7 @@ namespace MihomoLauncher.Views
             // after the window had closed and crash on DialogResult.
             if (_saving || _closed) return;
             _saving = true;
+            _saveGuard.Suspended = true;
             BtnSave.IsEnabled = false;
             bool ok;
             try
@@ -1137,12 +888,15 @@ namespace MihomoLauncher.Views
                 // Empty exe path is valid now (CommitMihomoFields fills in the default), so
                 // there's nothing to block on here.
                 CommitMihomoFields();
-                ok = await CommitDnsAsync();
+                // Settings no longer shows the DNS page: leave the stored DNS as it is (no
+                // DNS check on every Settings save).
+                ok = !_dnsOnly || await CommitDnsAsync();
             }
             finally
             {
                 _saving = false;
-                BtnSave.IsEnabled = true;
+                BtnSave.IsEnabled = true;   // a failed check leaves the user free to retry
+                _saveGuard.Suspended = false;
             }
             if (!ok || _closed) return;   // closed with ✕ / «Отмена» while the check ran
 
@@ -1214,8 +968,10 @@ namespace MihomoLauncher.Views
 
         private void OnRefreshDiag(object sender, RoutedEventArgs e) => RefreshDiagnostics();
 
-        private void OnShowConfig(object sender, RoutedEventArgs e)
+        private async void OnShowConfig(object sender, RoutedEventArgs e)
         {
+            // config.yaml carries every VPN's keys.
+            if (!await LockPrompt.RequireAsync(this, _editing).ConfigureAwait(true)) return;
             string path = "", yaml;
             try
             {
@@ -1273,109 +1029,6 @@ namespace MihomoLauncher.Views
 
         // ---------- Row VMs ----------
 
-        // Lets CheckedOrSelected pull the underlying AppEntry from a grid's row VM.
-        private interface IHasEntry { AppEntry Entry { get; } }
-
-        // Row VM base carrying the per-row checkbox state (multi-select in tables).
-        public abstract class CheckRow : INotifyPropertyChanged
-        {
-            private bool _checked;
-            public bool IsChecked
-            {
-                get => _checked;
-                set { if (_checked != value) { _checked = value; OnPropertyChanged(); } }
-            }
-            public event PropertyChangedEventHandler PropertyChanged;
-            protected void OnPropertyChanged([CallerMemberName] string n = null)
-                => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
-        }
-
-        private static string BuildVpnLabel(AppEntry e, List<VpnSlot> slots)
-        {
-            return e.RequiresVpn ? Loc.T("Set_Yes") : Loc.T("Set_No");
-        }
-
-        public class AppRow : CheckRow, IHasEntry
-        {
-            public AppEntry Entry { get; }
-            public string Name { get; }
-            public string DisplayPath { get; }
-            public string VpnLabel { get; }
-            public string KillSwitchLabel { get; }
-
-            public AppRow(AppEntry e, List<VpnSlot> slots)
-            {
-                Entry = e;
-                Name = e.Name;
-                DisplayPath = PathSummary(e);
-                VpnLabel = BuildVpnLabel(e, slots);
-                // Kill-switch has its own independent status, shown regardless of the VPN toggle.
-                // (It only takes effect on routing for a rule that also uses VPN — see
-                // MihomoConfigBuilder — but its stored On/Off state is always visible + editable.)
-                KillSwitchLabel = e.KillSwitch ? Loc.T("Set_On") : Loc.T("Set_Off");
-            }
-
-            // What the tile actually launches: the items flagged Launch=true (programs by
-            // name/exe, sites by URL). Falls back to "all programs, else all sites" — exactly
-            // the rule AppLauncher uses — so the column reflects what a click will do.
-            private static string LaunchSummary(AppEntry e)
-            {
-                var progs = (e.Programs ?? new List<RuleProgram>()).Where(p => p != null).ToList();
-                var sites = (e.Sites ?? new List<RuleSite>()).Where(s => s != null && !string.IsNullOrWhiteSpace(s.Url)).ToList();
-                var pRun = progs.Where(p => p.Launch).ToList();
-                var sRun = sites.Where(s => s.Launch).ToList();
-                if (pRun.Count == 0 && sRun.Count == 0)
-                {
-                    if (progs.Count > 0) pRun = progs; else sRun = sites;
-                }
-                var parts = new List<string>();
-                foreach (var p in pRun)
-                    parts.Add(string.IsNullOrWhiteSpace(p.Name)
-                        ? System.IO.Path.GetFileName(p.Path ?? "") : p.Name);
-                foreach (var s in sRun) parts.Add(s.Url);
-                return parts.Count > 0 ? string.Join(", ", parts) : "—";
-            }
-
-            // The ADDRESS of the one item the tile launches — full exe path, the AUMID when a
-            // Store app has no path, the site URL, or (for a template) the full rule-list URL.
-            // Same selection as LaunchSummary (which showed friendly names instead): the item
-            // flagged «Плитка», falling back to the first program, else the first site — the
-            // rule AppLauncher itself follows. A rule with a single entry therefore always
-            // shows THAT entry, checkbox or not.
-            private static string PathSummary(AppEntry e)
-            {
-                var progs = (e.Programs ?? new List<RuleProgram>())
-                    .Where(p => p != null && (!string.IsNullOrWhiteSpace(p.Path) || !string.IsNullOrWhiteSpace(p.Aumid)))
-                    .ToList();
-                // A template is a site with no URL of its own, only a rule-list address. It's
-                // still the rule's one and only entry, so it counts here — otherwise a
-                // template-only rule showed an empty «Путь».
-                var sites = (e.Sites ?? new List<RuleSite>())
-                    .Where(s => s != null && (!string.IsNullOrWhiteSpace(s.Url) || !string.IsNullOrWhiteSpace(s.ClashRuleUrl)))
-                    .ToList();
-
-                var prog = progs.FirstOrDefault(p => p.Launch);
-                var site = sites.FirstOrDefault(s => s.Launch);
-                if (prog == null && site == null)
-                {
-                    if (progs.Count > 0) prog = progs[0];
-                    else if (sites.Count > 0) site = sites[0];
-                }
-
-                if (prog != null)
-                {
-                    var v = !string.IsNullOrWhiteSpace(prog.Path) ? prog.Path.Trim() : (prog.Aumid ?? "").Trim();
-                    if (v.Length > 0) return v;
-                }
-                if (site != null)
-                {
-                    var v = !string.IsNullOrWhiteSpace(site.Url) ? site.Url.Trim() : (site.ClashRuleUrl ?? "").Trim();
-                    if (v.Length > 0) return v;
-                }
-                return "—";
-            }
-        }
-
         public class RouteRow
         {
             public string AppName { get; }
@@ -1392,47 +1045,6 @@ namespace MihomoLauncher.Views
                 ProxyName = r.ProxyName;
                 Target = r.Target;
                 StatusLabel = r.NodeUp ? Loc.T("Set_RouteUp") : Loc.T("Set_RouteDown");
-            }
-        }
-
-        public class SlotRow : CheckRow
-        {
-            public VpnSlot Slot { get; }
-            public int Number { get; }
-            public string Name { get; }
-            public string KindLabel { get; }
-            public string ValueLabel { get; }
-            public string EnabledLabel { get; }
-            public string StatusLabel { get; }
-
-            public SlotRow(VpnSlot s, int number)
-            {
-                Slot = s;
-                Number = number;
-                Name = s.Name;
-                switch (s.Kind)
-                {
-                    case VpnSlotKind.Vless: KindLabel = "VLESS"; break;
-                    case VpnSlotKind.ClashSub: KindLabel = Loc.T("Set_KindClashSub"); break;
-                    case VpnSlotKind.Hysteria2: KindLabel = "Hysteria2"; break;
-                    case VpnSlotKind.ShareLink: KindLabel = ShareLinks.LabelOf(s.Value); break;
-                    default: KindLabel = "WireGuard .conf"; break;
-                }
-                // Full value — no hard 60-char cut. That clipped the text before the column
-                // even ran out of room, so a wide window showed "…" next to empty space. The
-                // column's text style trims it visually when it genuinely doesn't fit.
-                ValueLabel = s.Value ?? "";
-                EnabledLabel = s.Enabled ? "✓" : "—";   // glyphs, no localization
-
-                // What the last connect learned about this variant. Blank until something
-                // has actually checked it — an empty cell says "not checked", which is the
-                // truth, while a guess here would be read as a verdict.
-                switch (SlotHealth.Get(s.Id))
-                {
-                    case SlotState.Alive: StatusLabel = Loc.T("Set_SlotAnswers"); break;
-                    case SlotState.Dead: StatusLabel = Loc.T("Set_SlotNoAnswer"); break;
-                    default: StatusLabel = ""; break;
-                }
             }
         }
     }

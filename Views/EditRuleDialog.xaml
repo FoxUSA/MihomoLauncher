@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="MihomoLauncher.Views.EditRuleDialog"
+﻿<ui:FluentWindow x:Class="MihomoLauncher.Views.EditRuleDialog"
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -85,7 +85,9 @@
                                                 HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
+                                    <!-- No box on a template: a domain list has nothing to open. -->
                                     <CheckBox Style="{StaticResource DataGridCheckBoxStyle}" Cursor="Hand"
+                                              Visibility="{Binding LaunchVisibility}"
                                               IsChecked="{Binding Launch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                               ToolTip="{DynamicResource Rule_TileTip}" />
                                 </DataTemplate>
@@ -112,6 +114,8 @@
                                 <DataTemplate>
                                     <TextBlock Text="{Binding DisplayName}" FontSize="12.5" Padding="2,0"
                                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                                               Cursor="Hand" Background="Transparent"
+                                               PreviewMouseLeftButtonDown="OnTypeClick"
                                                ToolTip="{Binding DisplayName}" />
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
@@ -121,18 +125,40 @@
                         <DataGridTemplateColumn Header="{DynamicResource Rule_ColWhatOpens}" Width="*" CanUserSort="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
+                                    <!-- Click anywhere on the path = open it (same as «Тип»): a template
+                                         opens its list, a program is shown in Explorer. A plain site's
+                                         box is for typing, so it gets a small ↗ to open it instead. -->
                                     <Grid>
-                                        <!-- plain site: editable URL -->
-                                        <ui:TextBox Visibility="{Binding SiteVisibility}" FontSize="12.5"
-                                                    VerticalAlignment="Center" PlaceholderText="example.com"
-                                                    Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        <!-- plain site: editable URL + open -->
+                                        <Grid Visibility="{Binding SiteVisibility}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <ui:TextBox FontSize="12.5"
+                                                        VerticalAlignment="Center" PlaceholderText="example.com"
+                                                        Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Border Grid.Column="1" Width="26" Height="26" Margin="4,0,0,0"
+                                                    CornerRadius="5" Background="Transparent" Cursor="Hand"
+                                                    VerticalAlignment="Center"
+                                                    PreviewMouseLeftButtonDown="OnTypeClick"
+                                                    ToolTip="{DynamicResource Rule_TypeTip}">
+                                                <ui:SymbolIcon Symbol="Open24" FontSize="15"
+                                                               Foreground="{x:Static svc:Theme.AccentBlue}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                        </Grid>
                                         <!-- template: read-only path to the rule list -->
                                         <TextBlock Visibility="{Binding TemplatePathVisibility}" Text="{Binding ClashRuleUrl}"
                                                    FontSize="12" VerticalAlignment="Center"
+                                                   Cursor="Hand" Background="Transparent"
+                                                   PreviewMouseLeftButtonDown="OnTypeClick"
                                                    TextTrimming="CharacterEllipsis" ToolTip="{Binding TemplateLabel}" />
                                         <!-- program / store: name + path -->
                                         <TextBlock Visibility="{Binding ProgVisibility}" Text="{Binding ProgOneLine}"
                                                    FontSize="12" VerticalAlignment="Center"
+                                                   Cursor="Hand" Background="Transparent"
+                                                   PreviewMouseLeftButtonDown="OnTypeClick"
                                                    TextTrimming="CharacterEllipsis" ToolTip="{Binding ProgTitle}" />
                                     </Grid>
                                 </DataTemplate>
@@ -168,11 +194,11 @@
                        Foreground="{x:Static svc:Theme.AccentGreen}" />
             <ui:Button Content="{DynamicResource Rule_AddTemplate}" MinWidth="96" Margin="0,0,8,0" Click="OnAddSiteTemplate"
                        Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button Content="{DynamicResource Rule_AddApp}" MinWidth="96" Margin="0,0,8,0" Click="OnAddProgPath"
+            <ui:Button x:Name="BtnAddApp" Content="{DynamicResource Rule_AddApp}" MinWidth="96" Margin="0,0,8,0" Click="OnAddProgPath"
                        Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button Content="{DynamicResource Rule_AddProcess}" MinWidth="80" Margin="0,0,8,0" Click="OnAddProgRunning"
+            <ui:Button x:Name="BtnAddProcess" Content="{DynamicResource Rule_AddProcess}" MinWidth="80" Margin="0,0,8,0" Click="OnAddProgRunning"
                        Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button Content="Store" MinWidth="70" Click="OnAddProgStore"
+            <ui:Button x:Name="BtnAddStore" Content="Store" MinWidth="70" Click="OnAddProgStore"
                        Foreground="{x:Static svc:Theme.AccentGreen}" />
         </StackPanel>
 

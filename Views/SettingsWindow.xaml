@@ -4,8 +4,8 @@
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:svc="clr-namespace:MihomoLauncher.Services"
                  Title="{DynamicResource Set_Title}"
-                 Width="950" Height="780"
-                 MinWidth="820" MinHeight="560"
+                 Width="950" Height="640"
+                 MinWidth="820" MinHeight="480"
                  WindowStartupLocation="CenterScreen"
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
@@ -99,172 +99,14 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" Title="{DynamicResource Set_Title}" Panel.ZIndex="0" />
+        <ui:TitleBar x:Name="TitleBarCtl" Grid.Row="0" Title="{DynamicResource Set_Title}" Panel.ZIndex="0" />
 
         <TabControl x:Name="Tabs" Grid.Row="1" Margin="16,8,16,0"
                     Style="{StaticResource CardTabControlStyle}"
                     SelectionChanged="OnTabsSelectionChanged">
 
-            <!-- ============ TAB 1: Основное (VPN variants + Programs/Links) ============ -->
-            <TabItem Header="{DynamicResource Set_TabMain}" Style="{StaticResource CardTabItemStyle}">
-                <!-- Variants take only the height their rows need (Auto), capped at half the tab
-                     (CardSlots.MaxHeight, set in OnMainTabSizeChanged); the rules get the rest.
-                     Few variants → the rules table is taller; once the variants fill their half
-                     it's 50/50 and the variants scroll. -->
-                <Grid Margin="4,10,4,4" SizeChanged="OnMainTabSizeChanged">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="*" />
-                    </Grid.RowDefinitions>
-
-                    <!-- ===== Top: VPN variants table (full width) ===== -->
-                    <ui:Card x:Name="CardSlots" Grid.Row="0" Margin="0,0,0,4" Padding="14"
-                             VerticalAlignment="Stretch" VerticalContentAlignment="Stretch">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-
-                            <!-- Buttons on top (left), title on the right -->
-                            <Grid Grid.Row="0" Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                    <ui:Button Content="{DynamicResource Set_BtnAdd}" Margin="0,0,8,0" MinWidth="92" Click="OnAddSlot"
-                                               Foreground="{x:Static svc:Theme.AccentGreen}" />
-                                    <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditSlot" />
-                                    <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteSlot" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{DynamicResource Set_VpnVariants}" FontSize="17" FontWeight="SemiBold"
-                                           VerticalAlignment="Center" Margin="12,0,2,0" />
-                            </Grid>
-
-                            <DataGrid x:Name="GridSlots" Grid.Row="1"
-                                      Style="{StaticResource AppDataGridStyle}"
-                                      RowStyle="{StaticResource AppDataGridRowStyle}"
-                                      CellStyle="{StaticResource AppDataGridCellStyle}"
-                                      ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
-                                      CanUserSortColumns="False"
-                                      MouseDoubleClick="OnEditSlot">
-                                <DataGrid.Columns>
-                                    <DataGridTemplateColumn Width="32" CanUserSort="False" CanUserResize="False"
-                                                            CellStyle="{StaticResource CheckboxCellStyle}"
-                                                            HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
-                                        <DataGridTemplateColumn.HeaderTemplate>
-                                            <DataTemplate>
-                                                <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                        Tag="slots" PreviewMouseLeftButtonDown="HeaderCheck_Click">
-                                                    <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
-                                                              IsChecked="{Binding DataContext.AllSlotsChecked, RelativeSource={RelativeSource AncestorType=DataGrid}, Mode=OneWay}"
-                                                              IsThreeState="True" IsHitTestVisible="False" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.HeaderTemplate>
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                        PreviewMouseLeftButtonDown="CellCheck_Click">
-                                                    <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
-                                                              IsChecked="{Binding IsChecked, Mode=OneWay}"
-                                                              IsHitTestVisible="False" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <!-- Everything but «Значение» is sized to its content; the value
-                                         column takes all the slack, since it's the one holding
-                                         long paths/URLs. MaxWidth keeps one long name from eating
-                                         the row (the text style truncates past it). -->
-                                    <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="Auto" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColName}" Binding="{Binding Name}" Width="Auto" MaxWidth="260"
-                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColType}" Binding="{Binding KindLabel}" Width="Auto" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColValue}" Binding="{Binding ValueLabel}" Width="*"
-                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColEnabled}" Binding="{Binding EnabledLabel}" Width="Auto" />
-                                    <!-- What the last connect saw: answers / doesn't answer / blank
-                                         if it was never checked. Read-only; filled by the preflight
-                                         the connect flow runs before it picks a variant. -->
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColSlotStatus}" Binding="{Binding StatusLabel}" Width="Auto" />
-                                </DataGrid.Columns>
-                            </DataGrid>
-                        </Grid>
-                    </ui:Card>
-
-                    <!-- ===== Bottom half: Правила (программы + ссылки в одном списке) ===== -->
-                    <ui:Card Grid.Row="1" Margin="0,4,0,0" Padding="6"
-                             VerticalAlignment="Stretch" VerticalContentAlignment="Stretch">
-                        <Grid Margin="8,10,8,6">
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto" />
-                                <RowDefinition Height="*" />
-                            </Grid.RowDefinitions>
-                            <Grid Grid.Row="0" Margin="0,0,0,8">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" />
-                                    <ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                                    <ui:Button Content="{DynamicResource Set_BtnAdd}" Margin="0,0,8,0" MinWidth="92" Click="OnAddApp"
-                                               Foreground="{x:Static svc:Theme.AccentGreen}" />
-                                    <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditApp" />
-                                    <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteApp" />
-                                    <ui:Button x:Name="BtnRefreshLink" Content="{DynamicResource Set_BtnRefreshLists}"
-                                               Margin="0,0,8,0" MinWidth="92" Click="OnRefreshRules" />
-                                </StackPanel>
-                                <TextBlock Grid.Column="1" Text="{DynamicResource Set_Rules}" FontSize="16" FontWeight="SemiBold"
-                                           VerticalAlignment="Center" Margin="12,0,2,0" />
-                            </Grid>
-
-                            <DataGrid x:Name="GridApps" Grid.Row="1"
-                                      Style="{StaticResource AppDataGridStyle}"
-                                      RowStyle="{StaticResource AppDataGridRowStyle}"
-                                      CellStyle="{StaticResource AppDataGridCellStyle}"
-                                      ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
-                                      CanUserSortColumns="False"
-                                      MouseDoubleClick="OnEditApp">
-                                <DataGrid.Columns>
-                                    <DataGridTemplateColumn Width="32" CanUserSort="False" CanUserResize="False"
-                                                            CellStyle="{StaticResource CheckboxCellStyle}"
-                                                            HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
-                                        <DataGridTemplateColumn.HeaderTemplate>
-                                            <DataTemplate>
-                                                <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                        Tag="apps" PreviewMouseLeftButtonDown="HeaderCheck_Click">
-                                                    <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
-                                                              IsChecked="{Binding DataContext.AllAppsChecked, RelativeSource={RelativeSource AncestorType=DataGrid}, Mode=OneWay}"
-                                                              IsThreeState="True" IsHitTestVisible="False" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.HeaderTemplate>
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                        PreviewMouseLeftButtonDown="CellCheck_Click">
-                                                    <CheckBox Style="{StaticResource DataGridCheckBoxStyle}"
-                                                              IsChecked="{Binding IsChecked, Mode=OneWay}"
-                                                              IsHitTestVisible="False" />
-                                                </Border>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                    <!-- Same shape as the variants table: content-sized columns,
-                                         and «Путь» (what the rule actually points at) gets the rest. -->
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColName}" Binding="{Binding Name}" Width="Auto" MaxWidth="260"
-                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_ColPath}" Binding="{Binding DisplayPath}" Width="*"
-                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
-                                    <DataGridTextColumn Header="VPN" Binding="{Binding VpnLabel}" Width="Auto" />
-                                    <DataGridTextColumn Header="Kill-switch" Binding="{Binding KillSwitchLabel}" Width="Auto" />
-                                </DataGrid.Columns>
-                            </DataGrid>
-                        </Grid>
-                    </ui:Card>
-                </Grid>
-            </TabItem>
+            <!-- The «Основное» tab (VPN variants + rules) left Settings on 2026-11-13: they are
+                 the «VPN» and «+» buttons on the main screen now (ListsWindow). -->
 
             <!-- ============ TAB 2: Mihomo (engine + diagnostics) ============ -->
             <TabItem Header="Mihomo" Style="{StaticResource CardTabItemStyle}">
@@ -387,7 +229,10 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- ============ TAB 3: DNS — for DIRECT traffic only ============
+            <!-- ============ DNS — for DIRECT traffic only ============
+                 Not a Settings tab any more (2026-11-13): the «DNS» button on the main screen
+                 opens this window in DNS-only mode (SettingsWindow(..., dnsOnly: true)) — the
+                 header is hidden, only this page shows. In plain Settings the tab is collapsed.
                  The old «DNS» tab (removed 2026-08-15) replaced the resolver of the whole
                  machine and could hold up VPN traffic too. This one feeds mihomo's
                  `direct-nameserver` and nothing else — see DirectDns. -->
@@ -634,6 +479,17 @@
                             <TextBlock Text="{DynamicResource Set_AutostartHint}"
                                        FontSize="11" Opacity="0.6" TextWrapping="Wrap"
                                        Margin="28,2,0,0" />
+
+                            <Separator Margin="0,14,0,10" Opacity="0.4" />
+
+                            <TextBlock Text="{DynamicResource Lock_SetTitle}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4" />
+                            <TextBlock Text="{DynamicResource Lock_SetDesc}"
+                                       FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+                            <StackPanel Orientation="Horizontal">
+                                <ui:Button x:Name="BtnLockSet" Margin="0,0,8,0" MinWidth="120" Click="OnLockSet" />
+                                <ui:Button x:Name="BtnLockClear" Content="{DynamicResource Lock_BtnClear}" MinWidth="92" Click="OnLockClear" />
+                                <TextBlock x:Name="LblLockState" VerticalAlignment="Center" Margin="12,0,0,0" FontSize="12.5" Opacity="0.75" />
+                            </StackPanel>
                         </StackPanel>
                     </ui:Card>
                 </Grid>
@@ -645,7 +501,7 @@
         <!-- Footer buttons -->
         <Border Grid.Row="2" Padding="20,8">
             <DockPanel>
-                <ui:Button Content="{DynamicResource Set_BtnExitApp}"
+                <ui:Button x:Name="BtnExitAppFooter" Content="{DynamicResource Set_BtnExitApp}"
                            DockPanel.Dock="Left"
                            FontSize="14"
                            Padding="20,8"

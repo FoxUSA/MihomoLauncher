@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -36,6 +37,47 @@ namespace MihomoLauncher.Services
             {
             }
             return null;
+        }
+
+        // When the rule has no icon of its own (nothing in the set): the program's own picture,
+        // large — a Store app's logo, an exe's 256-px icon — else the site's icon if it has been
+        // fetched, else the old 32-px exe icon. Null = nothing (the caller draws a placeholder and
+        // may fetch the site icon). Cached: tiles are rebuilt often, the shell call is not free.
+        private static readonly System.Collections.Generic.Dictionary<string, ImageSource> _fallbackCache =
+            new System.Collections.Generic.Dictionary<string, ImageSource>(StringComparer.OrdinalIgnoreCase);
+
+        public static ImageSource Fallback(Models.AppEntry app)
+        {
+            if (app == null) return null;
+            try
+            {
+                var progs = (app.Programs ?? new System.Collections.Generic.List<Models.RuleProgram>())
+                    .Where(p => p != null).OrderBy(p => p.Launch ? 0 : 1).ToList();
+                foreach (var p in progs)
+                {
+                    var key = !string.IsNullOrWhiteSpace(p.Aumid) ? "aumid:" + p.Aumid : "file:" + p.Path;
+                    ImageSource cached;
+                    if (_fallbackCache.TryGetValue(key, out cached)) { if (cached != null) return cached; continue; }
+
+                    BitmapSource img = null;
+                    if (!string.IsNullOrWhiteSpace(p.Aumid)) img = ShellIcon.ForStoreApp(p.Aumid);
+                    if (img == null && !string.IsNullOrWhiteSpace(p.Path) && File.Exists(p.Path)) img = ShellIcon.ForFile(p.Path);
+                    var result = img != null ? (ImageSource)TrimTransparent(img) : null;
+                    _fallbackCache[key] = result;
+                    if (result != null) return result;
+                }
+
+                var siteFile = IconFetcher.SiteIconFile(IconFetcher.SiteHostFor(app));
+                if (siteFile.Length > 0)
+                {
+                    var img = Load(siteFile, null);
+                    if (img != null) return img;
+                }
+
+                var exe = progs.FirstOrDefault(p => !string.IsNullOrEmpty(p.Path))?.Path;
+                return Load(null, exe);
+            }
+            catch { return null; }
         }
 
         private static string ResolveOnDisk(string p)

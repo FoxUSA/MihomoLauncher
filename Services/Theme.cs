@@ -1,4 +1,4 @@
-using System.Windows.Media;
+﻿using System.Windows.Media;
 
 namespace MihomoLauncher.Services
 {
@@ -72,6 +72,8 @@ namespace MihomoLauncher.Services
         // ----- Accents (tile sub-labels, status text) -----
         public static readonly SolidColorBrush AccentGreen = B("#FF8FB89B");   // muted sage
         public static readonly SolidColorBrush AccentRed = B("#FFD98C84");
+        // The log button's icon while tiles conflict: red, but dimmed — a hint, not an alarm.
+        public static readonly SolidColorBrush ConflictIcon = B("#FFB06A64");
         public static readonly SolidColorBrush AccentAmber = B("#FFD9BC8C");
         public static readonly SolidColorBrush AccentBlue = B("#FFAAB9D6");
         public static readonly SolidColorBrush AccentGrey = B("#FF8A909A");

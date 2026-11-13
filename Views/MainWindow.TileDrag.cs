@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
@@ -58,10 +58,11 @@ namespace MihomoLauncher.Views
         private void OnTilesMouseDown(object sender, MouseButtonEventArgs e)
         {
             _dragPending = null;
+            _dragSwallowUp = false;
             if (TileDragActive || _state == UiState.Checking) return;
             var tile = TileFromSource(e.OriginalSource);
             var entry = tile?.Tag as AppEntry;
-            if (entry == null || entry.IsAllTraffic) return;
+            if (entry == null || entry.IsBuiltIn) return;
             _dragPanel = VisualTreeHelper.GetParent(tile) as Panel;
             if (_dragPanel == null) return;
             _dragPending = tile;
@@ -83,13 +84,27 @@ namespace MihomoLauncher.Views
             var pos = e.GetPosition(_dragPanel);
             if (Math.Abs(pos.X - _dragPressPos.X) < TileDragThreshold
                 && Math.Abs(pos.Y - _dragPressPos.Y) < TileDragThreshold) return;
+            // The order of the tiles is routing (further left wins) — behind the access password.
+            // Ask once the drag is unmistakable; this press must not then launch the tile.
+            if (!AccessLock.IsOpen(_config))
+            {
+                _dragPending = null;
+                _dragSwallowUp = true;
+                e.Handled = true;
+                _ = LockPrompt.RequireAsync(this, _config);
+                return;
+            }
+            AccessLock.Touch();
             BeginTileDrag(_dragPending, pos);
             e.Handled = true;
         }
 
+        private bool _dragSwallowUp;
+
         private void OnTilesMouseUp(object sender, MouseButtonEventArgs e)
         {
             _dragPending = null;
+            if (_dragSwallowUp) { _dragSwallowUp = false; e.Handled = true; return; }
             if (!TileDragActive) return;
             // Swallow the up: it must not reach the tile's launch / ⟳ / ✕ handlers.
             e.Handled = true;
@@ -142,7 +157,7 @@ namespace MihomoLauncher.Views
             int from = items.IndexOf(_dragTile);
             if (from < 0) return;
             int minIndex = 0;
-            while (minIndex < items.Count && (items[minIndex] as FrameworkElement)?.Tag is AppEntry a && a.IsAllTraffic) minIndex++;
+            while (minIndex < items.Count && (items[minIndex] as FrameworkElement)?.Tag is AppEntry a && a.IsBuiltIn) minIndex++;
 
             int to = from;
             double best = double.MaxValue;
@@ -195,7 +210,7 @@ namespace MihomoLauncher.Views
             {
                 var ordered = TilesPanel.Items.OfType<FrameworkElement>()
                     .Select(t => t.Tag as AppEntry)
-                    .Where(a => a != null && !a.IsAllTraffic).ToList();
+                    .Where(a => a != null && !a.IsBuiltIn).ToList();
                 var set = new HashSet<AppEntry>(ordered);
                 var slots = Enumerable.Range(0, _config.Apps.Count).Where(i => set.Contains(_config.Apps[i])).ToList();
                 if (slots.Count != ordered.Count) return;
@@ -209,6 +224,7 @@ namespace MihomoLauncher.Views
                 if (!changed) return;
                 AppConfigStore.Save(_config);
                 Log.Info("Плитки: новый порядок — " + string.Join(", ", ordered.Select(a => a.Name)));
+                ApplyRuleOrder();   // the tile further left wins — effective now, not at the next reload
             }
             catch (Exception ex) { Log.Error("tile-order-save", ex); }
         }

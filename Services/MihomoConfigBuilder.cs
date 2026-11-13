@@ -20,6 +20,13 @@ namespace MihomoLauncher.Services
         // Straight to Target even when Target is a subscription with rules of its own — the
         // launcher's probe rule: a check has to cross the node, not the issuer's policy.
         public bool Raw { get; set; }
+        // The launcher's own probe rule (its exe through the node being checked): always first.
+        public bool Probe { get; set; }
+        // A site or template the person put into a tile (2026-11-13): every tile's sites go above
+        // every tile's programs — the specific rule (this site) beats the general one (all of this
+        // program), wherever the tiles stand. Tile order decides only between two tiles that
+        // list the same address.
+        public bool Site { get; set; }
         public RuleDef() { }
         public RuleDef(string type, string value, string target) { Type = type; Value = value; Target = target; }
     }
@@ -159,10 +166,10 @@ namespace MihomoLauncher.Services
             // internet without the VPN". A rule that is switched off is not on a node, so it is
             // blocked — exactly the leak the switch exists to prevent (user's decision 2026-09-14).
             //
-            // The one exception is «Весь трафик»: switched off it must block nothing, or turning it
-            // off would take the whole machine's internet with it.
-            foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && a.RequiresVpn && a.KillSwitch
-                                                                             && (!a.IsAllTraffic || a.AutoConnect)))
+            // The kill-switch works ALWAYS (user, 2026-11-13): switched on or off, through a VPN or
+            // «без VPN» — and on «Всё остальное» too (then everything no tile claims is blocked
+            // until its VPN is up). «Всё остальное» set to «Блокировать» and on blocks as well.
+            foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && (a.IsBlocking || a.KillSwitch)))
                 AddAppRules(rules, app, "REJECT");
             return Build(cfg, proxies ?? new List<ParsedProxy>(), rules);
         }
@@ -209,11 +216,11 @@ namespace MihomoLauncher.Services
             // list that failed to download — fell to the subscription's MATCH (DIRECT) and the
             // template "didn't work" (2026-11-03: Google template + api.xbyfox.com on a
             // subscription went direct).
-            void AddRule(string type, string value, bool raw)
+            void AddRule(string type, string value, bool raw, bool site = false)
             {
                 if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(value)) return;
                 if (!seen.Add(type + "|" + value)) return;
-                rules.Add(new RuleDef(type, value, target) { Raw = raw });
+                rules.Add(new RuleDef(type, value, target) { Raw = raw, Site = site });
             }
 
             // Sites before programs: a rule's own sites must win even for its own program's
@@ -221,7 +228,7 @@ namespace MihomoLauncher.Services
             foreach (var site in app.Sites ?? new List<RuleSite>())
             {
                 if (site == null) continue;
-                AddRule("DOMAIN-SUFFIX", HostOf(site.Url), true);
+                AddRule("DOMAIN-SUFFIX", HostOf(site.Url), true, site: true);
 
                 // Cached rule list (domains/IPs) — route all of it through the same target so
                 // the whole service goes via the VPN, not just the probe host. "TYPE,VALUE".
@@ -230,10 +237,12 @@ namespace MihomoLauncher.Services
                     if (string.IsNullOrWhiteSpace(item)) continue;
                     int c = item.IndexOf(',');
                     if (c <= 0 || c >= item.Length - 1) continue;
-                    AddRule(item.Substring(0, c).Trim(), item.Substring(c + 1).Trim(), true);
+                    AddRule(item.Substring(0, c).Trim(), item.Substring(c + 1).Trim(), true, site: true);
                 }
             }
 
+            // The check address is the tile's own probe, not its list of sites: it stays with the
+            // programs (below every tile's sites), so it can't outrank another tile's program.
             AddRule("DOMAIN-SUFFIX", HostOf(ResolveCheckUrl(app)), true);
 
             foreach (var prog in app.Programs ?? new List<RuleProgram>())
@@ -264,6 +273,7 @@ namespace MihomoLauncher.Services
             // match, so an item shared by two rules goes wherever the earlier one sends it.
             var effective = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             string catchAll = "DIRECT";
+            bool catchAllSeen = false;
             bool inRules = false;
             foreach (var raw in (yaml ?? "").Split('\n'))
             {
@@ -289,7 +299,8 @@ namespace MihomoLauncher.Services
                 var parts = t.Substring(2).Split(',');
                 if (parts.Length == 2 && parts[0].Trim() == "MATCH")
                 {
-                    if (!catchAll.StartsWith("SUB:", StringComparison.Ordinal)) catchAll = parts[1].Trim();
+                    if (!catchAllSeen && !catchAll.StartsWith("SUB:", StringComparison.Ordinal)) catchAll = parts[1].Trim();
+                    catchAllSeen = true;   // the engine stops at the first MATCH
                     continue;
                 }
                 if (parts.Length < 3) continue;
@@ -298,14 +309,14 @@ namespace MihomoLauncher.Services
             }
 
             var described = new List<string>();
-            foreach (var app in (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && a.RequiresVpn))
+            foreach (var app in (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && (a.RequiresVpn || a.KillSwitch)))
             {
                 if (app.IsAllTraffic)
                 {
                     // Only worth a word when it is actually doing something.
                     if (catchAll.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) continue;
                     described.Add(app.Name + " → " + (catchAll.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)
-                        ? (app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен")
+                        ? (app.IsBlocking ? "заблокировано («Блокировать»)" : app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен")
                         : catchAll.StartsWith("SUB:", StringComparison.Ordinal)
                         ? "по правилам подписки «" + catchAll.Substring(4) + "»"
                         : "VPN «" + catchAll + "»"));
@@ -325,7 +336,8 @@ namespace MihomoLauncher.Services
                 {
                     if (target.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) return "напрямую";
                     if (target.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase))
-                        return app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен";
+                        return app.IsBlocking ? "заблокировано («Блокировать»)"
+                             : app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен";
                     if (target.StartsWith("SUB:", StringComparison.Ordinal))
                         return "по правилам подписки «" + target.Substring(4) + "»";
                     return "VPN «" + target + "»";
@@ -351,6 +363,29 @@ namespace MihomoLauncher.Services
                 System.IO.File.WriteAllText(path, text, new UTF8Encoding(false));
             }
             catch (Exception ex) { Log.Error("provider-file " + fileName, ex); }
+        }
+
+        // The launcher's own server (2026-11-13), straight out, always, and for the launcher's
+        // process only: updates, templates, the geo base and the engine mirror live there. A
+        // tile's kill-switch, «Блокировать» on «Всё остальное» or a dead VPN must not cut the
+        // app off from its own updates — the way VPN clients keep their own API reachable under
+        // a kill-switch. A browser going to byfox.dev still follows the tiles like anything else.
+        public const string OwnServerSuffix = "byfox.dev";
+
+        private static void AppendOwnServer(StringBuilder sb)
+        {
+            sb.AppendLine("  - AND,((PROCESS-NAME," + LauncherImageName() + "),(DOMAIN-SUFFIX," + OwnServerSuffix + ")),DIRECT");
+        }
+
+        private static string LauncherImageName()
+        {
+            try
+            {
+                var name = System.Diagnostics.Process.GetCurrentProcess().MainModule?.ModuleName;
+                if (!string.IsNullOrEmpty(name) && name.IndexOfAny(new[] { ',', '(', ')' }) < 0) return name;
+            }
+            catch { }
+            return "MihomoLauncher.exe";
         }
 
         public static string HostOf(string url)
@@ -777,10 +812,18 @@ namespace MihomoLauncher.Services
             // on, in which case its target (a proxy, or REJECT under its kill-switch).
             string catchAll = "DIRECT";
             bool asnReady = AsnDbReady(cfg);
+            // The engine stops at the first match: the launcher's probe first, then the sites and
+            // templates of every tile, then the programs (and check addresses) of every tile —
+            // each block in the order of the tiles (stable). «Всё остальное» (MATCH) is last.
+            rules = rules.Where(r => r != null && r.Probe)
+                .Concat(rules.Where(r => r != null && !r.Probe && r.Site))
+                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site)).ToList();
             sb.AppendLine("rules:");
+            bool ownWritten = false;
             foreach (var r in rules)
             {
                 if (r == null || string.IsNullOrEmpty(r.Type) || string.IsNullOrEmpty(r.Target)) continue;
+                if (!r.Probe && !ownWritten) { AppendOwnServer(sb); ownWritten = true; }
                 if (r.Type.Equals("MATCH", StringComparison.OrdinalIgnoreCase)) { catchAll = r.Target; continue; }
                 if (IsAsnRule(r.Type) && !asnReady) continue;
                 // IP rules must skip DNS resolution under fake-ip, or they never match.
@@ -826,6 +869,7 @@ namespace MihomoLauncher.Services
                     }
                 }
             }
+            if (!ownWritten) AppendOwnServer(sb);
             // «Весь трафик» on a subscription: everything left over follows the subscription.
             // `SUB-RULE,(MATCH),…` is refused by the engine; TCP-or-UDP is what matches all.
             if (policies.ContainsKey(catchAll))

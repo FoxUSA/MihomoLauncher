@@ -411,9 +411,17 @@ namespace MihomoLauncher.Views
             LblStep.TextWrapping = TextWrapping.NoWrap;
             LblStep.Text = p.Stage == SubStage.Checking ? Loc.T("Sub_StepCheck")
                          : p.Stage == SubStage.Done ? Loc.T("Sub_Done")
+                         : p.Batch ? Loc.T("Sub_StepLists", p.Step, p.Steps - 1)
                          : p.Title == null ? Loc.T("Sub_StepSub")
                          : Loc.T("Sub_StepList", p.Step, p.Steps - 1, p.Title);
             if (p.Stage != SubStage.Downloading) { LblBytes.Text = ""; LblEta.Text = ""; return; }
+            if (p.Batch)
+            {
+                // Several lists in flight: no single file's bytes to show; the last one done instead.
+                LblBytes.Text = string.IsNullOrEmpty(p.Title) ? Loc.T("Sub_Connecting") : Loc.T("Sub_ListDone", p.Title);
+                LblEta.Text = p.EtaSeconds >= 0 ? Loc.T("Sub_Eta", Duration(p.EtaSeconds)) : "";
+                return;
+            }
             LblBytes.Text = p.Bytes <= 0 ? Loc.T("Sub_Connecting")
                           : p.Total > 0 ? Loc.T("Sub_BytesOf", Size(p.Bytes), Size(p.Total), Size((long)p.BytesPerSecond))
                           : Loc.T("Sub_Bytes", Size(p.Bytes), Size((long)p.BytesPerSecond));

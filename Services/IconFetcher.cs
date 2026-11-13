@@ -376,6 +376,144 @@ namespace MihomoLauncher.Services
             return changed;
         }
 
+        // ---------- Site icons (favicon) ----------
+        //
+        // A rule made only of sites, whose name the icon set doesn't know, had a blank glyph for a
+        // tile. The site's own icon is the next best thing: fetched once into DataUser\ico\site\
+        // and kept. Tried in order: what the page itself names (apple-touch-icon — usually 180 px,
+        // then <link rel=icon>, biggest first), /apple-touch-icon.png, /favicon.ico. SVG is
+        // skipped (WPF can't draw it). Each host is tried once per launcher run.
+
+        public static string SiteIconDir => Path.Combine(IcoDir, "site");
+
+        public static string SiteIconFile(string host)
+        {
+            if (string.IsNullOrWhiteSpace(host)) return "";
+            try
+            {
+                foreach (var ext in new[] { ".png", ".ico", ".jpg" })
+                {
+                    var f = Path.Combine(SiteIconDir, host.ToLowerInvariant() + ext);
+                    if (File.Exists(f)) return f;
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        private static readonly HashSet<string> _siteTried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // The host a rule's tile would show: the launching site, any site, else the check address.
+        public static string SiteHostFor(AppEntry app)
+        {
+            if (app == null) return "";
+            var sites = (app.Sites ?? new List<RuleSite>()).Where(s => s != null && !string.IsNullOrWhiteSpace(s.Url)).ToList();
+            var site = sites.FirstOrDefault(s => s.Launch) ?? sites.FirstOrDefault();
+            var host = site != null ? HostOf(site.Url) : HostOf(app.CheckUrl);
+            return host ?? "";
+        }
+
+        // True when a new icon file appeared (the caller redraws the tiles).
+        public static async Task<bool> FetchSiteIconAsync(string host, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(host) || SiteIconFile(host).Length > 0) return false;
+            lock (_siteTried) if (!_siteTried.Add(host)) return false;
+
+            var candidates = new List<string>();
+            try { candidates.AddRange(await IconLinksFromPageAsync(host, ct).ConfigureAwait(false)); } catch { }
+            candidates.Add("https://" + host + "/apple-touch-icon.png");
+            candidates.Add("https://" + host + "/favicon.ico");
+
+            foreach (var url in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    using (var req = new HttpRequestMessage(HttpMethod.Get, url))
+                    {
+                        req.Headers.TryAddWithoutValidation("User-Agent", BrowserUa);
+                        using (var resp = await Http.SendAsync(req, ct).ConfigureAwait(false))
+                        {
+                            if (!resp.IsSuccessStatusCode) continue;
+                            var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                            var ext = ImageExt(bytes);
+                            if (ext == null) continue;   // an HTML error page, an SVG, nothing
+                            Directory.CreateDirectory(SiteIconDir);
+                            var dest = Path.Combine(SiteIconDir, host.ToLowerInvariant() + ext);
+                            File.WriteAllBytes(dest + ".tmp", bytes);
+                            if (File.Exists(dest)) File.Delete(dest);
+                            File.Move(dest + ".tmp", dest);
+                            return true;
+                        }
+                    }
+                }
+                catch (OperationCanceledException) { return false; }
+                catch { }
+            }
+            return false;
+        }
+
+        private const string BrowserUa =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36";
+
+        // <link rel="apple-touch-icon" / "icon" href=…> of the home page, best first.
+        private static async Task<List<string>> IconLinksFromPageAsync(string host, CancellationToken ct)
+        {
+            var result = new List<string>();
+            var baseUri = new Uri("https://" + host + "/");
+            string html;
+            using (var req = new HttpRequestMessage(HttpMethod.Get, baseUri))
+            {
+                req.Headers.TryAddWithoutValidation("User-Agent", BrowserUa);
+                using (var resp = await Http.SendAsync(req, ct).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode) return result;
+                    html = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    baseUri = resp.RequestMessage?.RequestUri ?? baseUri;   // after redirects
+                }
+            }
+            if (html.Length > 400000) html = html.Substring(0, 400000);
+
+            var found = new List<Tuple<int, string>>();
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                         html, "<link\\b[^>]*>", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                var tag = m.Value;
+                var rel = Attr(tag, "rel").ToLowerInvariant();
+                if (!rel.Contains("icon")) continue;
+                var href = Attr(tag, "href");
+                if (href.Length == 0 || href.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) continue;
+                if (href.EndsWith(".svg", StringComparison.OrdinalIgnoreCase) || Attr(tag, "type").Contains("svg")) continue;
+                int size = 0;
+                var sizes = System.Text.RegularExpressions.Regex.Match(Attr(tag, "sizes"), "(\\d+)");
+                if (sizes.Success) int.TryParse(sizes.Groups[1].Value, out size);
+                if (rel.Contains("apple-touch-icon") && size == 0) size = 180;
+                Uri abs;
+                if (Uri.TryCreate(baseUri, System.Net.WebUtility.HtmlDecode(href), out abs)) found.Add(Tuple.Create(size, abs.ToString()));
+            }
+            // Biggest first, but not absurd ones (a 1024-px PWA icon is fine too — scaled down).
+            result.AddRange(found.OrderByDescending(t => t.Item1).Select(t => t.Item2));
+            return result;
+        }
+
+        private static string Attr(string tag, string name)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(tag,
+                "\\b" + name + "\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s>]+))",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!m.Success) return "";
+            return m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Success ? m.Groups[3].Value : m.Groups[4].Value;
+        }
+
+        // By content, not by the URL: servers happily send HTML with a 200.
+        private static string ImageExt(byte[] b)
+        {
+            if (b == null || b.Length < 8) return null;
+            if (b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47) return ".png";
+            if (b[0] == 0x00 && b[1] == 0x00 && b[2] == 0x01 && b[3] == 0x00) return ".ico";
+            if (b[0] == 0xFF && b[1] == 0xD8) return ".jpg";
+            return null;
+        }
+
         // A HEAD request: does the server's file differ in size from the cached one? Quiet —
         // offline or no answer means "keep what we have".
         private static async Task<bool> ServerDiffersAsync(string slug, string dest, CancellationToken ct)

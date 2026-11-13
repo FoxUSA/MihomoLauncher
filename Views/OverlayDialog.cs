@@ -1,5 +1,8 @@
+﻿using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -99,8 +102,10 @@ namespace MihomoLauncher.Views
 
             var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
 
+            System.Action unhook = null;
             void Close(bool result)
             {
+                unhook?.Invoke();
                 try { rootGrid.Children.Remove(overlay); } catch { }
                 tcs.TrySetResult(result);
             }
@@ -138,6 +143,11 @@ namespace MihomoLauncher.Views
             card.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             rootGrid.Children.Add(overlay);
+            unhook = HookKeys(owner, overlay, Close);
+            // A plain question: the main button takes the focus, so the key that opened the
+            // dialog's owner button can't press that button again underneath.
+            if (content == null) overlay.Dispatcher.BeginInvoke(new System.Action(() => okBtn.Focus()),
+                System.Windows.Threading.DispatcherPriority.Loaded);
             if (dismiss.CanBeCanceled)
                 dismiss.Register(() => owner.Dispatcher.BeginInvoke(new System.Action(() => Close(false))));
             return tcs.Task;
@@ -197,8 +207,10 @@ namespace MihomoLauncher.Views
 
             var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
 
+            System.Action unhook = null;
             void Close(bool ok)
             {
+                unhook?.Invoke();
                 try { rootGrid.Children.Remove(overlay); } catch { }
                 tcs.TrySetResult(new ToggleConfirm { Ok = ok, Toggle = toggle.IsChecked == true });
             }
@@ -234,7 +246,46 @@ namespace MihomoLauncher.Views
             card.MouseLeftButtonDown += (s, e) => e.Handled = true;
 
             rootGrid.Children.Add(overlay);
+            unhook = HookKeys(owner, overlay, Close);
             return tcs.Task;
+        }
+
+        // Enter = the main button, Esc = cancel — in every in-window confirmation (2026-11-13:
+        // «подтверждения должны работать и при нажатии Enter»). Taken at the window before the
+        // control under the dimmed backdrop sees the key; only the topmost overlay of a window
+        // answers (a password prompt over a dialog). A multi-line text box keeps its Enter.
+        private static readonly List<KeyValuePair<Window, Grid>> _open = new List<KeyValuePair<Window, Grid>>();
+
+        private static System.Action HookKeys(Window owner, Grid overlay, System.Action<bool> close)
+        {
+            if (owner == null) return () => { };
+            var entry = new KeyValuePair<Window, Grid>(owner, overlay);
+            _open.Add(entry);
+            KeyEventHandler handler = (s, e) =>
+            {
+                var top = _open.LastOrDefault(p => p.Key == owner);
+                if (top.Value != overlay) return;
+                if (e.Key == Key.Escape)
+                {
+                    e.Handled = true;
+                    close(false);
+                }
+                else if (e.Key == Key.Enter)
+                {
+                    if (Keyboard.FocusedElement is System.Windows.Controls.TextBox tb && tb.AcceptsReturn) return;
+                    e.Handled = true;
+                    close(true);
+                }
+            };
+            owner.PreviewKeyDown += handler;
+            bool done = false;
+            return () =>
+            {
+                if (done) return;
+                done = true;
+                owner.PreviewKeyDown -= handler;
+                _open.Remove(entry);
+            };
         }
     }
 }

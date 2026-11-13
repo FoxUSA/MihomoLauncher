@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -349,9 +349,20 @@ namespace MihomoLauncher.Services
         {
             var map = new Dictionary<string, RuleHit>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var app in (cfg?.Apps ?? new List<AppEntry>()))
+            // Same order as the config (MihomoConfigBuilder.Build): every tile's sites/templates
+            // first, then programs and check addresses, each in tile order; tiles that write no
+            // lines at all (no VPN, no kill-switch) last. «First wins» here then names the tile
+            // the engine actually used.
+            var apps = (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null).ToList();
+            var passes = new[]
             {
-                if (app == null) continue;
+                new { Sites = true,  Rest = false, Writers = true },
+                new { Sites = false, Rest = true,  Writers = true },
+                new { Sites = true,  Rest = true,  Writers = false },
+            };
+            foreach (var pass in passes)
+            foreach (var app in apps.Where(a => (a.RequiresVpn || a.KillSwitch) == pass.Writers))
+            {
 
                 void Put(string key, RuleItemKind kind, string label)
                 {
@@ -368,6 +379,7 @@ namespace MihomoLauncher.Services
                     };
                 }
 
+                if (pass.Rest)
                 foreach (var prog in app.Programs ?? new List<RuleProgram>())
                 {
                     if (prog == null) continue;
@@ -377,6 +389,7 @@ namespace MihomoLauncher.Services
                     Put(exe, RuleItemKind.Program, string.IsNullOrEmpty(exe) ? label : exe);
                 }
 
+                if (pass.Sites)
                 foreach (var site in app.Sites ?? new List<RuleSite>())
                 {
                     if (site == null) continue;
@@ -397,8 +410,9 @@ namespace MihomoLauncher.Services
                     }
                 }
 
-                Put(MihomoConfigBuilder.HostOf(MihomoConfigBuilder.ResolveCheckUrl(app)),
-                    RuleItemKind.CheckUrl, MihomoConfigBuilder.ResolveCheckUrl(app));
+                if (pass.Rest)
+                    Put(MihomoConfigBuilder.HostOf(MihomoConfigBuilder.ResolveCheckUrl(app)),
+                        RuleItemKind.CheckUrl, MihomoConfigBuilder.ResolveCheckUrl(app));
             }
             return map;
         }

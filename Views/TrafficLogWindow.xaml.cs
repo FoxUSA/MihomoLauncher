@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -8,6 +8,9 @@ using System.Windows.Data;
 using MihomoLauncher.Models;
 using MihomoLauncher.Services;
 using Wpf.Ui.Controls;
+using StackPanel = System.Windows.Controls.StackPanel;
+using Border = System.Windows.Controls.Border;
+using TextBlock = System.Windows.Controls.TextBlock;
 
 namespace MihomoLauncher.Views
 {
@@ -102,6 +105,127 @@ namespace MihomoLauncher.Views
             TabAds.Header = WithCount("Log_TabAds", ads);
             TabOutside.Header = WithCount("Log_TabOutside", outside);
             TabAll.Header = WithCount("Log_TabAll", rows.Count);
+
+            var groups = RuleConflicts.Find(CurrentConfig);
+            TabConflicts.Header = WithCount("Log_TabConflicts", groups.Count);
+            if (CurrentTab == "conflicts") RenderConflicts(groups);
+        }
+
+        private AppConfig CurrentConfig => EngineLogStore.ConfigSource?.Invoke() ?? _cfg;
+
+        // ---------- «Конфликт URL» ----------
+
+        private string _conflictSig;
+
+        private void RenderConflicts(List<ConflictGroup> groups)
+        {
+            // Rebuilt only when something changed — the header timer calls this every 0.7 s.
+            var sig = string.Join(";", groups.Select(g => g.Winner?.Id + ">" + g.Loser?.Id + ":" + g.Items.Count
+                                                         + ":" + g.Winner?.KillSwitch + g.Loser?.RequiresVpn + g.Loser?.KillSwitch))
+                      + "|" + Loc.Current;
+            if (sig == _conflictSig) return;
+            _conflictSig = sig;
+            ConflictsList.Children.Clear();
+
+            if (groups.Count == 0)
+            {
+                ConflictsList.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("Log_ConfNone"),
+                    Margin = new Thickness(16, 16, 16, 0),
+                    FontSize = 13,
+                    Foreground = Theme.TextSecondary,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                return;
+            }
+
+            foreach (var g in groups)
+            {
+                string w = g.Winner?.Name ?? "", l = g.Loser?.Name ?? "";
+                bool programs = g.Items.All(i => i.Kind == ConflictKind.Program);
+                var addrs = g.Items.Select(i => i.LoserItem).Distinct().ToList();
+
+                var sp = new StackPanel();
+                sp.Children.Add(new TextBlock
+                {
+                    Text = string.Join(", ", addrs.Take(4)) + (addrs.Count > 4 ? "  +" + (addrs.Count - 4) : ""),
+                    FontSize = 14,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Theme.TextPrimary,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+
+                // Who wins and why.
+                string why = !RuleConflicts.Writes(g.Loser) ? Loc.T("Log_ConfWhoSilent", w, l)
+                           : Loc.T(programs ? "Log_ConfWhoProg" : "Log_ConfWho", w, l);
+                var whoLine = new TextBlock { FontSize = 12.5, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Theme.TextSecondary };
+                whoLine.Inlines.Add(new System.Windows.Documents.Run(Loc.T("Log_ConfWins") + " "));
+                whoLine.Inlines.Add(new System.Windows.Documents.Run("«" + w + "»") { FontWeight = FontWeights.SemiBold, Foreground = Theme.AccentGreen });
+                whoLine.Inlines.Add(new System.Windows.Documents.Run(" — " + why));
+                sp.Children.Add(whoLine);
+
+                // The colliding entries, a few of them.
+                foreach (var c in g.Items.Take(6))
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = "• " + Detail(c, w, l),
+                        FontSize = 12,
+                        Margin = new Thickness(8, 3, 0, 0),
+                        Foreground = Theme.TextSecondary,
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                if (g.Items.Count > 6)
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = Loc.T("Log_ConfMore", g.Items.Count - 6),
+                        FontSize = 12,
+                        Margin = new Thickness(8, 3, 0, 0),
+                        Foreground = Theme.TextMuted,
+                    });
+
+                // When does the other one work after all.
+                if (RuleConflicts.Writes(g.Loser) && g.Winner != null && g.Winner.RequiresVpn && !g.Winner.KillSwitch)
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = Loc.T("Log_ConfWhenOff", w, l),
+                        FontSize = 12,
+                        Margin = new Thickness(0, 6, 0, 0),
+                        Foreground = Theme.TextMuted,
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                sp.Children.Add(new TextBlock
+                {
+                    Text = Loc.T(programs ? "Log_ConfFixProg" : "Log_ConfFix"),
+                    FontSize = 12,
+                    Margin = new Thickness(0, 6, 0, 0),
+                    Foreground = Theme.TextMuted,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+
+                ConflictsList.Children.Add(new Border
+                {
+                    Margin = new Thickness(10, 10, 10, 0),
+                    Padding = new Thickness(14, 10, 14, 12),
+                    CornerRadius = new CornerRadius(8),
+                    BorderBrush = Theme.CardBorder,
+                    BorderThickness = new Thickness(1),
+                    Child = sp,
+                });
+            }
+        }
+
+        private static string Detail(RuleConflict c, string w, string l)
+        {
+            switch (c.Kind)
+            {
+                case ConflictKind.Same: return Loc.T("Log_ConfSame", c.LoserItem);
+                case ConflictKind.Covered: return Loc.T("Log_ConfCovered", c.LoserItem, l, c.WinnerItem, w);
+                case ConflictKind.Partial: return Loc.T("Log_ConfPartial", c.WinnerItem, w, c.LoserItem, l);
+                case ConflictKind.Keyword: return Loc.T("Log_ConfKeyword", c.WinnerItem, w, c.LoserItem, l);
+                case ConflictKind.Ip: return Loc.T("Log_ConfIp", c.LoserItem, l, c.WinnerItem, w);
+                default: return Loc.T("Log_ConfProgram", c.LoserItem);
+            }
         }
 
         private static string WithCount(string key, int n)
@@ -209,6 +333,10 @@ namespace MihomoLauncher.Views
         private void OnTabChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
             if (_view == null) return;
+            bool conflicts = CurrentTab == "conflicts";
+            ConflictsView.Visibility = conflicts ? Visibility.Visible : Visibility.Collapsed;
+            Grid.Visibility = conflicts ? Visibility.Collapsed : Visibility.Visible;
+            if (conflicts) { _conflictSig = null; RenderConflicts(RuleConflicts.Find(CurrentConfig)); }
             RecomputeAppGroups();     // groups are per tab, so they change with it
             _view.Refresh();
             UpdateTabHint();
@@ -222,6 +350,7 @@ namespace MihomoLauncher.Views
                 case "ads": LblTabHint.Text = Loc.T("Log_HintAds"); break;
                 case "outside": LblTabHint.Text = Loc.T("Log_HintOutside"); break;
                 case "all": LblTabHint.Text = Loc.T("Log_HintAll"); break;
+                case "conflicts": LblTabHint.Text = Loc.T("Log_HintConflicts"); break;
                 default: LblTabHint.Text = Loc.T("Log_HintProblems"); break;
             }
         }

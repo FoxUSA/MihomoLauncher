@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -129,7 +129,7 @@ namespace MihomoLauncher.Services
             // fails open (kill-switch off) keeps failing open here too.
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var app in (cfg.Apps ?? new List<AppEntry>())
-                         .Where(a => a != null && a.RequiresVpn && a.KillSwitch))
+                         .Where(a => a != null && a.KillSwitch))   // «без VPN» too: the kill-switch works always
             {
                 foreach (var prog in app.Programs ?? new List<RuleProgram>())
                 {

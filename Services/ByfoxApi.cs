@@ -31,6 +31,17 @@ namespace MihomoLauncher.Services
         public const string GeoDateUrl = GeoBase + "geolite2_data.txt";
         public const string GeoCityUrl = GeoBase + "GeoLite2-City.mmdb";
         public const string GeoAsnUrl = GeoBase + "GeoLite2-ASN.mmdb";
+        // The mihomo engine (since 2026-11-12): the latest stable MetaCubeX/mihomo release, plain
+        // amd64 build, re-checked by the server daily. File names never carry the version — it is
+        // in the root manifest (engine.mihomo.version) and engine/manifest.json (+ size, sha256).
+        public const string EngineBase = Base + "engine/";
+        public const string EngineManifestUrl = EngineBase + "manifest.json";
+        public const string EngineZipUrl = EngineBase + "mihomo-windows-amd64.zip";
+        public const string EngineZipName = "mihomo-windows-amd64.zip";
+        public const string EngineExeName = "mihomo-windows-amd64.exe";
+
+        public static bool IsEngineUrl(string url)
+            => !string.IsNullOrEmpty(url) && url.StartsWith(EngineBase, StringComparison.OrdinalIgnoreCase);
 
         // The API counts its consumers by this.
         public static string UserAgent => "MihomoLauncher/" + VersionInfo.AppVersion;
@@ -243,6 +254,7 @@ namespace MihomoLauncher.Services
         {
             public string RuleDate = "";      // yyyy-MM-dd
             public string GeoliteDate = "";   // yyyyMMdd
+            public string EngineVersion = ""; // "1.19.34" (no "v"); empty = the API has no engine yet
         }
 
         public static async Task<RootManifest> RootManifestAsync(CancellationToken ct)
@@ -252,7 +264,43 @@ namespace MihomoLauncher.Services
             {
                 RuleDate = Str(Obj(root, "rule"), "date"),
                 GeoliteDate = Str(Obj(Obj(root, "geo"), "geolite2"), "date"),
+                EngineVersion = Str(Obj(Obj(root, "engine"), "mihomo"), "version").Trim().TrimStart('v', 'V'),
             };
+        }
+
+        // ---- engine ----
+
+        public sealed class EngineInfo
+        {
+            public string Version = "";
+            public long ZipSize; public string ZipSha256 = "";
+            public long ExeSize; public string ExeSha256 = "";
+        }
+
+        public static async Task<EngineInfo> EngineManifestAsync(CancellationToken ct)
+        {
+            var m = Obj(ParseJson(await GetStringAsync(EngineManifestUrl, 30, ct).ConfigureAwait(false)), "mihomo");
+            var files = Obj(m, "files");
+            var zip = Obj(files, EngineZipName);
+            var exe = Obj(files, EngineExeName);
+            return new EngineInfo
+            {
+                Version = Str(m, "version").Trim().TrimStart('v', 'V'),
+                ZipSize = Int(zip, "size"), ZipSha256 = Str(zip, "sha256").ToLowerInvariant(),
+                ExeSize = Int(exe, "size"), ExeSha256 = Str(exe, "sha256").ToLowerInvariant(),
+            };
+        }
+
+        public static string Sha256File(string path)
+        {
+            using (var sha = SHA256.Create())
+            using (var fs = File.OpenRead(path))
+            {
+                var h = sha.ComputeHash(fs);
+                var sb = new StringBuilder(h.Length * 2);
+                foreach (var b in h) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
         }
 
         // files["<path>"] = {size, sha256} of rule/manifest.json, as path → sha256.

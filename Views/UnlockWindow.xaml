@@ -1,0 +1,34 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.UnlockWindow"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 Title="{DynamicResource Lock_Title}"
+                 Width="440"
+                 SizeToContent="Height"
+                 ResizeMode="NoResize"
+                 WindowStartupLocation="CenterScreen"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="Mica">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Lock_Title}" ShowMaximize="False" ShowMinimize="False" />
+
+        <StackPanel Grid.Row="1" Margin="20,8,20,8">
+            <TextBlock x:Name="LblReason" FontSize="13.5" TextWrapping="Wrap" Margin="0,0,0,12" />
+            <PasswordBox x:Name="TxtPassword" FontSize="14" Padding="8,6" KeyDown="OnPasswordKey" />
+            <TextBlock x:Name="LblError" FontSize="12.5" Margin="0,6,0,0" TextWrapping="Wrap"
+                       Foreground="#E5484D" Visibility="Collapsed" Text="{DynamicResource Lock_Wrong}" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,8,20,18">
+            <ui:Button Content="{DynamicResource Lock_BtnOpen}" Appearance="Primary" Margin="0,0,8,0"
+                       FontSize="14" Padding="20,8" Click="OnOk" />
+            <ui:Button x:Name="BtnCancel" Content="{DynamicResource Set_BtnCancel}" FontSize="14" Padding="20,8" Click="OnCancel" />
+        </StackPanel>
+    </Grid>
+</ui:FluentWindow>

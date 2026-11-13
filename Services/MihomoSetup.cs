@@ -544,6 +544,15 @@ namespace MihomoLauncher.Services
                     Log.Info("Движок остановлен принудительно (служба " + ServiceName + ").");
                     return true;
                 }
+                // The service kills only its own path. Still there = a copy of the engine from
+                // another folder (an old install), which nothing else here can remove. The old
+                // stop task killed by name; do the same.
+                SendServiceCommand(SvcCmdKillEnginesAnyPath, "остановка копий движка из других папок");
+                if (WaitEngineGone(name, 5000))
+                {
+                    Log.Info("Движок остановлен принудительно: мешала копия " + name + " из другой папки (служба " + ServiceName + ").");
+                    return true;
+                }
                 Log.Info("Движок не остановился даже принудительно — процесс " + name + " ещё жив.");
                 return false;
             }

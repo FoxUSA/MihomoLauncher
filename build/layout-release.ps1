@@ -118,8 +118,59 @@ if (Test-Path -LiteralPath $legacyMax) { Remove-Item -LiteralPath $legacyMax -Re
 # appear if the exe is ever run from the build folder (config, custom icons, downloaded engine,
 # logs, config pointer). The baseline that SHOULD ship stays: manifest_geo.json,
 # blackmatrix7+www.txt, maxmind\, desktop.ini. The app recreates a default config on first run.
-foreach ($u in 'config.xml','config-location.txt','update.log','mihomo-windows-amd64.exe') {
+foreach ($u in 'config.xml','config-location.txt','update.log') {
     Remove-Item -LiteralPath (Join-Path $dataUser $u) -Force -ErrorAction SilentlyContinue
+}
+
+# The engine SHIPS in the full archive (user's call, 2026-11-12): the newest mihomo, taken ONLY
+# from api.byfox.dev/engine/ (the same source the app uses), zip and exe sha256-checked against
+# engine/manifest.json. Cached in bin\engine-cache with its version — never learned by running
+# the binary: a second process named mihomo-windows-amd64 makes the live launcher restart its
+# engine. Downloaded only when the API has a newer version; offline -> the cached one, warned.
+$engineName  = 'mihomo-windows-amd64.exe'
+$engineCache = Join-Path (Split-Path -Parent (Split-Path -Parent $root)) 'engine-cache'
+$cacheExe    = Join-Path $engineCache $engineName
+$cacheVer    = Join-Path $engineCache 'version.txt'
+New-Item -ItemType Directory -Force -Path $engineCache | Out-Null
+$haveVer = if (Test-Path -LiteralPath $cacheVer) { (Get-Content -LiteralPath $cacheVer -Raw).Trim() } else { '' }
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $ua = @{ 'User-Agent' = 'MihomoLauncher-build' }
+    $em = Invoke-RestMethod -Uri 'https://api.byfox.dev/engine/manifest.json' -Headers $ua -TimeoutSec 30
+    $ver = ([string]$em.mihomo.version).Trim().TrimStart('v')
+    if (-not $ver) { throw 'engine/manifest.json has no mihomo.version' }
+    $zipInfo = $em.mihomo.files.'mihomo-windows-amd64.zip'
+    $exeInfo = $em.mihomo.files.'mihomo-windows-amd64.exe'
+    if ($ver -ne $haveVer -or -not (Test-Path -LiteralPath $cacheExe)) {
+        $tmpZip = Join-Path $engineCache 'download.zip'
+        $tmpExe = Join-Path $engineCache 'download.exe'
+        Invoke-WebRequest -Uri 'https://api.byfox.dev/engine/mihomo-windows-amd64.zip' -Headers $ua -OutFile $tmpZip -UseBasicParsing -TimeoutSec 300
+        $zsha = (Get-FileHash -LiteralPath $tmpZip -Algorithm SHA256).Hash.ToLower()
+        if ($zsha -ne ([string]$zipInfo.sha256).ToLower()) { Remove-Item -LiteralPath $tmpZip -Force; throw "zip sha256 mismatch ($zsha)" }
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        $za = [IO.Compression.ZipFile]::OpenRead($tmpZip)
+        try {
+            $entry = $za.Entries | Where-Object { $_.Name -ieq $engineName } | Select-Object -First 1
+            if (-not $entry) { throw "$engineName not in the zip" }
+            [IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $tmpExe, $true)
+        } finally { $za.Dispose(); Remove-Item -LiteralPath $tmpZip -Force -ErrorAction SilentlyContinue }
+        $esha = (Get-FileHash -LiteralPath $tmpExe -Algorithm SHA256).Hash.ToLower()
+        if ($exeInfo.sha256 -and $esha -ne ([string]$exeInfo.sha256).ToLower()) { Remove-Item -LiteralPath $tmpExe -Force; throw "exe sha256 mismatch ($esha)" }
+        Move-Item -LiteralPath $tmpExe -Destination $cacheExe -Force
+        Set-Content -LiteralPath $cacheVer -Value $ver -Encoding ASCII
+        $haveVer = $ver
+        Write-Host "[layout-release] engine: downloaded mihomo v$ver from api.byfox.dev, sha256 ok"
+    } else {
+        Write-Host "[layout-release] engine: mihomo v$ver is the latest on api.byfox.dev, cached"
+    }
+} catch {
+    Write-Host "[layout-release] WARNING: api.byfox.dev engine check failed ($($_.Exception.Message)) - shipping cached v$haveVer"
+}
+if (Test-Path -LiteralPath $cacheExe) {
+    Copy-Item -LiteralPath $cacheExe -Destination (Join-Path $dataUser $engineName) -Force
+    Write-Host "[layout-release] engine: DataUser\$engineName = mihomo v$haveVer"
+} else {
+    Write-Host "[layout-release] WARNING: no engine to ship (GitHub unreachable and nothing cached)"
 }
 Remove-Item -LiteralPath (Join-Path $dataUser 'icons') -Recurse -Force -ErrorAction SilentlyContinue
 # Downloaded at runtime: the cached parts of api.byfox.dev's search index.

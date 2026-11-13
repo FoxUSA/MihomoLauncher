@@ -174,6 +174,8 @@ namespace MihomoLauncher.Views
             BtnLang.MouseLeave += (s, e) => { IcoLang.Foreground = rest; LangCode.Foreground = rest; };
             BtnWebsite.MouseEnter += (s, e) => IcoWebsite.Foreground = Theme.AccentBlue;
             BtnWebsite.MouseLeave += (s, e) => IcoWebsite.Foreground = rest;
+            BtnSettings.MouseEnter += (s, e) => IcoSettings.Foreground = Theme.TextPrimary;
+            BtnSettings.MouseLeave += (s, e) => IcoSettings.Foreground = rest;
             BtnExitApp.MouseEnter += (s, e) => IcoExit.Foreground = Theme.AccentRed;
             BtnExitApp.MouseLeave += (s, e) => IcoExit.Foreground = rest;
 
@@ -318,6 +320,7 @@ namespace MihomoLauncher.Views
                 {
                     e.Cancel = true;
                     _hidden = true;   // back in the tray: no one can answer an in-window dialog
+                    AccessLock.Lock();   // whoever opens it from the tray next asks again
                     Hide();
                     return;
                 }
@@ -388,7 +391,6 @@ namespace MihomoLauncher.Views
             try
             {
                 var caption = VersionInfo.TitleCaption;
-                TitleBarMain.Title = caption;
                 TxtCaption.Text = caption;
             }
             catch (Exception ex) { Log.Error("title-caption", ex); }
@@ -689,7 +691,7 @@ namespace MihomoLauncher.Views
 
             var now = DateTime.UtcNow;
             var pending = (_config.Apps ?? new List<AppEntry>())
-                .Where(a => a != null && a.RequiresVpn && !_workingApps.Contains(a.Id))
+                .Where(a => a != null && a.RequiresVpn && !a.IsNoNodeMode && !_workingApps.Contains(a.Id))
                 .Where(a => a.AutoConnect)                   // only rules somebody switched on
                 .Where(a => !_retryNextAt.TryGetValue(a.Id, out var when) || now >= when)
                 .ToList();
@@ -1046,7 +1048,20 @@ namespace MihomoLauncher.Views
 
         private void UpdateKillTimerUi()
         {
-            try { KillCountdown.Text = FormatMmSs(_killSecondsLeft); } catch { }
+            try
+            {
+                KillCountdown.Text = FormatMmSs(_killSecondsLeft);
+                // Off: just the name. On: just the countdown — the name is what you switched on.
+                bool on = _config?.RemoteDesktopSafeMode == true;
+                var cd = on ? Visibility.Visible : Visibility.Collapsed;
+                if (KillCountdown.Visibility != cd)
+                {
+                    KillCountdown.Visibility = cd;
+                    KillLabel.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+                    RecalcHeight();   // re-checks that the row fits the window
+                }
+            }
+            catch { }
         }
 
         private static string FormatMmSs(int s)
@@ -1141,7 +1156,10 @@ namespace MihomoLauncher.Views
                 bmp.EndInit();
                 bmp.Freeze();
                 Icon = bmp;
-                TitleBarMain.Icon = new ImageIcon { Source = bmp };
+                // Drawn by us beside the caption (ImgCaptionIcon), NOT as TitleBar.Icon: the
+                // template's icon cell carries its own fixed margin, which left a wide gap
+                // between the fox and the caption (2026-11-10).
+                ImgCaptionIcon.Source = bmp;
             }
             catch { }
         }
@@ -1341,11 +1359,61 @@ namespace MihomoLauncher.Views
             // «Весь трафик» first, whatever order the list ended up in. Its name follows the UI
             // language (footer lines, the Routing table and Settings read Name directly).
             foreach (var a in _config.Apps.Where(a => a != null && a.IsAllTraffic))
-                a.Name = Loc.T("AllTraffic_Name");
+                a.Name = AllTrafficName();
             foreach (var entry in _config.Apps.Where(a => a != null && a.HasTileTarget).OrderBy(a => a.IsAllTraffic ? 0 : 1))
                 TilesPanel.Items.Add(CreateTile(entry));
+            UpdateConflictIcon();
             RecalcHeight();
         }
+
+        // A tile with no picture at all but a site: fetch that site's icon in the background
+        // (once per host per run — IconFetcher remembers) and redraw the tiles if one arrived.
+        private void FetchSiteIconSoon(AppEntry entry)
+        {
+            var host = IconFetcher.SiteHostFor(entry);
+            if (string.IsNullOrEmpty(host)) return;
+            _ = Task.Run(async () =>
+            {
+                bool got = false;
+                try { got = await IconFetcher.FetchSiteIconAsync(host).ConfigureAwait(false); }
+                catch { }
+                if (got)
+                {
+                    Log.Info("Иконка сайта " + host + " скачана для плитки «" + entry.Name + "».");
+                    try { Dispatcher.BeginInvoke(new Action(RebuildTiles)); } catch { }
+                }
+            });
+        }
+
+        // The top button row is wider than 680 in some languages / with the Remote-session box, and
+        // it was simply cut at the window's edge (the box lost its right rounded corners). Widen
+        // the window to the row instead. Children's DesiredSize, not the panel's: a panel's own
+        // DesiredSize is clipped to the space it was offered — exactly the width that is too small.
+        private void FitWidthToTopBar()
+        {
+            double row = 0;
+            foreach (UIElement ch in TopButtons.Children)
+            {
+                var fe = ch as FrameworkElement;
+                if (fe == null || fe.Visibility == Visibility.Collapsed) continue;
+                row += fe.DesiredSize.Width;   // DesiredSize includes the element's margins
+            }
+            if (row <= 0) return;
+            double need = Math.Ceiling(row + 18 + 18 + 16);   // StackPanel margins + window frame
+            if (need > SystemParameters.WorkArea.Width) need = SystemParameters.WorkArea.Width;
+            MinWidth = need;
+            // Start at the minimum width (the button row), not wider. Keep following it while the
+            // width is still the one we set ourselves; once the user drags the edge, theirs wins
+            // (only grown when the row no longer fits).
+            bool ours = _autoWidth == 0 || Math.Abs(Width - _autoWidth) < 1;
+            if (ours || Width < need)
+            {
+                Width = need;
+                _autoWidth = need;
+            }
+        }
+
+        private double _autoWidth;
 
         // Width change → tiles re-wrap into more/fewer rows → height must follow.
         private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
@@ -1363,6 +1431,7 @@ namespace MihomoLauncher.Views
                 try
                 {
                     if (ResultRoot.Visibility != Visibility.Visible) return;
+                    FitWidthToTopBar();
 
                     // Sum the (correctly-arranged) heights of ResultRoot's rows + the title
                     // bar. ActualHeight is right even when SizeToContent under-reports.
@@ -1399,6 +1468,7 @@ namespace MihomoLauncher.Views
         {
             if (e == null) return false;
             if (!e.RequiresVpn) return true;
+            if (e.IsBlocking) return true;   // it is doing its job
             return _workingApps.Contains(e.Id);
         }
 
@@ -1445,7 +1515,7 @@ namespace MihomoLauncher.Views
             {
                 Width = TileSize,
                 Height = TileSize,
-                Margin = new Thickness(5),
+                Margin = new Thickness(3.5),
                 CornerRadius = new CornerRadius(9),
                 Background = enabled ? Theme.TileBg : Theme.TileDisabledBg,
                 BorderBrush = enabled ? Theme.TileBorder : Theme.TileDisabledBorder,
@@ -1473,10 +1543,12 @@ namespace MihomoLauncher.Views
                 Margin = new Thickness(0, 8, 0, 0),
             };
 
-            // Fallback when there's no IconPath: the icon of the rule's first program exe.
-            var fallbackExe = (entry.Programs ?? new List<RuleProgram>())
-                .FirstOrDefault(p => p != null && !string.IsNullOrEmpty(p.Path))?.Path ?? "";
-            var iconSource = IconLoader.Load(entry.IconPath, fallbackExe, (int)IconSize);
+            // The rule's own icon (the set / a picked file); else the program's own picture, large
+            // (Store logo / 256-px exe icon), else the site's icon (IconLoader.Fallback). A site
+            // icon not fetched yet is fetched in the background and the tiles redrawn.
+            var iconSource = IconLoader.Load(entry.IconPath, null, (int)IconSize)
+                             ?? (entry.IsBuiltIn ? null : IconLoader.Fallback(entry));
+            if (iconSource == null && !entry.IsBuiltIn) FetchSiteIconSoon(entry);
             if (iconSource != null)
             {
                 var img = new Image
@@ -1500,15 +1572,26 @@ namespace MihomoLauncher.Views
                 stack.Children.Add(MakePlaceholderGlyph(enabled, IconSize));
             }
 
-            stack.Children.Add(new TextBlock
+            // The name fits the tile: a long one («TinyMediaManager») is set smaller, down to
+            // 10.5 px, and only past that cut with «…» — the full name is in the tooltip.
+            var title = entry.IsAllTraffic ? AllTrafficName() : entry.Name;
+            var titleWeight = enabled ? FontWeights.SemiBold : FontWeights.Normal;
+            const double TitleRoom = 100;
+            double titleSize = 13;
+            while (titleSize > 10.5 && TextWidth(title, titleSize, titleWeight) > TitleRoom) titleSize -= 0.5;
+            var titleBlock = new TextBlock
             {
-                Text = entry.IsAllTraffic ? Loc.T("AllTraffic_Name") : entry.Name,
-                FontSize = 13,
-                FontWeight = enabled ? FontWeights.SemiBold : FontWeights.Normal,
+                Text = title,
+                FontSize = titleSize,
+                FontWeight = titleWeight,
                 TextAlignment = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
+                MaxWidth = TitleRoom,
+                TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = enabled ? Theme.TextPrimary : Theme.TextDisabled,
-            });
+            };
+            if (TextWidth(title, titleSize, titleWeight) > TitleRoom) titleBlock.ToolTip = title;
+            stack.Children.Add(titleBlock);
 
             // Every tile gets a settings-gear in the top-LEFT that opens this rule's editor.
             // VPN tiles additionally get "reconnect" and "disconnect" chips in the top-right,
@@ -1551,27 +1634,53 @@ namespace MihomoLauncher.Views
                         Margin = new Thickness(0, 6, 6, 0),
                     });
                 }
-                else
+                // No VPN variant allowed for this rule → nothing to connect to: no button (the VPN
+                // plate's drop-down is how to pick one). Direct rules never get here at all.
+                else if (!HasNoAllowedVpnVariant(entry))
                 {
+                    // Not connected → ▷ «подключить» (the plug read as «сосиска»); connected → ⟳ «переподключить».
+                    // Same action either way (2026-11-10: «логичнее эту кнопку делать что подключить,
+                    // а обновить уже оставить когда подключено»).
                     bool busyElsewhere = _reconnectingId != null;
-                    grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.ArrowSync24, 14,
-                        new Thickness(0, 5, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipReconnectOne"), busyElsewhere,
+                    // «Блокировать» switched on counts as on, exactly like a connected VPN.
+                    bool isConnected = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id) || entry.IsBlocking;
+                    grid.Children.Add(MakeCornerChip(
+                        isConnected ? Wpf.Ui.Controls.SymbolRegular.ArrowSync24 : Wpf.Ui.Controls.SymbolRegular.Play24, 14,
+                        new Thickness(0, 5, 5, 0), HorizontalAlignment.Right,
+                        Loc.T(isConnected ? "Main_TipReconnectOne" : "Main_TipConnectOne"), busyElsewhere,
                         async () => await ReconnectOneAsync(entry, manual: true)));   // switches the rule on, see there
                 }
 
                 // ✕ directly under the ⟳. Busy only with ANOTHER rule: on the tile that is
                 // reconnecting the ✕ is exactly how to stop it (it used to be greyed out right then).
-                bool offBusy = _reconnectingId != null && _reconnectingId != entry.Id;
-                grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Dismiss24, 12,
-                    new Thickness(0, 31, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDisconnectOne"), offBusy,
-                    () => DisconnectOneRule(entry)));
+                // Shown only where there is something to stop (2026-11-10: «крестик показывай
+                // только у тех, где VPN поднят»): connected, connecting right now, or switched on
+                // and being retried by the auto-retry — the ✕ is the only way to stop that from the
+                // tile (msedge, 2026-10-10). A rule that is simply off gets no ✕.
+                bool vpnUp = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id) || entry.IsBlocking;
+                if (vpnUp || reconnecting || entry.AutoConnect)
+                {
+                    bool offBusy = _reconnectingId != null && _reconnectingId != entry.Id;
+                    grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Dismiss24, 12,
+                        new Thickness(0, 31, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDisconnectOne"), offBusy,
+                        () => DisconnectOneRule(entry)));
+                }
+            }
+
+            // «Глобально» / «Всё остальное» are not obvious: a «?» under the gear explains each
+            // (the right column keeps its usual ▷ / ✕).
+            if (entry.IsBuiltIn)
+            {
+                grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.QuestionCircle24, 14,
+                    new Thickness(5, 31, 0, 0), HorizontalAlignment.Left, Loc.T("Main_TipBuiltInHelp"), false,
+                    () => _ = ShowBuiltInHelpAsync(entry)));
             }
 
             border.Child = grid;
 
             // Right click = just open it, whatever the tile's state: no connect, no checks, no
             // status line. Grey or not, the program/site starts exactly as from a shortcut.
-            if (!entry.IsAllTraffic)
+            if (!entry.IsBuiltIn)
             {
                 border.MouseRightButtonUp += async (s, e) =>
                 {
@@ -1637,7 +1746,8 @@ namespace MihomoLauncher.Views
             // Nothing to launch — the tile just says where the traffic goes.
             if (entry.IsAllTraffic)
             {
-                StatusFoot.Text = Loc.T("Main_FootAllTrafficOn", TileVpnLabel(entry).Replace("🛡 ", ""));
+                StatusFoot.Text = entry.IsBlocking ? Loc.T("Main_FootAllTrafficBlock")
+                    : Loc.T("Main_FootAllTrafficOn", TileVpnLabel(entry).Replace("🛡 ", ""));
                 return;
             }
             await LaunchFromTileAsync(entry).ConfigureAwait(true);
@@ -1691,11 +1801,14 @@ namespace MihomoLauncher.Views
             bool any = false;
             // «Всё остальное» is not part of "everything" while there are other VPN tiles: then it
             // is switched on only by its own ⟳. With no other VPN rule it IS the whole of ON.
+            // An empty «Глобально» takes ALL traffic — switched on only by its own ▷, never by ON,
+            // and not counted as one of the "other" VPN tiles.
             bool otherVpnRules = (_config.Apps ?? new List<AppEntry>())
                 .Any(a => a != null && a.RequiresVpn && !a.IsAllTraffic);
             foreach (var a in _config.Apps ?? new List<AppEntry>())
             {
-                if (a == null || !a.RequiresVpn || (a.IsAllTraffic && otherVpnRules) || a.AutoConnect || _workingApps.Contains(a.Id)) continue;
+                if (a == null || !a.RequiresVpn || (a.IsAllTraffic && otherVpnRules)
+                    || a.AutoConnect || _workingApps.Contains(a.Id)) continue;
                 a.AutoConnect = true;
                 any = true;
             }
@@ -1744,7 +1857,8 @@ namespace MihomoLauncher.Views
             // on a node. Arm whatever needs arming and stop. Without this, a logon with no rules
             // switched on still started the engine and probed every variant in turn — a minute of
             // reloads, each one interrupting the whole machine's traffic, to then connect nothing.
-            if (!vpnApps.Any(a => a.AutoConnect && !_workingApps.Contains(a.Id)))
+            // («Блокировать» needs no node — its lines are written by the arming/final config.)
+            if (!vpnApps.Any(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id)))
             {
                 if (_assignment.Count == 0) await ArmKillSwitchAsync(ct).ConfigureAwait(true);
                 else ApplyFinalConfig(CurrentAssignedProxies());
@@ -1784,7 +1898,7 @@ namespace MihomoLauncher.Views
             if (ct.IsCancellationRequested) { SetState(UiState.Idle); return; }
             slots = LiveFirst(slots);
 
-            var failing = vpnApps.Where(a => a.AutoConnect && !_workingApps.Contains(a.Id)).ToList();
+            var failing = vpnApps.Where(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id)).ToList();
             // Nodes already carrying rules stay in the config: leaving them out would drop the
             // very rules this sweep is supposed to leave untouched.
             var usedProxies = CurrentAssignedProxies();
@@ -1878,7 +1992,7 @@ namespace MihomoLauncher.Views
                 var proxiesForConfig = new List<ParsedProxy>(usedProxies);
                 if (!proxiesForConfig.Any(p => p.ProxyName == parsed.ProxyName)) proxiesForConfig.Add(parsed);
                 var rules = BuildVpnRules(vpnApps, _assignment, eligible, parsed.ProxyName);
-                rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true });
+                rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true, Probe = true });
 
                 _mihomo.WriteConfig(MihomoConfigBuilder.Build(_config, proxiesForConfig, rules));
                 if (!await _mihomo.ReloadAsync(ct).ConfigureAwait(true))
@@ -2259,7 +2373,7 @@ namespace MihomoLauncher.Views
                 // Armed means blocked from now on — including for the connections that were
                 // opened while it wasn't.
                 CloseConnectionsFor((_config.Apps ?? new List<AppEntry>())
-                    .Where(a => a != null && a.RequiresVpn && a.KillSwitch && !_assignment.ContainsKey(a.Id)));
+                    .Where(a => a != null && a.KillSwitch && !_assignment.ContainsKey(a.Id)));
             }
             catch (Exception ex) { Log.Error("arm-kill-switch", ex); }
         }
@@ -2352,6 +2466,12 @@ namespace MihomoLauncher.Views
         {
             var unreadable = new Dictionary<string, string>();   // slot name → why it didn't parse
             if (entry == null || !entry.RequiresVpn) return;
+            if (entry.IsNoNodeMode)
+            {
+                // ▷ on a tile set to «Блокировать» / «Напрямую»: switch it on — no VPN to look for.
+                StartBlock(entry);
+                return;
+            }
             if (_state == UiState.Checking)
             {
                 // A press while another connect is running (the one at startup, say) used to be
@@ -2457,7 +2577,7 @@ namespace MihomoLauncher.Views
                     if (!proxiesForConfig.Any(p => p.ProxyName == parsed.ProxyName)) proxiesForConfig.Add(parsed);
 
                     var rules = BuildVpnRules(vpnApps, _assignment, new List<AppEntry> { entry }, parsed.ProxyName);
-                    rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true });
+                    rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true, Probe = true });
                     _mihomo.WriteConfig(MihomoConfigBuilder.Build(_config, proxiesForConfig, rules));
                     if (!await _mihomo.ReloadAsync(ct).ConfigureAwait(true)) { StatusFoot.Text = Loc.T("Main_FootApplyFail", slot.Name); continue; }
 
@@ -2629,16 +2749,26 @@ namespace MihomoLauncher.Views
         {
             var rules = new List<RuleDef>();
             var trialIds = new HashSet<string>((trialApps ?? Enumerable.Empty<AppEntry>()).Select(a => a.Id));
-            foreach (var app in vpnApps)
+            var vpnSet = new HashSet<AppEntry>(vpnApps ?? new List<AppEntry>());
+            // In tile order — the tile further left wins. A tile «без VPN» writes lines only under
+            // its kill-switch (blocked: the kill-switch works whatever the tile's mode).
+            foreach (var app in (_config.Apps ?? new List<AppEntry>()).Where(a => a != null && (vpnSet.Contains(a) || a.KillSwitch)))
             {
+                if (!app.RequiresVpn)
+                {
+                    MihomoConfigBuilder.AddAppRules(rules, app, "REJECT");
+                    continue;
+                }
                 string target;
-                if (assignment != null && assignment.TryGetValue(app.Id, out var p)) target = p;
+                // «Блокировать», switched on: blocked by its own scope, no node involved.
+                if (app.IsBlocking) target = "REJECT";
+                else if (assignment != null && assignment.TryGetValue(app.Id, out var p)) target = p;
                 else if (!string.IsNullOrEmpty(trialProxy) && trialIds.Contains(app.Id)) target = trialProxy;
                 // Not on a node: the kill-switch blocks it whether the rule is switched on (VPN
                 // down / still connecting) or off — a kill-switch rule never goes out without the
                 // VPN. Without the kill-switch it fails open to DIRECT.
-                // «Весь трафик» switched off blocks nothing — it would be the whole machine.
-                else target = app.KillSwitch && (!app.IsAllTraffic || app.AutoConnect) ? "REJECT" : "DIRECT";
+                // «Всё остальное» too, switched on or off (user, 2026-11-13).
+                else target = app.KillSwitch ? "REJECT" : "DIRECT";
                 MihomoConfigBuilder.AddAppRules(rules, app, target);
             }
             return rules;
@@ -3048,6 +3178,13 @@ namespace MihomoLauncher.Views
             if (PortGuard.SplitAddr(_config?.MihomoApiAddr ?? "", out host, out port))
             {
                 var owner = PortGuard.DescribeListener(port);
+                // Our engine's own name on the port, and even the service could not remove it:
+                // a copy from another (old) install. Not "another VPN client" — say what helps.
+                var engineName = "";
+                try { engineName = System.IO.Path.GetFileNameWithoutExtension((_config?.MihomoExePath ?? "").Trim()); } catch { }
+                if (owner.Length > 0 && engineName.Length > 0
+                    && owner.StartsWith(engineName + " ", StringComparison.OrdinalIgnoreCase))
+                    return Loc.T("Main_EngineNoStartOldCopy", owner);
                 if (owner.Length > 0) return Loc.T("Main_EngineNoStartPortBusy", port, owner);
             }
             return Loc.T("Main_EngineNoStartBody");
@@ -3178,17 +3315,13 @@ namespace MihomoLauncher.Views
                     await Task.Delay(500).ConfigureAwait(true);
                 }
 
-                // 2. Throw the old binary away. A file we can't delete means the engine is
-                //    still alive and elevated — say so in the log and carry on; the download
-                //    below retries the swap for another five seconds before giving up.
-                SetUpdateDetail(Loc.T("Main_ReinstallRemoving"));
+                // 2. The old binary is NOT deleted up front: the download below replaces it only
+                //    once the new one has passed its sha256 — with a single source
+                //    (api.byfox.dev), deleting first would leave no engine at all when it's down.
                 var exe = (_config.MihomoExePath ?? "").Trim();
                 if (exe.Length == 0) exe = _config.MihomoExePath = AppConfigStore.DefaultMihomoExeTarget;
-                try { if (System.IO.File.Exists(exe)) System.IO.File.Delete(exe); }
-                catch (Exception ex) { Log.Info("Старый движок удалить не удалось (" + ex.Message + ") — ставлю поверх."); }
 
-                // 3. Fresh binary: GitHub, falling back to the byfox mirror (GitHub's download
-                //    CDN is blocked in RU far more often than its API).
+                // 3. Fresh binary from api.byfox.dev (sha256-checked).
                 SetUpdateDetail(Loc.T("Main_ResolvingVersion"));
                 var src = await UpdateService.ResolveMihomoSourceAsync(CancellationToken.None).ConfigureAwait(true);
                 if (src == null) throw new Exception(Loc.T("Main_NoConnectionResolveEngine"));
@@ -3322,10 +3455,11 @@ namespace MihomoLauncher.Views
         // work here is the same one Settings does after a per-rule routing change: drop exactly
         // the rules whose routing moved, leave every other rule on its node. Re-sweeping the lot
         // would cost an engine reload and the open connections of rules that did not change.
-        private void OnOpenVpnMatrix(object sender, RoutedEventArgs e)
+        private async void OnOpenVpnMatrix(object sender, RoutedEventArgs e)
         {
             try
             {
+                if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
                 var beforeApps = AppRoutingSignatures(_config);
                 var dlg = new VpnMatrixWindow(_config) { Owner = this };
                 if (dlg.ShowDialog() != true || dlg.Result == null) return;
@@ -3359,9 +3493,24 @@ namespace MihomoLauncher.Views
             catch (Exception ex) { Log.Error("open-settings", ex); }
         }
 
+        // «VPN» / «+»: the VPN list and the rules list. They edit _config live — every change goes
+        // through CommitLiveEditAsync — so there is nothing to pick up when they close.
+        private void OnOpenVpnList(object sender, RoutedEventArgs e) => OpenListsWindow(ListsWindow.Mode.Vpn);
+        private void OnOpenRulesList(object sender, RoutedEventArgs e) => OpenListsWindow(ListsWindow.Mode.Rules);
+
+        private void OpenListsWindow(ListsWindow.Mode mode)
+        {
+            try
+            {
+                var dlg = new ListsWindow(_config, mode, CommitLiveEditAsync) { Owner = this };
+                dlg.ShowDialog();
+            }
+            catch (Exception ex) { Log.Error("open-lists-" + mode, ex); }
+        }
+
         private async void OnOpenDns(object sender, RoutedEventArgs e)
         {
-            try { await OpenSettingsAsync(openDns: true).ConfigureAwait(true); }
+            try { await OpenSettingsAsync(dnsOnly: true).ConfigureAwait(true); }
             catch (Exception ex) { Log.Error("open-settings-dns", ex); }
         }
 
@@ -3379,14 +3528,10 @@ namespace MihomoLauncher.Views
             catch (Exception ex) { Log.Error("dns-button", ex); }
         }
 
-        private async Task OpenSettingsAsync(bool openDns = false)
+        private async Task OpenSettingsAsync(bool dnsOnly = false)
         {
-            var before = RoutingSignature(_config);
-            var beforeEngine = EngineSignature(_config);
-            var beforeSlots = SlotSignatures(_config);
-            var beforeApps = AppRoutingSignatures(_config);
-            var beforeDns = DirectDns.Signature(_config);
-            var dlg = new SettingsWindow(_config, openDns) { Owner = this };
+            var before = TakeConfigSnap();
+            var dlg = new SettingsWindow(_config, dnsOnly) { Owner = this };
             if (dlg.ShowDialog() == true && dlg.Result != null)
             {
                 _config = dlg.Result;
@@ -3404,100 +3549,171 @@ namespace MihomoLauncher.Views
                 // local mihomo version — refresh the title-bar caption to match.
                 SetTitleCaption();
 
-                // Only touch the live connection if something that affects VPN routing actually
-                // changed. Cosmetic edits (reordering apps, renaming, icons) keep it alive.
-                if (RoutingSignature(_config) != before)
-                {
-                    if (EngineSignature(_config) != beforeEngine || !_hasChecked)
-                    {
-                        // The engine itself moved, or nothing is live yet → the whole picture is
-                        // stale; tear it all down and re-arm the kill-switch.
-                        _workingApps.Clear();
-                        _assignment.Clear();
-                        _proxySlot.Clear();
-                        _proxyGeo.Clear();
-                        VpnStatus.Clear();
-                        try { await ArmKillSwitchAsync(CancellationToken.None).ConfigureAwait(true); } catch { }
-                    }
-                    else
-                    {
-                        // Drop exactly what this edit invalidated, and nothing else:
-                        //   · rules whose own routing changed (or that were deleted), and
-                        //   · rules riding a variant that was edited, switched off or removed.
-                        // Adding a variant, or editing one nothing is on, leaves every live rule
-                        // exactly where it is — no reconnect, no reload, no dropped sockets.
-                        var afterSlots = SlotSignatures(_config);
-                        var addedSlots = new HashSet<string>(afterSlots.Keys.Where(k => !beforeSlots.ContainsKey(k)),
-                                                             StringComparer.Ordinal);
-                        var afterApps = AppRoutingSignatures(_config, addedSlots);
-                        foreach (var kv in beforeApps)
-                        {
-                            if (!afterApps.TryGetValue(kv.Key, out var now) || now != kv.Value)
-                            {
-                                _assignment.Remove(kv.Key);
-                                _workingApps.Remove(kv.Key);
-                            }
-                        }
-
-                        var changedSlots = ChangedSlotIds(beforeSlots, afterSlots);
-                        if (changedSlots.Count > 0)
-                        {
-                            foreach (var kv in _assignment.ToList())
-                            {
-                                ProxySlotInfo info;
-                                if (!_proxySlot.TryGetValue(kv.Value, out info) || info?.Id == null) continue;
-                                if (!changedSlots.Contains(info.Id)) continue;
-                                _assignment.Remove(kv.Key);
-                                _workingApps.Remove(kv.Key);
-                            }
-                            // A variant that changed has to be re-parsed before it is used again;
-                            // keeping the old parse would quietly connect to the previous server.
-                            foreach (var name in _proxySlot.Where(kv => kv.Value?.Id != null
-                                                                     && changedSlots.Contains(kv.Value.Id))
-                                                           .Select(kv => kv.Key).ToList())
-                            {
-                                _proxySlot.Remove(name);
-                                _parsedProxy.Remove(name);
-                                _proxyGeo.Remove(name);
-                            }
-                        }
-
-                        // Renaming or reordering variants doesn't move anyone, but the tiles show
-                        // the name and number — refresh them on the proxies that stayed live.
-                        var slots = _config.VpnSlots ?? new List<VpnSlot>();
-                        foreach (var info in _proxySlot.Values)
-                        {
-                            if (info?.Id == null) continue;
-                            var slot = slots.FirstOrDefault(x => x != null && x.Id == info.Id);
-                            if (slot == null) continue;
-                            info.Name = slot.Name;
-                            info.Number = slots.IndexOf(slot) + 1;
-                        }
-
-                        ApplyFinalConfig(CurrentAssignedProxies());
-                    }
-                }
-                else if (DirectDns.Signature(_config) != beforeDns)
-                {
-                    // Only the direct-traffic DNS changed: the routes stay, the engine just has to
-                    // re-read the dns: block. (A routing change above already rebuilt it.)
-                    ReapplyLiveConfig("DNS для прямого трафика");
-                }
-                SyncDnsButton();
-
-                SetState(UiState.Done);
-
-                // Programs may have been added to (or removed from) a kill-switch rule, and the
-                // firewall has to follow — including the case where the LAST protected program was
-                // removed, which must take its block rule away with it.
-                SyncFirewallSoon();
-
-                EngineLogStore.Instance.RefreshRules(_config);   // rules may have been renamed/added
-                // The engine could have been downloaded / set up from the Settings → mihomo tab.
-                RefreshEngineState();
-                // The "Remote desktop session" switch may have changed in Settings.
-                SyncSafeModeUi();
+                await ApplyConfigChangeAsync(before).ConfigureAwait(true);
             }
+        }
+
+        // What the live picture depends on, taken BEFORE an edit: ApplyConfigChangeAsync compares
+        // the config after the edit against it and touches only what moved.
+        private sealed class ConfigSnap
+        {
+            public string Routing, Engine, Dns, Order;
+            public Dictionary<string, string> Slots, Apps;
+        }
+
+        private ConfigSnap TakeConfigSnap() => new ConfigSnap
+        {
+            Routing = RoutingSignature(_config),
+            Engine = EngineSignature(_config),
+            Slots = SlotSignatures(_config),
+            Apps = AppRoutingSignatures(_config),
+            Dns = DirectDns.Signature(_config),
+            Order = RuleOrder(_config),
+        };
+
+        // The VPN list and the rules list (VpnListWindow / RulesListWindow) have no «Сохранить»:
+        // every add / edit / delete / drag is applied at once. They edit _config itself; each
+        // change runs here — snapshot, the change, save, apply — one at a time, so a second click
+        // while the first one is still re-arming the engine waits its turn instead of comparing
+        // against a half-applied picture.
+        private readonly SemaphoreSlim _liveEditGate = new SemaphoreSlim(1, 1);
+
+        internal async Task CommitLiveEditAsync(Func<Task> change)
+        {
+            await _liveEditGate.WaitAsync().ConfigureAwait(true);
+            try
+            {
+                var before = TakeConfigSnap();
+                await change().ConfigureAwait(true);
+                AppConfigStore.Save(_config);
+                await ApplyConfigChangeAsync(before).ConfigureAwait(true);
+            }
+            catch (Exception ex) { Log.Error("live-edit", ex); throw; }   // the list window says why
+            finally { _liveEditGate.Release(); }
+        }
+
+        private async Task ApplyConfigChangeAsync(ConfigSnap before)
+        {
+            var beforeEngine = before.Engine;
+            var beforeSlots = before.Slots;
+            var beforeApps = before.Apps;
+            var beforeDns = before.Dns;
+            var beforeOrder = before.Order;
+            // Only touch the live connection if something that affects VPN routing actually
+            // changed. Cosmetic edits (reordering apps, renaming, icons) keep it alive.
+            if (RoutingSignature(_config) != before.Routing)
+            {
+                if (EngineSignature(_config) != beforeEngine || !_hasChecked)
+                {
+                    // The engine itself moved, or nothing is live yet → the whole picture is
+                    // stale; tear it all down and re-arm the kill-switch.
+                    _workingApps.Clear();
+                    _assignment.Clear();
+                    _proxySlot.Clear();
+                    _proxyGeo.Clear();
+                    VpnStatus.Clear();
+                    try { await ArmKillSwitchAsync(CancellationToken.None).ConfigureAwait(true); } catch { }
+                }
+                else
+                {
+                    // Drop exactly what this edit invalidated, and nothing else:
+                    //   · rules whose own routing changed (or that were deleted), and
+                    //   · rules riding a variant that was edited, switched off or removed.
+                    // Adding a variant, or editing one nothing is on, leaves every live rule
+                    // exactly where it is — no reconnect, no reload, no dropped sockets.
+                    var afterSlots = SlotSignatures(_config);
+                    var addedSlots = new HashSet<string>(afterSlots.Keys.Where(k => !beforeSlots.ContainsKey(k)),
+                                                         StringComparer.Ordinal);
+                    var afterApps = AppRoutingSignatures(_config, addedSlots);
+                    foreach (var kv in beforeApps)
+                    {
+                        if (!afterApps.TryGetValue(kv.Key, out var now) || now != kv.Value)
+                        {
+                            _assignment.Remove(kv.Key);
+                            _workingApps.Remove(kv.Key);
+                        }
+                    }
+
+                    var changedSlots = ChangedSlotIds(beforeSlots, afterSlots);
+                    if (changedSlots.Count > 0)
+                    {
+                        foreach (var kv in _assignment.ToList())
+                        {
+                            ProxySlotInfo info;
+                            if (!_proxySlot.TryGetValue(kv.Value, out info) || info?.Id == null) continue;
+                            if (!changedSlots.Contains(info.Id)) continue;
+                            _assignment.Remove(kv.Key);
+                            _workingApps.Remove(kv.Key);
+                        }
+                        // A variant that changed has to be re-parsed before it is used again;
+                        // keeping the old parse would quietly connect to the previous server.
+                        foreach (var name in _proxySlot.Where(kv => kv.Value?.Id != null
+                                                                 && changedSlots.Contains(kv.Value.Id))
+                                                       .Select(kv => kv.Key).ToList())
+                        {
+                            _proxySlot.Remove(name);
+                            _parsedProxy.Remove(name);
+                            _proxyGeo.Remove(name);
+                        }
+                    }
+
+                    // Renaming or reordering variants doesn't move anyone, but the tiles show
+                    // the name and number — refresh them on the proxies that stayed live.
+                    var slots = _config.VpnSlots ?? new List<VpnSlot>();
+                    foreach (var info in _proxySlot.Values)
+                    {
+                        if (info?.Id == null) continue;
+                        var slot = slots.FirstOrDefault(x => x != null && x.Id == info.Id);
+                        if (slot == null) continue;
+                        info.Name = slot.Name;
+                        info.Number = slots.IndexOf(slot) + 1;
+                    }
+
+                    ApplyFinalConfig(CurrentAssignedProxies());
+                }
+            }
+            else if (DirectDns.Signature(_config) != beforeDns)
+            {
+                // Only the direct-traffic DNS changed: the routes stay, the engine just has to
+                // re-read the dns: block. (A routing change above already rebuilt it.)
+                ReapplyLiveConfig("DNS для прямого трафика");
+            }
+            SyncDnsButton();
+
+            SetState(UiState.Done);
+
+            // Programs may have been added to (or removed from) a kill-switch rule, and the
+            // firewall has to follow — including the case where the LAST protected program was
+            // removed, which must take its block rule away with it.
+            SyncFirewallSoon();
+
+            EngineLogStore.Instance.RefreshRules(_config);   // rules may have been renamed/added
+            // The engine could have been downloaded / set up from the Settings → mihomo tab.
+            RefreshEngineState();
+            // The "Remote desktop session" switch may have changed in Settings.
+            SyncSafeModeUi();
+            // Rules dragged in Settings: the order is the priority — into config.yaml now.
+            if (RuleOrder(_config) != beforeOrder) ApplyRuleOrder();
+                }
+
+        // The order of the VPN rules = the order of their lines in config.yaml: where two tiles
+        // claim the same traffic, the one further left wins. Not part of RoutingSignature (that
+        // one decides whether connections are dropped — a reorder drops nothing).
+        private static string RuleOrder(AppConfig cfg) =>
+            string.Join("|", (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && a.RequiresVpn).Select(a => a.Id));
+
+        // Rewrite config.yaml in the new order right away (it used to wait for the next reload).
+        // Mid-connect it is left alone: that connect writes the final config from _config itself.
+        private async void ApplyRuleOrder()
+        {
+            try
+            {
+                if (_state == UiState.Checking || _reconnectingId != null) return;
+                Log.Info("Порядок правил изменён — конфиг переписан.");
+                if (!_hasChecked) await ArmKillSwitchAsync(CancellationToken.None).ConfigureAwait(true);
+                else ApplyFinalConfig(CurrentAssignedProxies());
+            }
+            catch (Exception ex) { Log.Error("apply-rule-order", ex); }
         }
 
         // Tile gear: open this rule's editor directly. On save, persist and rebuild tiles;
@@ -3505,6 +3721,8 @@ namespace MihomoLauncher.Views
         private async void OpenRuleEditor(AppEntry entry)
         {
             if (entry == null) return;
+            // The editor changes where the rule's traffic goes — behind the access password.
+            if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
             int idx = _config.Apps.IndexOf(entry);
             if (idx < 0) return;
 
@@ -3557,6 +3775,25 @@ namespace MihomoLauncher.Views
         // immediate. Drops just this service's route and re-applies the live config so it
         // falls back to its armed state (REJECT with kill-switch, else DIRECT); every other
         // app stays on its node. The tile's ⟳ brings it back.
+        // «Блокировать» switched on (▷, or picked on the plate): no node, just the block — written
+        // into the config at once, and what is already open in its scope is cut.
+        private void StartBlock(AppEntry entry)
+        {
+            if (entry == null || !entry.IsNoNodeMode) return;
+            _assignment.Remove(entry.Id);
+            _workingApps.Remove(entry.Id);
+            SetAutoConnect(entry, true, "block");
+            Log.Info("Плитка «" + entry.Name + "»: «Блокировать» включено.");
+            try
+            {
+                ApplyFinalConfig(CurrentAssignedProxies());
+                CloseConnectionsFor(new[] { entry });
+            }
+            catch (Exception ex) { Log.Error("start-block", ex); }
+            RebuildTiles();
+            StatusFoot.Text = "";
+        }
+
         private void DisconnectOneRule(AppEntry entry)
         {
             if (entry == null || !entry.RequiresVpn) return;
@@ -3576,7 +3813,8 @@ namespace MihomoLauncher.Views
                 return;
             }
 
-            bool connected = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id);
+            // A «Блокировать» tile holds no node, but its block lives in the config all the same.
+            bool connected = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id) || entry.IsNoNodeMode;
             if (_reconnectingId == entry.Id || _state == UiState.Checking || !connected)
             {
                 RebuildTiles();
@@ -3659,7 +3897,7 @@ namespace MihomoLauncher.Views
             // SkipCheck belongs here even though it writes no mihomo rule: it decides whether a
             // rule is verified before being assigned, so flipping it has to re-run the connect.
             sb.Append(a.RequiresVpn).Append(':').Append(a.CheckUrl).Append(':').Append(a.KillSwitch)
-              .Append(':').Append(a.SkipCheck).Append(':');
+              .Append(':').Append(a.SkipCheck).Append(':').Append(a.Block).Append(':');
             // Routing depends on each program's image name and each site's domain + rule list.
             foreach (var p in (a.Programs ?? new List<RuleProgram>()))
                 sb.Append('P').Append(p.Path).Append('/').Append(p.Aumid).Append(',');
@@ -3857,6 +4095,52 @@ namespace MihomoLauncher.Views
         }
 
         // ---------- Helpers ----------
+
+        // The log button's icon turns dim red while two tiles claim the same address / program
+        // (RuleConflicts) — the «Конфликт URL» tab in that window says where and who wins.
+        private void UpdateConflictIcon()
+        {
+            try
+            {
+                EngineLogStore.ConfigSource = () => _config;
+                int n = RuleConflicts.Find(_config).Count;
+                IcoLog.Foreground = n > 0 ? Theme.ConflictIcon : Theme.TextSecondary;
+                BtnLog.ToolTip = n > 0 ? Loc.T("Log_TipConflicts", n) : Loc.T("Log_Tip");
+            }
+            catch (Exception ex) { Log.Error("conflict-icon", ex); }
+        }
+
+        // «Весь трафик» while it is the only tile (it then really is all of it), «Всё остальное»
+        // as soon as any other rule exists.
+        private string AllTrafficName()
+        {
+            bool others = (_config?.Apps ?? new List<AppEntry>()).Any(a => a != null && !a.IsAllTraffic);
+            return Loc.T(others ? "AllTraffic_Name" : "AllTraffic_NameAlone");
+        }
+
+        // The «?» on «Всё остальное». The main window is only as tall as its tiles,
+        // so the text scrolls inside the card instead of running off the bottom.
+        private Task ShowBuiltInHelpAsync(AppEntry entry)
+        {
+            if (entry == null) return Task.FromResult(true);
+            var text = new TextBlock
+            {
+                Text = Loc.T("AllTraffic_Help"),
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Theme.OverlayBody,
+                Margin = new Thickness(0, 0, 6, 14),
+            };
+            var scroll = new ScrollViewer
+            {
+                Content = text,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                MaxHeight = Math.Max(120, ActualHeight - 170),
+            };
+            double width = Math.Max(300, Math.Min(520, ActualWidth - 40));
+            return OverlayDialog.ConfirmContentAsync(this,
+                AllTrafficName(), scroll, "OK", null, width);
+        }
 
         // OverlayDialog draws INSIDE the window and completes when a button is clicked — on a
         // hidden (autostarted) window that would wait forever. Log the message instead; the

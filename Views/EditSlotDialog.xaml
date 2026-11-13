@@ -73,7 +73,7 @@
 
         <Border Grid.Row="2" Padding="20,12">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                <ui:Button Content="{DynamicResource Slot_Save}" Margin="0,0,8,0"
+                <ui:Button x:Name="BtnSave" Content="{DynamicResource Slot_Save}" Margin="0,0,8,0"
                            Appearance="Primary" FontSize="14" Padding="20,8"
                            Click="OnSave" />
                 <ui:Button Content="{DynamicResource Slot_Cancel}" FontSize="14" Padding="20,8" Click="OnCancel" />

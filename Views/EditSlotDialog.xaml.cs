@@ -56,6 +56,10 @@ namespace MihomoLauncher.Views
             }
             Refresh();
 
+            // «Сохранить» only when something differs; a new variant — as soon as there is a link.
+            Services.SaveGuard.Attach(this, BtnSave, null,
+                existing == null ? (Func<bool>)(() => !string.IsNullOrWhiteSpace(TxtValue.Text)) : null);
+
             Loaded += (s, e) => { Services.UiHelpers.FitHeightToContent(this); _loaded = true; };
         }
 

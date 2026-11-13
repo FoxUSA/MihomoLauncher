@@ -25,18 +25,14 @@ namespace MihomoLauncher.Services
         public string LocalGeo { get; set; }
         public string RemoteGeo { get; set; }
 
-        // Where to fetch the mihomo engine from. When set, it's the GitHub release zip
-        // (preferred); when empty, fall back to the single exe on byfox.dev.
+        // Where to fetch the mihomo engine from: api.byfox.dev's engine zip (the only source).
         public string MihomoZipUrl { get; set; }
 
         public bool Any => AppUpdate || MihomoUpdate || GeoUpdate;
     }
 
     // Resolved mihomo engine source: a version plus where to get the binary.
-    // ZipUrl set => GitHub release zip; ZipUrl empty => byfox.dev single exe.
-    // Version is known only for GitHub. The mirror publishes no engine version: it is only
-    // there for an install when GitHub can't be reached, and whatever it holds will do — the
-    // installed version is then read from the exe itself.
+    // Only api.byfox.dev (since 2026-11-12): ZipUrl = its engine zip, Version = its manifest's.
     public class MihomoSource
     {
         public string Version { get; set; }
@@ -54,7 +50,6 @@ namespace MihomoLauncher.Services
         // help/uninstall shortcuts) but NOT DataUser\ — everything in it is applied as-is.
         // (The site's clean-install archive is the separate, full mihomolauncher.zip.)
         private const string ZipUrl = BaseUrl + "update.zip";
-        private const string MihomoUrl = BaseUrl + "mihomo-windows-amd64.exe";
 
         // Geo (MaxMind GeoLite2-City) and the template catalog both come from api.byfox.dev
         // (ByfoxApi). The installed geo date + refresh period live in updates.json; the default
@@ -113,9 +108,8 @@ namespace MihomoLauncher.Services
                 catch { }
             }
 
-            // mihomo engine: GitHub is the source of truth (latest STABLE release); the
-            // byfox.dev mirror is the fallback when GitHub is unreachable. Checked at most once
-            // per engine period. See ResolveMihomoSourceAsync.
+            // mihomo engine: api.byfox.dev only (latest stable release, re-checked by the server
+            // daily). Checked at most once per engine period. See ResolveMihomoSourceAsync.
             if (UpdateStateStore.DueForCheck(state.EngineLastCheck, UpdateStateStore.EnginePeriodDays))
             {
                 var src = await ResolveMihomoSourceAsync(ct).ConfigureAwait(false);
@@ -273,45 +267,23 @@ namespace MihomoLauncher.Services
             catch { }
         }
 
-        // Resolve the mihomo engine to install: GitHub's latest stable release first, then
-        // the byfox.dev mirror. Returns null only if BOTH are unreachable. Used by the
-        // update check and by the first-run "engine missing" install flow.
+        // Resolve the mihomo engine to install. ONLY api.byfox.dev (the user's call, 2026-11-12):
+        // version from its root manifest, the zip from engine/ (sha256-checked on download). No
+        // GitHub, no old byfox.dev/data mirror. null = the API is unreachable or has no engine yet.
+        // Used by the update check and by the install / reinstall flows.
         public static async Task<MihomoSource> ResolveMihomoSourceAsync(CancellationToken ct = default)
         {
             try
             {
-                var gh = await GitHubMihomo.GetLatestAsync(Http, ct).ConfigureAwait(false);
-                if (gh != null && !string.IsNullOrWhiteSpace(gh.Version))
+                var root = await ByfoxApi.RootManifestAsync(ct).ConfigureAwait(false);
+                if (root.EngineVersion.Length > 0)
                 {
-                    Log.Info("Источник движка: GitHub " + gh.Version);
-                    return new MihomoSource { Version = gh.Version, ZipUrl = gh.ZipUrl };
+                    Log.Info("Источник движка: api.byfox.dev " + root.EngineVersion);
+                    return new MihomoSource { Version = root.EngineVersion, ZipUrl = ByfoxApi.EngineZipUrl };
                 }
-                Log.Info("Источник движка: GitHub без подходящего ассета.");
+                Log.Info("Источник движка: в манифесте api.byfox.dev нет движка.");
             }
-            catch (Exception ex) { Log.Error("resolve-engine/github", ex); }
-
-            // Fallback: the single exe on the byfox mirror (ZipUrl empty), version unknown. Only
-            // checked for reachability, so a dead mirror still reads as "no connection".
-            try
-            {
-                using (var cts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-                using (var req = new HttpRequestMessage(HttpMethod.Head, MihomoUrl))
-                {
-                    cts.CancelAfter(TimeSpan.FromSeconds(30));
-                    using (var resp = await Http.SendAsync(req, cts.Token).ConfigureAwait(false))
-                    {
-                        if (resp.IsSuccessStatusCode)
-                        {
-                            Log.Info("Источник движка: зеркало byfox (версия станет известна из exe).");
-                            return new MihomoSource { Version = "", ZipUrl = "" };
-                        }
-                        Log.Info("Источник движка: зеркало byfox ответило " + (int)resp.StatusCode + ".");
-                    }
-                }
-            }
-            catch (Exception ex) { Log.Error("resolve-engine/byfox", ex); }
-
-            Log.Info("Источник движка не определён (GitHub и byfox недоступны).");
+            catch (Exception ex) { Log.Error("resolve-engine/api", ex); }
             return null;
         }
 
@@ -405,57 +377,29 @@ namespace MihomoLauncher.Services
 
         // Download the engine and put it at cfg.MihomoExePath. Works both for a first-run
         // install (no existing exe) and for an in-place update (stops the running engine,
-        // swaps the exe). When zipUrl is set, downloads the GitHub release zip and extracts
-        // the single mihomo-windows-amd64.exe from it; otherwise downloads the byfox.dev exe.
+        // swaps the exe). zipUrl must be api.byfox.dev's engine zip; it is sha256-checked and
+        // the single mihomo-windows-amd64.exe is extracted from it. Throws when it can't be had.
         public static async Task<bool> UpdateMihomoAsync(AppConfig cfg, string newVersion, string zipUrl, Action<int> onPercent, CancellationToken ct)
         {
             var target = (cfg?.MihomoExePath ?? "").Trim();
             if (target.Length == 0) { Log.Info("Установка движка прервана: не задан путь к exe."); return false; }
             Log.Info("Установка движка → " + target + " (" + (string.IsNullOrWhiteSpace(newVersion) ? "версия неизвестна" : "v" + newVersion) + ", "
-                     + (string.IsNullOrWhiteSpace(zipUrl) ? "byfox exe" : "github zip") + ")");
-
-            // Stop the running engine so the exe isn't locked (no-op on first install).
-            try { MihomoSetup.EndTask(); } catch { }
+                     + "api.byfox.dev)");
 
             var dir = Path.GetDirectoryName(target);
             Directory.CreateDirectory(dir);
             var tmpExe = Path.Combine(dir, "mihomo-windows-amd64.new.exe");
 
-            bool gotExe = false;
-            if (!string.IsNullOrWhiteSpace(zipUrl))
-            {
-                // GitHub: download the release zip, extract the single exe, drop the zip.
-                var tmpZip = Path.Combine(dir, "mihomo-windows-amd64.new.zip");
-                try
-                {
-                    await DownloadAsync(zipUrl, tmpZip, onPercent, ct).ConfigureAwait(false);
-                    ExtractMihomoExe(tmpZip, tmpExe);
-                    gotExe = true;
-                }
-                catch (Exception ex)
-                {
-                    // api.github.com resolves the version fine, but the release binary is served
-                    // from GitHub's CDN (objects.githubusercontent.com), which is frequently
-                    // reset/blocked by regional DPI even when the API host works. Don't fail —
-                    // fall back to the byfox.dev mirror's single exe below.
-                    Log.Error("engine-download/github-zip", ex);
-                    Log.Info("Скачивание zip с GitHub не удалось — перехожу на зеркало byfox.");
-                    try { if (File.Exists(tmpExe)) File.Delete(tmpExe); } catch { }
-                }
-                finally
-                {
-                    try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
-                }
-            }
+            // ONLY api.byfox.dev. A download that fails or doesn't match its sha256 is an error —
+            // nothing else is tried and the installed engine stays as it is.
+            if (!ByfoxApi.IsEngineUrl(zipUrl))
+                throw new InvalidOperationException("engine source is not api.byfox.dev: " + (zipUrl ?? "(empty)"));
+            if (!await TryEngineZipAsync(zipUrl, dir, tmpExe, onPercent, ct).ConfigureAwait(false))
+                throw new IOException(Loc.T("Upd_ErrEngineDownload"));
 
-            if (!gotExe)
-            {
-                // byfox.dev single exe (the mirror the dev keeps in sync). Reachable in regions
-                // where GitHub's download CDN is blocked, so this is the reliable path there.
-                Log.Info("Скачивание движка с зеркала byfox: " + MihomoUrl);
-                onPercent?.Invoke(0);
-                await DownloadAsync(MihomoUrl, tmpExe, onPercent, ct).ConfigureAwait(false);
-            }
+            // Only now, with a verified exe in hand, stop the running engine so the exe isn't
+            // locked (no-op on first install). A failed download above leaves the VPN running.
+            try { MihomoSetup.EndTask(); } catch { }
 
             // Swap the new exe in (retry a few times while the old handle releases).
             Exception lastErr = null;
@@ -465,8 +409,7 @@ namespace MihomoLauncher.Services
                 {
                     if (File.Exists(target)) File.Delete(target);
                     File.Move(tmpExe, target);
-                    // Record what actually landed: the GitHub zip may have failed over to the
-                    // mirror, whose exe can be older (or of unknown version) — ask the binary.
+                    // Record what actually landed — ask the binary.
                     var installed = MihomoBinary.VersionOf(target);
                     if (installed.Length == 0) installed = (newVersion ?? "").Trim();
                     VersionInfo.UpdateLocalMihomoVersion(installed);
@@ -485,6 +428,46 @@ namespace MihomoLauncher.Services
             throw swapErr;
         }
 
+        // Download api.byfox.dev's engine zip and extract the engine to tmpExe. Both the zip
+        // (size + sha256) and the extracted exe (sha256) are checked against engine/manifest.json
+        // BEFORE anything is swapped in; a mismatch deletes the file and counts as a failure.
+        // Never throws: false = not installed.
+        private static async Task<bool> TryEngineZipAsync(string zipUrl, string dir, string tmpExe, Action<int> onPercent, CancellationToken ct)
+        {
+            var tmpZip = Path.Combine(dir, "mihomo-windows-amd64.new.zip");
+            try
+            {
+                var info = await ByfoxApi.EngineManifestAsync(ct).ConfigureAwait(false);
+
+                await DownloadAsync(zipUrl, tmpZip, onPercent, ct).ConfigureAwait(false);
+
+                long size = new FileInfo(tmpZip).Length;
+                if (info.ZipSize > 0 && size != info.ZipSize)
+                    throw new InvalidDataException("размер zip " + size + " ≠ " + info.ZipSize + " по манифесту");
+                if (info.ZipSha256.Length == 0)
+                    throw new InvalidDataException("в engine/manifest.json нет sha256 для zip");
+                if (ByfoxApi.Sha256File(tmpZip) != info.ZipSha256)
+                    throw new InvalidDataException("sha256 zip не совпал с манифестом");
+
+                ExtractMihomoExe(tmpZip, tmpExe);
+
+                if (info.ExeSha256.Length > 0 && ByfoxApi.Sha256File(tmpExe) != info.ExeSha256)
+                    throw new InvalidDataException("sha256 exe не совпал с манифестом");
+                Log.Info("Движок с api.byfox.dev скачан, sha256 сверен (v" + info.Version + ").");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("engine-download/api-zip", ex);
+                try { if (File.Exists(tmpExe)) File.Delete(tmpExe); } catch { }
+                return false;
+            }
+            finally
+            {
+                try { if (File.Exists(tmpZip)) File.Delete(tmpZip); } catch { }
+            }
+        }
+
         // Extract mihomo-windows-amd64.exe from a downloaded release zip to destExe.
         private static void ExtractMihomoExe(string zipPath, string destExe)
         {
@@ -493,7 +476,7 @@ namespace MihomoLauncher.Services
                 System.IO.Compression.ZipArchiveEntry entry = null;
                 foreach (var e in za.Entries)
                 {
-                    if (string.Equals(e.Name, GitHubMihomo.ExeEntryName, StringComparison.OrdinalIgnoreCase))
+                    if (string.Equals(e.Name, ByfoxApi.EngineExeName, StringComparison.OrdinalIgnoreCase))
                     { entry = e; break; }
                 }
                 if (entry == null)

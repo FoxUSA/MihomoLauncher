@@ -114,7 +114,60 @@ namespace MihomoLauncher.Views
             }
 
             BuildMatrix();
-            Loaded += (s, e) => FocusManager.SetFocusedElement(this, this);
+            // «Сохранить» only when a rank or a kill-switch differs from what the window opened with.
+            if (BtnSave.IsEnabled)
+                SaveGuard.Attach(this, BtnSave, () =>
+                    string.Join(";", _rules.Select(r =>
+                    {
+                        List<string> o; bool k;
+                        _order.TryGetValue(r.Id, out o);
+                        _killOn.TryGetValue(r.Id, out k);
+                        return r.Id + "=" + string.Join(",", o ?? new List<string>()) + (k ? "+k" : "");
+                    })));
+            Loaded += (s, e) =>
+            {
+                FocusManager.SetFocusedElement(this, this);
+                FitToTable();
+            };
+        }
+
+        // The window is as big as the table, not a fixed 900×600 with the table in a corner and
+        // the rest empty (2026-11-10: «тут много лишнего пространства»). Two passes: the width
+        // first (the hint above re-wraps to it), then the height of whatever that produced.
+        private void FitToTable()
+        {
+            try
+            {
+                if (Scroller.Visibility != Visibility.Visible) return;
+                const double frame = 20;   // thin window border + rounding slack, so no scrollbar appears
+                double w = Math.Max(Matrix.DesiredSize.Width + Scroller.Margin.Left + Scroller.Margin.Right + frame, 460);
+                SizeToContent = SizeToContent.Manual;
+                MinWidth = Math.Min(MinWidth, w);
+                Width = w;
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        double h = Bar.ActualHeight
+                                 + Hint.ActualHeight + Hint.Margin.Top + Hint.Margin.Bottom
+                                 + Matrix.DesiredSize.Height + 8
+                                 + Footer.ActualHeight + frame;
+                        MinHeight = Math.Min(MinHeight, h);
+                        Height = h;
+
+                        // Re-centre on the owner: it was centred at the old 900×600.
+                        if (Owner != null && Owner.WindowState == WindowState.Normal)
+                        {
+                            Left = Owner.Left + (Owner.ActualWidth - Width) / 2;
+                            Top = Owner.Top + (Owner.ActualHeight - Height) / 2;
+                        }
+                        UiHelpers.KeepOnScreen(this);   // a long rule list still has to fit the screen
+                    }
+                    catch { }
+                }), System.Windows.Threading.DispatcherPriority.Loaded);
+            }
+            catch { }
         }
 
         // ---------- the table ----------

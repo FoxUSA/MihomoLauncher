@@ -126,6 +126,31 @@ namespace MihomoLauncher.Models
         public const string AllTrafficId = "all-traffic";
         public const string AllTrafficIcon = "Data/ico/all_trafic.png";
 
+        // Legacy: the built-in «Глобально» tile existed for one day (2026-11-12) and was removed —
+        // a tile placed first already outranks the others. Kept only so EnsureAllTraffic can find
+        // and drop that entry from a config that has it.
+        public bool IsGlobal { get; set; } = false;
+
+        // «Блокировать» picked on the plate of «Всё остальное» (2026-11-12) instead of a VPN:
+        // switched on, everything no other tile claims is blocked (MATCH,REJECT). The tiles keep
+        // living their own lives. Switched off (✕), it blocks nothing. Picking a VPN clears it.
+        public bool Block { get; set; } = false;
+
+        [XmlIgnore]
+        public bool IsBlockMode => Block && IsAllTraffic;
+
+        // Blocking right now: block mode AND switched on.
+        [XmlIgnore]
+        public bool IsBlocking => IsBlockMode && AutoConnect;
+
+        // Needs no VPN node.
+        [XmlIgnore]
+        public bool IsNoNodeMode => IsBlockMode;
+
+        // Built-in tile (not deletable, not draggable, launches nothing).
+        [XmlIgnore]
+        public bool IsBuiltIn => IsAllTraffic;
+
         // Does this rule launch anything from a tile? True only if at least one program or site
         // has Launch=true (the «Плитка» checkbox). If none is checked the rule is routing-only
         // (its ranges still go through the VPN) and shows NO tile on the main screen.

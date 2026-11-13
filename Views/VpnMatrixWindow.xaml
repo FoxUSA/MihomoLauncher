@@ -5,8 +5,8 @@
                  Title="{DynamicResource Vpn_Title}"
                  Width="900"
                  Height="600"
-                 MinWidth="520"
-                 MinHeight="320"
+                 MinWidth="460"
+                 MinHeight="240"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica">
@@ -21,6 +21,7 @@
         <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Vpn_Title}" />
 
         <TextBlock Grid.Row="1"
+                   x:Name="Hint"
                    Text="{DynamicResource Vpn_Hint}"
                    FontSize="12" Opacity="0.65" TextWrapping="Wrap"
                    Margin="20,4,20,10" />
@@ -42,7 +43,7 @@
                    Margin="20,0,20,0"
                    VerticalAlignment="Top" />
 
-        <Border Grid.Row="3" Padding="20,12">
+        <Border Grid.Row="3" x:Name="Footer" Padding="20,12">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <ui:Button x:Name="BtnSave" Content="{DynamicResource Vpn_Save}" Margin="0,0,8,0"
                            Appearance="Primary" FontSize="14" Padding="20,8" Click="OnSave" />
