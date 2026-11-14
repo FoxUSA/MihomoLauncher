@@ -791,11 +791,14 @@ namespace MihomoLauncher.Services
             return true;
         }
 
-        private static bool IsDirect(string t) => (t ?? "").Trim().Equals("DIRECT", StringComparison.OrdinalIgnoreCase);
+        // A tile's network card (nic-…, nics-…) is "direct" too — through a chosen card.
+        private static bool IsDirect(string t) => (t ?? "").Trim().Equals("DIRECT", StringComparison.OrdinalIgnoreCase)
+                                                  || MihomoConfigBuilder.IsNicTarget(t);
         private static bool IsBlock(string t) => (t ?? "").Trim().StartsWith("REJECT", StringComparison.OrdinalIgnoreCase);
 
         private static string SlotName(string proxy)
         {
+            proxy = MihomoConfigBuilder.BaseProxyName(proxy);   // a copy dialled through a card
             try
             {
                 var r = VpnStatus.Routes.FirstOrDefault(x => x.ProxyName == proxy && !string.IsNullOrEmpty(x.SlotName));
@@ -808,10 +811,12 @@ namespace MihomoLauncher.Services
         private static string TargetText(Live live, string target)
         {
             var t = (target ?? "").Trim();
-            if (IsDirect(t)) return Loc.T("Ex_TDirect");
+            var cards = MihomoConfigBuilder.NicLabelOf(t);
+            var via = cards != null ? " · " + cards : "";
+            if (IsDirect(t)) return Loc.T("Ex_TDirect") + via;
             if (IsBlock(t)) return Loc.T("Ex_TBlock");
-            if (live.Groups.Contains(t) && !live.Proxies.ContainsKey(t)) return Loc.T("Ex_TSub", t);
-            return Loc.T("Ex_TVpn", SlotName(t));
+            if (live.Groups.Contains(t) && !live.Proxies.ContainsKey(t)) return Loc.T("Ex_TSub", MihomoConfigBuilder.BaseProxyName(t)) + via;
+            return Loc.T("Ex_TVpn", SlotName(t)) + via;
         }
 
         private static string OwnerName(Dictionary<string, EngineLog.RuleHit> owners, string key)

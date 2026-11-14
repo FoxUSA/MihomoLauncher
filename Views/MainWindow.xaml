@@ -122,7 +122,9 @@
                                ToolTip="{DynamicResource Main_LangToggleTip}"
                                Click="OnToggleLanguage">
                         <StackPanel Orientation="Horizontal">
+                            <!-- Only «RU»/«EN» — the translate glyph was removed (2026-11-14). -->
                             <ui:SymbolIcon x:Name="IcoLang" Symbol="Translate24" FontSize="15" Margin="0,0,5,0"
+                                           Visibility="Collapsed"
                                            Foreground="{x:Static svc:Theme.TextSecondary}" />
                             <TextBlock x:Name="LangCode" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
                                        Foreground="{x:Static svc:Theme.TextSecondary}" />
@@ -203,20 +205,9 @@
                     <!-- The window is never narrower than this row (FitWidthToTopBar): when it
                          was, the Remote-session box was cut at the right edge — square corners. -->
                     <StackPanel x:Name="TopButtons" Orientation="Horizontal" HorizontalAlignment="Center">
-                        <ui:Button x:Name="BtnRetry"
-                                   Style="{StaticResource ActionButtonStyle}"
-                                   Margin="0,0,4,0"
-                                   Content="{DynamicResource Main_Connect}"
-                                   FontSize="14"
-                                   FontWeight="SemiBold"
-                                   Padding="14,8"
-                                   Tag="#FF3C6149"
-                                   Click="OnCheck">
-                            <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="PlugConnected24" Foreground="#EAF1FF" />
-                            </ui:Button.Icon>
-                        </ui:Button>
-
+                        <!-- «ON» removed 2026-11-14: every start restores what was on when the
+                             launcher closed (MainWindow.AutoConnectAtStartupAsync); a tile is
+                             switched on by its own ▷. «OFF» stays: switch everything off. -->
                         <ui:Button x:Name="BtnDisconnect"
                                    Style="{StaticResource ActionButtonStyle}"
                                    Margin="0,0,4,0"
@@ -265,6 +256,17 @@
                             </ui:Button.Icon>
                         </ui:Button>
 
+                        <!-- «APP» (was «+», 2026-11-14): the rules list. -->
+                        <ui:Button x:Name="BtnRulesList"
+                                   Style="{StaticResource ActionButtonStyle}"
+                                   Margin="0,0,4,0"
+                                   Content="APP"
+                                   FontSize="14"
+                                   Padding="14,8"
+                                   Tag="#FF3E4B64"
+                                   ToolTip="{DynamicResource Main_RulesListTip}"
+                                   Click="OnOpenRulesList" />
+
                         <!-- DNS for direct traffic: opens Settings on its tab. The icon turns sage
                              while the user's own resolver is in use (SyncDnsButton). -->
                         <ui:Button x:Name="BtnDns"
@@ -277,19 +279,6 @@
                                    Click="OnOpenDns">
                             <ui:Button.Icon>
                                 <ui:SymbolIcon x:Name="IcoDns" Symbol="GlobeShield24" Foreground="#EAF1FF" />
-                            </ui:Button.Icon>
-                        </ui:Button>
-
-                        <ui:Button x:Name="BtnRulesList"
-                                   Style="{StaticResource ActionButtonStyle}"
-                                   Margin="0,0,4,0"
-                                   FontSize="14"
-                                   Padding="11,8"
-                                   Tag="#FF3E4B64"
-                                   ToolTip="{DynamicResource Main_RulesListTip}"
-                                   Click="OnOpenRulesList">
-                            <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="Add24" Foreground="#EAF1FF" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -427,6 +416,9 @@
                                            TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center" />
                             </Grid>
+                            <!-- Each network card's public IP + city/country (only with the card
+                                 plates shown, Settings → Сеть). Filled by MainWindow.NicIps.cs. -->
+                            <WrapPanel x:Name="StatsNics" Orientation="Horizontal" Visibility="Collapsed" />
                         </StackPanel>
                 </Border>
             </Grid>

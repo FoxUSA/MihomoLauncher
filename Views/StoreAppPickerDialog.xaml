@@ -35,6 +35,14 @@
                       MouseDoubleClick="OnPick">
                 <ListView.View>
                     <GridView>
+                        <!-- Exactly the tick: the cell's own 6px side margins are taken back. -->
+                        <GridViewColumn Header="" Width="14">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Mark}" Margin="-6,0,-6,0" Width="14" TextAlignment="Center" />
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
                         <GridViewColumn Header="{DynamicResource Dlg_ColApplication}" Width="260" DisplayMemberBinding="{Binding Name}" />
                         <GridViewColumn Header="{DynamicResource Dlg_ColAumid}" Width="400" DisplayMemberBinding="{Binding Aumid}" />
                     </GridView>

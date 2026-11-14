@@ -51,7 +51,6 @@ namespace MihomoLauncher.Views
                 TxtName.Text = existing.Name;
                 TxtCheckUrl.Text = existing.CheckUrl ?? "";
                 TxtIcon.Text = existing.IconPath ?? "";
-                ChkVpn.IsChecked = existing.RequiresVpn;
                 ChkKillSwitch.IsChecked = existing.KillSwitch;
                 ChkSkipCheck.IsChecked = existing.SkipCheck;
                 ChkAutoIcon.IsChecked = existing.AutoIcon;
@@ -63,7 +62,6 @@ namespace MihomoLauncher.Views
             }
             else
             {
-                ChkVpn.IsChecked = true;
                 ChkKillSwitch.IsChecked = true;
                 ChkSkipCheck.IsChecked = true;
                 ChkAutoIcon.IsChecked = true;
@@ -104,8 +102,6 @@ namespace MihomoLauncher.Views
                 RowIcon.Visibility = Visibility.Collapsed;
                 RowItems.Visibility = Visibility.Collapsed;
                 RowAddButtons.Visibility = Visibility.Collapsed;
-                ChkVpn.Visibility = Visibility.Collapsed;
-                ChkKillSwitch.Margin = new Thickness(0);
                 ChkKillSwitch.ToolTip = Loc.T("AllTraffic_KillTip");
                 System.Windows.Controls.Grid.SetRow(RowVpn, 1);
                 MinHeight = 300;
@@ -538,9 +534,17 @@ namespace MihomoLauncher.Views
 
         // ---------- Add: programs ----------
 
+        // Paths / AUMIDs of the programs already in this rule — the pickers leave those out.
+        private HashSet<string> ProgramSet(Func<ItemRow, string> pick)
+        {
+            return new HashSet<string>(
+                _items.Where(i => !i.IsSite).Select(i => (pick(i) ?? "").Trim()).Where(v => v.Length > 0),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
         private void OnAddProgRunning(object sender, RoutedEventArgs e)
         {
-            var dlg = new ProcessPickerDialog { Owner = this };
+            var dlg = new ProcessPickerDialog { Owner = this, ExcludePaths = ProgramSet(i => i.Path) };
             if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.SelectedPath))
             {
                 var name = !string.IsNullOrWhiteSpace(dlg.SelectedName) ? dlg.SelectedName
@@ -551,7 +555,12 @@ namespace MihomoLauncher.Views
 
         private void OnAddProgStore(object sender, RoutedEventArgs e)
         {
-            var dlg = new StoreAppPickerDialog { Owner = this };
+            var dlg = new StoreAppPickerDialog
+            {
+                Owner = this,
+                ExcludeAumids = ProgramSet(i => i.Aumid),
+                ExcludePaths = ProgramSet(i => i.Path),
+            };
             if (dlg.ShowDialog() == true && !string.IsNullOrEmpty(dlg.SelectedAumid))
             {
                 var name = !string.IsNullOrWhiteSpace(dlg.SelectedName) ? dlg.SelectedName
@@ -571,8 +580,21 @@ namespace MihomoLauncher.Views
                 AddProgram(System.IO.Path.GetFileNameWithoutExtension(ofd.FileName), ofd.FileName, "");
         }
 
-        private void AddProgram(string name, string path, string aumid)
+        private async void AddProgram(string name, string path, string aumid)
         {
+            // The same program twice in one rule does nothing but clutter the table: same Store
+            // app (AUMID) or same exe path — say so and add nothing (2026-11-14).
+            var dup = _items.FirstOrDefault(i => !i.IsSite && (
+                (!string.IsNullOrWhiteSpace(aumid) && string.Equals((i.Aumid ?? "").Trim(), aumid.Trim(), StringComparison.OrdinalIgnoreCase)) ||
+                (!string.IsNullOrWhiteSpace(path) && string.Equals((i.Path ?? "").Trim(), path.Trim(), StringComparison.OrdinalIgnoreCase))));
+            if (dup != null)
+            {
+                ItemsGrid.ScrollIntoView(dup);
+                ItemsGrid.SelectedItem = dup;
+                var shown = !string.IsNullOrWhiteSpace(name) ? name.Trim() : System.IO.Path.GetFileName(path ?? "");
+                await OverlayDialog.MessageAsync(this, Loc.T("Rule_DupTitle"), Loc.T("Rule_DupProgram", shown)).ConfigureAwait(true);
+                return;
+            }
             AddRow(new ItemRow { IsSite = false, Name = name, Path = path, Aumid = aumid });
             // Name the rule after the FILE (chrome, Telegram, …) rather than the picker's
             // friendly label, which for a running process is whatever the window/description
@@ -663,6 +685,7 @@ namespace MihomoLauncher.Views
                         Block = _editing.Block,
                         IconPath = _editing.IconPath,
                         KillSwitch = ChkKillSwitch.IsChecked == true,
+                        Interfaces = new List<string>(_editing.Interfaces ?? new List<string>()),
                         DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id)
                             .Concat(_hiddenDisabledIds).ToList(),
                         VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
@@ -738,7 +761,12 @@ namespace MihomoLauncher.Views
                 entry.Sites = sites;
                 entry.Programs = progs;
                 entry.CheckUrl = checkUrl;
-                entry.RequiresVpn = ChkVpn.IsChecked == true;
+                // VPN or «Напрямую» is chosen on the tile's plate now (the switch is gone): an
+                // edited rule keeps what it had, a new one starts on VPN, as the switch defaulted.
+                entry.RequiresVpn = _editing == null || _editing.RequiresVpn;
+                // The network cards are chosen on the tile's lower plate — carried over as they are.
+                entry.Interfaces = new List<string>(_editing?.Interfaces ?? new List<string>());
+                entry.KillSwitchBeforeDirect = _editing != null && _editing.KillSwitchBeforeDirect;
                 entry.KillSwitch = ChkKillSwitch.IsChecked == true;
                 entry.SkipCheck = ChkSkipCheck.IsChecked == true;
                 entry.AutoIcon = ChkAutoIcon.IsChecked == true;

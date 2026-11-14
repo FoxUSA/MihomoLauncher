@@ -45,6 +45,10 @@ namespace MihomoLauncher.Services
         // For ShareLink: the link itself. The config builder writes it to
         // providers\<ProxyName>.txt in the work dir and declares a `type: file` provider.
         public string ProviderFileContent { get; set; } = "";
+
+        // Providers only: dial every node of this provider through that outbound (a network card,
+        // see MihomoConfigBuilder.NicPlan) — written as the provider's `override: dialer-proxy`.
+        public string DialerProxy { get; set; } = "";
     }
 
     // Converts VpnSlot definitions (WireGuard .conf path, vless:// link, Clash sub URL)

@@ -116,6 +116,22 @@ namespace MihomoLauncher.Models
         // ones — so a newly added variant never silently jumps the queue.
         public List<string> VpnSlotOrder { get; set; } = new List<string>();
 
+        // Network cards this rule's traffic leaves through (adapter names as Windows shows them),
+        // in order of preference: the first one that works carries it, the next takes over when it
+        // fails (2026-11-14). Empty = Windows decides, as before. Applied HARD and ALWAYS: switched
+        // on or off, through a VPN (the VPN's own connection is dialled through the card) or direct,
+        // and when none of the chosen cards works nothing goes out — never through another card.
+        public List<string> Interfaces { get; set; } = new List<string>();
+
+        // The kill-switch as it was when «Напрямую» was picked on the tile's VPN plate (which has
+        // to turn it off — direct + kill-switch = no internet). Picking a VPN on the plate again
+        // puts back exactly this, never a forced «on» (2026-11-14: RDP got a kill-switch it never
+        // had, and ✕ then blocked it).
+        public bool KillSwitchBeforeDirect { get; set; }
+
+        [XmlIgnore]
+        public bool HasInterfaces => Interfaces != null && Interfaces.Exists(n => !string.IsNullOrWhiteSpace(n));
+
         // The built-in «Весь трафик» rule: always present, always first, cannot be deleted. It
         // has no programs or sites — it IS the catch-all: when switched on, everything no other
         // rule claims goes through its VPN (MATCH,<proxy> instead of MATCH,DIRECT). The other

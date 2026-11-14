@@ -19,6 +19,10 @@ namespace MihomoLauncher.Views
         private readonly ObservableCollection<ProcRow> _rows = new ObservableCollection<ProcRow>();
         private List<ProcRow> _all = new List<ProcRow>();
 
+        // Programs already in the rule being edited: ticked in the list and not
+        // pickable again (set before the window shows).
+        public HashSet<string> ExcludePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public ProcessPickerDialog()
         {
             InitializeComponent();
@@ -51,6 +55,7 @@ namespace MihomoLauncher.Views
                         Path = path,
                         Display = !string.IsNullOrWhiteSpace(title) ? title : SafeName(p),
                         HasWindow = hasWindow,
+                        Added = ExcludePaths.Contains(path),
                     };
                     byPath[path] = row;
                 }
@@ -103,6 +108,7 @@ namespace MihomoLauncher.Views
         private void OnPick(object sender, RoutedEventArgs e)
         {
             if (!(LstProcs.SelectedItem is ProcRow row)) return;
+            if (row.Added) { LblHint.Text = Loc.T("Rule_DupProgram", string.IsNullOrWhiteSpace(row.Display) ? row.ProcessName : row.Display); return; }
             SelectedPath = row.Path;
             SelectedName = string.IsNullOrWhiteSpace(row.Display) ? row.ProcessName : row.Display;
             DialogResult = true;
@@ -121,6 +127,8 @@ namespace MihomoLauncher.Views
             public string ProcessName { get; set; }
             public string Path { get; set; }
             public bool HasWindow { get; set; }
+            public bool Added { get; set; }
+            public string Mark => Added ? "✓" : "";
         }
     }
 }

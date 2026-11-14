@@ -204,9 +204,10 @@
 
         <!-- ===== Row 5: VPN switches + allowed variants ===== -->
         <StackPanel x:Name="RowVpn" Grid.Row="5" Margin="20,14,20,0">
+            <!-- «Использовать VPN» removed 2026-11-14: VPN or «Напрямую» is picked on the tile's
+                 plate, like any other exit; the list below is which VPNs, in what order. -->
             <StackPanel Orientation="Horizontal">
-                <ui:ToggleSwitch x:Name="ChkVpn" Content="{DynamicResource Rule_UseVpn}" />
-                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch" Margin="28,0,0,0" />
+                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch" />
             </StackPanel>
 
             <TextBlock Text="{DynamicResource Rule_AllowedVpn}"

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -50,6 +50,7 @@ namespace MihomoLauncher.Views
         {
             if (_hidden || WindowState == WindowState.Minimized) return;   // nobody is looking
             _statsTick++;
+            MaybeRefreshNicIps();
             if (_statsTick % StatsPingEveryTicks == 0) MeasureStatsPing(force: true);
             else MeasureStatsPing(force: false);
             RenderStats();
@@ -120,7 +121,9 @@ namespace MihomoLauncher.Views
             StatusFoot.Visibility = showFoot ? Visibility.Visible : Visibility.Collapsed;
             StatsPing.Visibility = showPing ? Visibility.Visible : Visibility.Collapsed;
             StatsBlocksRow.Visibility = showStats ? Visibility.Visible : Visibility.Collapsed;
-            StatsStrip.Visibility = showMsg || showFoot || showStats ? Visibility.Visible : Visibility.Collapsed;
+            bool showNics = ShowNicIps;
+            StatsNics.Visibility = showNics ? Visibility.Visible : Visibility.Collapsed;
+            StatsStrip.Visibility = showMsg || showFoot || showStats || showNics ? Visibility.Visible : Visibility.Collapsed;
 
             // Only the stats are about the log; a plate holding just a message is not a link.
             StatsStrip.Cursor = showStats ? Cursors.Hand : null;
@@ -140,6 +143,7 @@ namespace MihomoLauncher.Views
 
             if (showStats) RenderStatsRows(store, proxies);
             else StatsPing.Children.Clear();
+            RenderNicIps();
 
             if (LayoutSig() != before) RecalcHeight();
         }
@@ -148,7 +152,8 @@ namespace MihomoLauncher.Views
         {
             return StatsStrip.Visibility + "|" + BannerText.Visibility + "|" + BannerText.Text + "|"
                  + StatusFoot.Visibility + "|" + StatusFoot.Text + "|"
-                 + StatsPing.Visibility + "|" + StatsPing.Children.Count + "|" + StatsBlocksRow.Visibility;
+                 + StatsPing.Visibility + "|" + StatsPing.Children.Count + "|" + StatsBlocksRow.Visibility + "|"
+                 + StatsNics.Visibility + "|" + NicIpSig();
         }
 
         private void RenderStatsRows(EngineLogStore store, List<string> proxies)

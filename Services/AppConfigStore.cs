@@ -34,6 +34,10 @@ namespace MihomoLauncher.Services
         // «Переустановить движок» button does it, one UAC prompt).
         public bool FirewallKillSwitch { get; set; } = true;
 
+        // Show the network-card strip under each tile (Settings → «Сеть», 2026-11-14). Hiding it
+        // hides only the strip: cards a tile already has keep applying.
+        public bool ShowNicPlate { get; set; } = true;
+
         // ----- mihomo (Clash.Meta) runtime -----
         // Empty until the engine is installed; a fresh config gets AppConfigStore's writable
         // default target, and the engine is downloaded there on first run (engine-missing flow).

@@ -521,6 +521,7 @@ namespace MihomoLauncher.Views
                 else line = Loc.T("Log_LiveOk", who, string.Join(", ", a.Addresses.Take(4)), a.Ms);
             }
             catch (OperationCanceledException) { return; }
+            catch (DirectDns.ProbeBlockedException ex) { line = who + " — " + ex.Message; }
             catch (Exception ex) { line = Loc.T("Log_LiveFail", who, DirectDns.Shorten(ex.Message)); }
             if (cts.IsCancellationRequested || _liveCts != cts) return;
             TxtExplain.Text = baseText + line;

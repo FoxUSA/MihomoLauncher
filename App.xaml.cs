@@ -120,6 +120,10 @@ namespace MihomoLauncher
                         // a pre-service install onto the engine service, no UAC needed.
                         try { Services.MihomoSetup.MigrateToServiceAsSystem(); }
                         catch (Exception ex) { Log.Error("migrate-to-service", ex); }
+                        // Network-card priority from Settings → «Сеть», if a plan is waiting
+                        // (applied once, then the plan is gone). Same SYSTEM helper, no UAC.
+                        try { NicMetrics.ApplyFromPlan(); }
+                        catch (Exception ex) { Log.Error("nic-metric-apply", ex); }
                         FirewallGuard.ApplyFromState();
                     }
                 }
@@ -223,6 +227,25 @@ namespace MihomoLauncher
             // If autostart is on, keep it pointed at the current exe (handles a moved/
             // updated launcher) and clean out any old MihomoLauncher autostart entries.
             try { Autostart.SyncIfEnabled(); } catch { }
+
+            // Esc closes any of the launcher's windows except the main one and the updater
+            // (2026-11-14: «закрывать любое окно настроек эскейпом»). Bubbling KeyDown, unhandled
+            // only: an in-window dialog (OverlayDialog) or a search box that uses Esc itself marks
+            // the key handled first, so Esc there still does just that one thing. Closing without
+            // DialogResult = true is a cancel to every caller (they all check == true).
+            try
+            {
+                EventManager.RegisterClassHandler(typeof(Window), UIElement.KeyDownEvent,
+                    new System.Windows.Input.KeyEventHandler((s, ke) =>
+                    {
+                        if (ke.Handled || ke.Key != System.Windows.Input.Key.Escape) return;
+                        var w = s as Window;
+                        if (w == null || w is Views.MainWindow || w is Views.UpdaterWindow) return;
+                        ke.Handled = true;
+                        w.Close();
+                    }));
+            }
+            catch (Exception ex) { Log.Error("esc-close", ex); }
 
             // Started by the HKCU\Run entry at logon (it passes --autostart): come up hidden
             // in the tray and connect on our own, instead of popping a window in mom's face.

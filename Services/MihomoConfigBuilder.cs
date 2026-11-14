@@ -27,6 +27,9 @@ namespace MihomoLauncher.Services
         // program), wherever the tiles stand. Tile order decides only between two tiles that
         // list the same address.
         public bool Site { get; set; }
+        // The tile's network cards (NicKey of its AppEntry), null = Windows decides. Build turns
+        // the target into "the same, through these cards" — see NicPlan.
+        public string Nic { get; set; }
         public RuleDef() { }
         public RuleDef(string type, string value, string target) { Type = type; Value = value; Target = target; }
     }
@@ -198,12 +201,13 @@ namespace MihomoLauncher.Services
         public static void AddAppRules(List<RuleDef> rules, AppEntry app, string target)
         {
             if (app == null || string.IsNullOrEmpty(target)) return;
+            var nic = NicKey(app);
 
             // «Весь трафик» claims nothing by name: it is the catch-all. Build moves it to the
             // very end, so every other rule still wins for what it lists.
             if (app.IsAllTraffic)
             {
-                rules.Add(new RuleDef("MATCH", "", target));
+                rules.Add(new RuleDef("MATCH", "", target) { Nic = nic });
                 return;
             }
 
@@ -220,7 +224,7 @@ namespace MihomoLauncher.Services
             {
                 if (string.IsNullOrEmpty(type) || string.IsNullOrEmpty(value)) return;
                 if (!seen.Add(type + "|" + value)) return;
-                rules.Add(new RuleDef(type, value, target) { Raw = raw, Site = site });
+                rules.Add(new RuleDef(type, value, target) { Raw = raw, Site = site, Nic = nic });
             }
 
             // Sites before programs: a rule's own sites must win even for its own program's
@@ -309,17 +313,27 @@ namespace MihomoLauncher.Services
             }
 
             var described = new List<string>();
-            foreach (var app in (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && (a.RequiresVpn || a.KillSwitch)))
+            foreach (var app in (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && (a.RequiresVpn || a.KillSwitch || a.HasInterfaces)))
             {
+                string Where(string target)
+                {
+                    if (target.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) return "напрямую";
+                    if (target.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase))
+                        return app.IsBlocking ? "заблокировано («Блокировать»)"
+                             : app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен";
+                    bool sub = target.StartsWith("SUB:", StringComparison.Ordinal);
+                    var name = sub ? target.Substring(4) : target;
+                    var cards = NicLabelOf(name);
+                    var via = cards != null ? " через карту " + cards : "";
+                    if (IsNicTarget(name)) return "напрямую" + via;
+                    return (sub ? "по правилам подписки «" : "VPN «") + BaseProxyName(name) + "»" + via;
+                }
+
                 if (app.IsAllTraffic)
                 {
                     // Only worth a word when it is actually doing something.
                     if (catchAll.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) continue;
-                    described.Add(app.Name + " → " + (catchAll.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)
-                        ? (app.IsBlocking ? "заблокировано («Блокировать»)" : app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен")
-                        : catchAll.StartsWith("SUB:", StringComparison.Ordinal)
-                        ? "по правилам подписки «" + catchAll.Substring(4) + "»"
-                        : "VPN «" + catchAll + "»"));
+                    described.Add(app.Name + " → " + Where(catchAll));
                     continue;
                 }
                 var mine = new List<RuleDef>();
@@ -331,17 +345,6 @@ namespace MihomoLauncher.Services
                     .GroupBy(x => x, StringComparer.OrdinalIgnoreCase)
                     .OrderByDescending(g => g.Count())
                     .ToList();
-
-                string Where(string target)
-                {
-                    if (target.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) return "напрямую";
-                    if (target.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase))
-                        return app.IsBlocking ? "заблокировано («Блокировать»)"
-                             : app.KillSwitch ? "заблокировано (кил-свитч)" : "ЗАБЛОКИРОВАНО, хотя кил-свитч выключен";
-                    if (target.StartsWith("SUB:", StringComparison.Ordinal))
-                        return "по правилам подписки «" + target.Substring(4) + "»";
-                    return "VPN «" + target + "»";
-                }
 
                 described.Add(groups.Count == 1
                     ? app.Name + " → " + Where(groups[0].Key)
@@ -428,6 +431,13 @@ namespace MihomoLauncher.Services
             "wpad.*", "localhost.*",
         };
 
+        // The internet names among FakeIpFilter, in nameserver-policy syntax — resolved by the
+        // user's own DNS when one is chosen (AppendDns).
+        private static readonly string[] ExternalFilterNames =
+        {
+            "+.msftconnecttest.com", "+.msftncsi.com", "time.windows.com", "time.nist.gov",
+        };
+
         // The launcher does NOT choose this machine's resolvers (the "DNS" feature was removed
         // 2026-08-15). Everything the rules don't claim is forwarded to whatever Windows was
         // already using — so a DoH host the ISP throttles, or a resolver that only answers
@@ -471,6 +481,14 @@ namespace MihomoLauncher.Services
                 sb.AppendLine("  direct-nameserver:");
                 foreach (var e in direct)
                     sb.AppendLine("    - \"" + e.Engine.Replace("\"", "") + "\"");
+                // The fake-ip-filter names are answered by `nameserver` (the machine's resolvers),
+                // not by direct-nameserver. The local ones (*.lan, *.local, wpad…) must stay there —
+                // only the router knows them — but the INTERNET ones (Windows' connectivity probe,
+                // NTP) are ordinary direct traffic: with the user's DNS chosen, they go to it too.
+                sb.AppendLine("  nameserver-policy:");
+                sb.AppendLine("    \"" + string.Join(",", ExternalFilterNames) + "\":");
+                foreach (var e in direct)
+                    sb.AppendLine("      - \"" + e.Engine.Replace("\"", "") + "\"");
                 // A resolver addressed by NAME is dead without a bootstrap (measured — see the DNS
                 // gotchas): the machine's own servers find its address.
                 if (direct.Any(e => !e.IsIp))
@@ -615,6 +633,178 @@ namespace MihomoLauncher.Services
             return b.Length == 4 && b[0] == 198 && b[1] == 18;
         }
 
+        // ---------- network cards per tile (2026-11-14) ----------
+        //
+        // A tile may name the cards its traffic leaves through (AppEntry.Interfaces). The engine
+        // does it natively, the way every Clash client does it by hand in YAML:
+        //   one card      →  `- name: nic-<h>  type: direct  interface-name: "<card>"`
+        //   several cards →  a `fallback` group over those, in the tile's order (first that answers)
+        //   «напрямую»    →  the tile's DIRECT lines point at that card / group
+        //   through a VPN →  a copy of the variant, `<proxy>.via-<h>`, with `dialer-proxy:` = the
+        //                    card / group: the VPN's own connection goes out through the card
+        // Hard, as asked: a card that is down or gone gives «interface not found» and nothing goes
+        // out — never through another card. Measured on the binary 2026-11-14.
+        //
+        // Names: our proxies are always vpn_<letters/digits/_/-> (ProxyParsers.SanitizeName), so
+        // "nic-", "nics-" and the "." in ".via-" can never collide with one.
+        public const string NicPrefix = "nic-";
+        public const string NicsPrefix = "nics-";
+        public const string ViaMarker = ".via-";
+
+        // engine name → the cards in words ("Ethernet › Беспроводная сеть 2"), for the log and
+        // the traffic window. Filled by every Build; names are hashes of the card list, so an entry
+        // never changes meaning and is never removed.
+        private static readonly Dictionary<string, string> _nicLabels = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        public static bool IsNicTarget(string target)
+        {
+            var t = (target ?? "").Trim();
+            return t.StartsWith(NicPrefix, StringComparison.Ordinal) || t.StartsWith(NicsPrefix, StringComparison.Ordinal);
+        }
+
+        // "vpn_Turkey.via-1a2b3c4d" → "vpn_Turkey": the variant behind a copy dialled through a card.
+        public static string BaseProxyName(string target)
+        {
+            var t = (target ?? "").Trim();
+            int i = t.IndexOf(ViaMarker, StringComparison.Ordinal);
+            return i > 0 ? t.Substring(0, i) : t;
+        }
+
+        // The cards behind an engine name (a card, a group of cards, or a VPN copy through them);
+        // null for anything else.
+        public static string NicLabelOf(string target)
+        {
+            var t = (target ?? "").Trim();
+            lock (_nicLabels)
+            {
+                string label;
+                if (_nicLabels.TryGetValue(t, out label)) return label;
+            }
+            return null;
+        }
+
+        // The tile's cards as one key ("A\nB"), null when it leaves the choice to Windows.
+        public static string NicKey(AppEntry app)
+        {
+            if (app == null || !app.HasInterfaces) return null;
+            var cards = NetCards.Clean(app.Interfaces);
+            return cards.Count == 0 ? null : string.Join("\n", cards);
+        }
+
+        private static string Hash8(string s)
+        {
+            using (var sha = System.Security.Cryptography.SHA1.Create())
+            {
+                var b = sha.ComputeHash(Encoding.UTF8.GetBytes(s ?? ""));
+                var sb = new StringBuilder();
+                for (int i = 0; i < 4; i++) sb.Append(b[i].ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
+        private static string YQ(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+        private sealed class NicPlan
+        {
+            private readonly AppConfig _cfg;
+            private readonly Dictionary<string, ParsedProxy> _direct;
+            private readonly Dictionary<string, ParsedProxy> _providers;
+            public readonly List<string> Cards = new List<string>();                          // nic-<h> per card, in first-use order
+            public readonly Dictionary<string, string> CardOf = new Dictionary<string, string>(StringComparer.Ordinal);
+            public readonly List<KeyValuePair<string, List<string>>> Groups = new List<KeyValuePair<string, List<string>>>();
+            public readonly List<ParsedProxy> DirectClones = new List<ParsedProxy>();
+            public readonly List<ParsedProxy> ProviderClones = new List<ParsedProxy>();
+            private readonly HashSet<string> _made = new HashSet<string>(StringComparer.Ordinal);
+
+            public NicPlan(AppConfig cfg, List<ParsedProxy> direct, List<ParsedProxy> providers)
+            {
+                _cfg = cfg;
+                _direct = new Dictionary<string, ParsedProxy>(StringComparer.Ordinal);
+                foreach (var p in direct) if (!string.IsNullOrEmpty(p.ProxyName)) _direct[p.ProxyName] = p;
+                _providers = new Dictionary<string, ParsedProxy>(StringComparer.Ordinal);
+                foreach (var p in providers) if (!string.IsNullOrEmpty(p.ProxyName)) _providers[p.ProxyName] = p;
+            }
+
+            public bool Any => Cards.Count > 0;
+
+            private static void Label(string name, string text) { lock (_nicLabels) _nicLabels[name] = text; }
+
+            // The card (or the fallback group over the cards) for this key.
+            private string Outbound(string key)
+            {
+                var cards = key.Split('\n');
+                var members = new List<string>();
+                foreach (var card in cards)
+                {
+                    var n = NicPrefix + Hash8(card);
+                    if (_made.Add(n)) { Cards.Add(n); CardOf[n] = card; Label(n, "«" + card + "»"); }
+                    members.Add(n);
+                }
+                if (members.Count == 1) return members[0];
+                var g = NicsPrefix + Hash8(key);
+                if (_made.Add(g))
+                {
+                    Groups.Add(new KeyValuePair<string, List<string>>(g, members));
+                    Label(g, string.Join(" › ", cards.Select(c => "«" + c + "»")));
+                }
+                return g;
+            }
+
+            // Where a line pointed at `target` goes when its tile is tied to the cards in `key`.
+            public string Route(string target, string key)
+            {
+                if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(target)) return target;
+                if (target.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)) return target;
+                var via = Outbound(key);
+                if (target.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) return via;
+
+                var clone = target + ViaMarker + Hash8(key);
+                if (_made.Contains(clone)) return clone;
+
+                ParsedProxy p;
+                if (_direct.TryGetValue(target, out p))
+                {
+                    var lines = new List<string>(p.ProxyYamlLines);
+                    if (lines.Count == 0) return target;
+                    lines[0] = "  - name: " + YQ(clone);
+                    lines.Add("    dialer-proxy: " + YQ(via));
+                    _made.Add(clone);
+                    DirectClones.Add(new ParsedProxy
+                    {
+                        Ok = true, ProxyName = clone, SlotId = p.SlotId, Server = p.Server,
+                        ProxyYamlLines = lines, ServerDns = p.ServerDns,
+                    });
+                    Label(clone, NicLabelOf(via));
+                    return clone;
+                }
+                if (_providers.TryGetValue(target, out p))
+                {
+                    _made.Add(clone);
+                    // A subscription's copy reads its own cached file: start it from the one the
+                    // launcher already has, so the policy (SubscriptionPolicy.For) is there at once.
+                    if (string.IsNullOrEmpty(p.ProviderFileContent))
+                    {
+                        try
+                        {
+                            var src = SubscriptionPolicy.CachePath(_cfg, target);
+                            var dst = SubscriptionPolicy.CachePath(_cfg, clone);
+                            if (File.Exists(src) && !File.Exists(dst)) File.Copy(src, dst);
+                        }
+                        catch (Exception ex) { Log.Error("nic-sub-copy", ex); }
+                    }
+                    ProviderClones.Add(new ParsedProxy
+                    {
+                        Ok = true, IsProvider = true, ProxyName = clone, SlotId = p.SlotId,
+                        ProviderUrl = p.ProviderUrl, ProviderIntervalSeconds = p.ProviderIntervalSeconds,
+                        ProviderFileContent = p.ProviderFileContent, DialerProxy = via,
+                    });
+                    Label(clone, NicLabelOf(via));
+                    return clone;
+                }
+                return target;   // not one of ours (shouldn't happen): left as it was
+            }
+        }
+
         public static string Build(AppConfig cfg, List<ParsedProxy> proxies, List<RuleDef> rules)
         {
             if (proxies == null) proxies = new List<ParsedProxy>();
@@ -664,7 +854,16 @@ namespace MihomoLauncher.Services
             sb.AppendLine("  stack: mixed");
             sb.AppendLine("  auto-route: true");
             sb.AppendLine("  auto-detect-interface: true");
-            sb.AppendLine("  strict-route: false");
+            // strict-route ON (2026-11-13). On Windows it does NOT force everything into the tunnel
+            // (sing-tun v0.4.29 tun_windows.go: the block-all IPv4 filter is commented out), so the
+            // LAN/RDP excludes below keep working. What it does, through a dynamic WFP session that
+            // dies with the engine: (1) blocks port 53 for every process except the engine on any
+            // interface but ours — Windows asks ALL adapters' resolvers in parallel, and the Wi-Fi
+            // one (the router, inside the excluded LAN) was getting every name and passing it to the
+            // ISP (seen on dnscheck.tools); (2) blocks all IPv6 outside the tunnel (it has no IPv6),
+            // which would otherwise bypass VPN and kill-switch alike. Inbound (RDP) is not filtered.
+            // Side effect: the DNS probe copy (DirectDns.QueryAsync) can't use plain port-53 DNS.
+            sb.AppendLine("  strict-route: true");
             sb.AppendLine("  dns-hijack:");
             sb.AppendLine("    - any:53");
             sb.AppendLine("  route-exclude-address:");
@@ -736,12 +935,62 @@ namespace MihomoLauncher.Services
                 else directProxies.Add(p);
             }
 
-            if (directProxies.Count > 0)
+            // Network cards (NicPlan): every line of a tile tied to cards is re-pointed through them,
+            // switched on or off, VPN or direct. A copy of each RuleDef — the caller's list is not
+            // ours to change.
+            var nic = new NicPlan(cfg, directProxies, providers);
+            rules = rules.Where(r => r != null)
+                .Select(r => r.Nic == null || r.Probe ? r
+                    : new RuleDef(r.Type, r.Value, nic.Route(r.Target, r.Nic)) { Raw = r.Raw, Site = r.Site })
+                .ToList();
+            // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
+            // on, in which case its target (a proxy, or REJECT under its kill-switch). The engine
+            // stops at the first MATCH; the last one given is what the loop below used to keep.
+            var matchRule = rules.LastOrDefault(r => "MATCH".Equals(r.Type, StringComparison.OrdinalIgnoreCase));
+            string catchAll = matchRule != null && !string.IsNullOrEmpty(matchRule.Target) ? matchRule.Target : "DIRECT";
+            // «Всё остальное» writes no MATCH of its own when it is off without a kill-switch — its
+            // cards still hold: what no tile claims leaves through them.
+            var allTile = (cfg.Apps ?? new List<AppEntry>()).FirstOrDefault(a => a != null && a.IsAllTraffic);
+            if (matchRule == null && allTile != null && allTile.HasInterfaces)
+                catchAll = nic.Route("DIRECT", NicKey(allTile));
+
+            // With the catch-all pointed anywhere but DIRECT, a rule that wrote NO line of its own
+            // (a «напрямую» rule, or one switched off without a kill-switch) would be swept into
+            // «Весь трафик». It isn't its business: every tile lives its own life, so whatever
+            // is left of them is pinned DIRECT explicitly, just above the catch-all. A tile tied to
+            // cards gets those lines always — through its cards, not Windows' one.
+            var pinned = new List<RuleDef>();
+            {
+                bool catchAllDirect = catchAll.Equals("DIRECT", StringComparison.OrdinalIgnoreCase);
+                var written = new HashSet<string>(
+                    rules.Where(r => !string.IsNullOrEmpty(r.Type)).Select(r => r.Type + "|" + r.Value),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && !a.IsAllTraffic))
+                {
+                    if (catchAllDirect && !app.HasInterfaces) continue;
+                    var mine = new List<RuleDef>();
+                    AddAppRules(mine, app, "DIRECT");
+                    foreach (var r in mine)
+                        if (written.Add(r.Type + "|" + r.Value))
+                            pinned.Add(new RuleDef(r.Type, r.Value, nic.Route("DIRECT", r.Nic)) { Site = r.Site });
+                }
+            }
+            directProxies.AddRange(nic.DirectClones);
+            providers.AddRange(nic.ProviderClones);
+
+            if (directProxies.Count > 0 || nic.Any)
             {
                 sb.AppendLine("proxies:");
                 foreach (var p in directProxies)
                     foreach (var line in p.ProxyYamlLines)
                         sb.AppendLine(line);
+                foreach (var n in nic.Cards)
+                {
+                    sb.AppendLine("  - name: " + YQ(n));
+                    sb.AppendLine("    type: direct");
+                    sb.AppendLine("    interface-name: " + YQ(nic.CardOf[n]));
+                    sb.AppendLine("    udp: true");
+                }
                 sb.AppendLine();
             }
 
@@ -771,15 +1020,32 @@ namespace MihomoLauncher.Services
                     sb.AppendLine("      enable: true");
                     sb.AppendLine("      url: " + HealthCheckUrl);
                     sb.AppendLine("      interval: 300");
+                    // A tile tied to network cards: every node of this copy is dialled through them.
+                    if (!string.IsNullOrEmpty(p.DialerProxy))
+                    {
+                        sb.AppendLine("    override:");
+                        sb.AppendLine("      dialer-proxy: " + YQ(p.DialerProxy));
+                    }
                 }
                 sb.AppendLine();
             }
 
-            // proxy-groups: only providers need a group (url-test over the sub).
+            // proxy-groups: providers need a group (url-test over the sub); several network cards
+            // of one tile are a fallback group — the first card in the tile's order that answers.
             // Direct proxies are referenced by name in rules, no group needed.
-            if (providers.Count > 0)
+            if (providers.Count > 0 || nic.Groups.Count > 0)
             {
                 sb.AppendLine("proxy-groups:");
+                foreach (var g in nic.Groups)
+                {
+                    sb.AppendLine("  - name: " + YQ(g.Key));
+                    sb.AppendLine("    type: fallback");
+                    sb.AppendLine("    url: " + HealthCheckUrl);
+                    sb.AppendLine("    interval: 30");
+                    sb.AppendLine("    timeout: 3000");
+                    sb.AppendLine("    lazy: false");
+                    sb.AppendLine("    proxies: [" + string.Join(", ", g.Value.Select(YQ)) + "]");
+                }
                 foreach (var p in providers)
                 {
                     sb.AppendLine("  - name: " + p.ProxyName);
@@ -808,9 +1074,6 @@ namespace MihomoLauncher.Services
             SubscriptionPolicy.NoteBuilt(cfg, subscribed);
             SubscriptionPolicy.AppendBlocks(sb, policies.Values, AppConfigStore.ResolveMihomoWorkDir(cfg));
 
-            // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
-            // on, in which case its target (a proxy, or REJECT under its kill-switch).
-            string catchAll = "DIRECT";
             bool asnReady = AsnDbReady(cfg);
             // The engine stops at the first match: the launcher's probe first, then the sites and
             // templates of every tile, then the programs (and check addresses) of every tile —
@@ -824,7 +1087,7 @@ namespace MihomoLauncher.Services
             {
                 if (r == null || string.IsNullOrEmpty(r.Type) || string.IsNullOrEmpty(r.Target)) continue;
                 if (!r.Probe && !ownWritten) { AppendOwnServer(sb); ownWritten = true; }
-                if (r.Type.Equals("MATCH", StringComparison.OrdinalIgnoreCase)) { catchAll = r.Target; continue; }
+                if (r.Type.Equals("MATCH", StringComparison.OrdinalIgnoreCase)) continue;   // catchAll, above
                 if (IsAsnRule(r.Type) && !asnReady) continue;
                 // IP rules must skip DNS resolution under fake-ip, or they never match.
                 bool ipRule = IsIpRule(r.Type);
@@ -846,28 +1109,14 @@ namespace MihomoLauncher.Services
                 }
                 sb.AppendLine("  - " + r.Type + "," + r.Value + "," + r.Target + suffix);
             }
-            // With the catch-all pointed anywhere but DIRECT, a rule that wrote NO line of its own
-            // (a «напрямую» rule, or one switched off without a kill-switch) would be swept into
-            // «Весь трафик». It isn't its business: every tile lives its own life, so whatever
-            // is left of them is pinned DIRECT explicitly, just above the catch-all.
-            if (!catchAll.Equals("DIRECT", StringComparison.OrdinalIgnoreCase))
+            // What is left of the tiles, pinned (see `pinned` above): DIRECT, or their cards.
+            if (pinned.Count > 0 && !ownWritten) { AppendOwnServer(sb); ownWritten = true; }
+            foreach (var r in pinned)
             {
-                var written = new HashSet<string>(
-                    rules.Where(r => r != null && !string.IsNullOrEmpty(r.Type)).Select(r => r.Type + "|" + r.Value),
-                    StringComparer.OrdinalIgnoreCase);
-                foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && !a.IsAllTraffic))
-                {
-                    var mine = new List<RuleDef>();
-                    AddAppRules(mine, app, "DIRECT");
-                    foreach (var r in mine)
-                    {
-                        if (!written.Add(r.Type + "|" + r.Value)) continue;
-                        if (IsAsnRule(r.Type) && !asnReady) continue;
-                        bool ipRule = IsIpRule(r.Type);
-                        if (IsCidrRule(r.Type) && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
-                        sb.AppendLine("  - " + r.Type + "," + r.Value + ",DIRECT" + (ipRule ? ",no-resolve" : ""));
-                    }
-                }
+                if (IsAsnRule(r.Type) && !asnReady) continue;
+                bool ipRule = IsIpRule(r.Type);
+                if (IsCidrRule(r.Type) && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
+                sb.AppendLine("  - " + r.Type + "," + r.Value + "," + r.Target + (ipRule ? ",no-resolve" : ""));
             }
             if (!ownWritten) AppendOwnServer(sb);
             // «Весь трафик» on a subscription: everything left over follows the subscription.

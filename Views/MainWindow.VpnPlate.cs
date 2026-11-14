@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -133,31 +134,49 @@ namespace MihomoLauncher.Views
             }
             else if (!enabled)
             {
-                // All VPN variants unchecked for this rule → it can never connect; show that
-                // explicitly (amber) instead of the generic "нужен VPN" / "не работает".
-                bool noVpn = HasNoAllowedVpnVariant(entry);
+                // The first VPN the rule's own settings rank — what it will use when switched on.
+                var first = FirstRuleSlot(entry);
+                bool noVpn = HasNoAllowedVpnVariant(entry) || first == null;
                 // Switched off by hand (tile ✕, or simply never started) is a decision, not a
                 // fault: red "не работает" is for a rule that was tried and no node opened it.
                 bool stopped = !notChecked && !noVpn && !entry.AutoConnect;
                 bool failed = !noVpn && !notChecked && !stopped;
                 if (killOn && !failed)
                 {
-                    // Not started (or no VPN chosen) and the kill-switch holds it: blocked.
-                    line1 = new[] { noVpn ? Loc.T("Main_TileNoVpnSelected") : Loc.T("Main_TileKillBlocked") };
-                    line2 = noVpn ? new[] { Loc.T("Main_TileKillBlocked") + " \u00B7 kill-switch", "kill-switch" } : new[] { "kill-switch" };
-                    fg = noVpn ? Theme.AccentAmber : Theme.AccentRed;
-                    tint = noVpn ? PlateTint.Amber : PlateTint.Red;
+                    // Not started (or no VPN chosen) and the kill-switch holds it: blocked. The block
+                    // wins over \u00ABVPN \u043D\u0435 \u0432\u044B\u0431\u0440\u0430\u043D\u00BB (2026-11-14): what the person needs to see first is
+                    // that this tile has no internet; the missing VPN is the reason, second line.
+                    line1 = new[] { Loc.T("Main_TileKillBlocked") };
+                    line2 = noVpn ? new[] { "kill-switch \u00B7 " + Loc.T("Main_TileNoVpnSelected"), "kill-switch" } : new[] { "kill-switch" };
+                    fg = Theme.AccentRed;
+                    tint = PlateTint.Red;
+                }
+                else if (failed)
+                {
+                    line1 = new[] { Loc.T("Main_TileNotWorking") };
+                    fg = Theme.AccentRed;
+                    tint = PlateTint.Red;
+                    // Switched on but no node opened it: still blocked by its kill-switch.
+                    if (killOn) line2 = new[] { Loc.T("Main_TileKillBlocked") + " \u00B7 kill-switch", "kill-switch" };
+                }
+                else if (noVpn)
+                {
+                    // Nothing ticked in the rule's settings: grey, not amber (2026-11-14).
+                    line1 = new[] { Loc.T("Main_TileNoVpnSelected") };
+                    fg = Theme.TextMuted;
+                    tint = PlateTint.Neutral;
                 }
                 else
                 {
-                    line1 = new[] { noVpn ? Loc.T("Main_TileNoVpnSelected")
-                          : notChecked ? Loc.T("Main_TileNeedVpn")
-                          : stopped ? Loc.T("Main_TileStopped")
-                          : Loc.T("Main_TileNotWorking") };
-                    fg = noVpn ? Theme.AccentAmber : (notChecked || stopped) ? Theme.TextMuted : Theme.AccentRed;
-                    tint = noVpn ? PlateTint.Amber : (notChecked || stopped) ? PlateTint.Neutral : PlateTint.Red;
-                    // Switched on but no node opened it: still blocked by its kill-switch.
-                    if (failed && killOn) line2 = new[] { Loc.T("Main_TileKillBlocked") + " \u00B7 kill-switch", "kill-switch" };
+                    // Not switched on (or not tried yet): the VPN it WILL use \u2014 the first one its
+                    // settings rank \u2014 in grey, instead of a bare \u00AB\u043E\u0442\u043A\u043B\u044E\u0447\u0435\u043D\u043E\u00BB (2026-11-14). Green
+                    // only once it actually rides it.
+                    var label = SlotLabel(first);
+                    line1 = label != first.Name ? new[] { label, first.Name } : new[] { first.Name };
+                    var geo = SlotGeo(first.Id);
+                    if (!string.IsNullOrEmpty(geo)) line2 = new[] { geo, geo.Split(',')[0].Trim() };
+                    fg = Theme.TextSecondary;
+                    tint = PlateTint.Neutral;
                 }
             }
             else
@@ -170,9 +189,10 @@ namespace MihomoLauncher.Views
                     line2 = new[] { geo, geo.Split(',')[0].Trim() };    // «Страна, Город» → «Страна»
             }
 
-            // A plate is a button only where picking a VPN means something: a VPN rule that is
-            // not mid-reconnect, while no other tile is reconnecting either (same as its ⟳).
-            bool clickable = entry.RequiresVpn && !reconnecting && _reconnectingId == null;
+            // A plate is a button whenever it is not mid-reconnect, while no other tile is
+            // reconnecting either (same as its ⟳) — on a «напрямую» tile too: VPN or «Напрямую» is
+            // picked here since the card's «Использовать VPN» switch went (2026-11-14).
+            bool clickable = !reconnecting && _reconnectingId == null;
             // Room for the text: the plate is 100 px, minus its border, padding and the chevron.
             double room = clickable ? 100 - 2 - 9 - 4 - 12 : 100 - 2 - 4 - 4;
 
@@ -224,7 +244,8 @@ namespace MihomoLauncher.Views
             var plate = new Border
             {
                 Height = 32,
-                Margin = new Thickness(5),
+                // The network-card plate (MakeNicPlate) takes the strip under it.
+                Margin = new Thickness(5, 5, 5, 5 + NicStrip),
                 Padding = new Thickness(clickable ? 9 : 4, 0, 4, 0),
                 VerticalAlignment = VerticalAlignment.Bottom,
                 CornerRadius = new CornerRadius(7),
@@ -254,6 +275,19 @@ namespace MihomoLauncher.Views
             return plate;
         }
 
+        // The rule's first VPN by its own settings (ticked, in its order; enabled variants only) —
+        // not health-sorted: this is what the person chose, shown on a plate that isn't connected.
+        private VpnSlot FirstRuleSlot(AppEntry e)
+        {
+            if (e == null) return null;
+            var order = e.VpnSlotOrder ?? new List<string>();
+            var disabled = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
+            return (_config.VpnSlots ?? new List<VpnSlot>())
+                .Where(s => s != null && s.Enabled && !disabled.Contains(s.Id))
+                .OrderBy(s => { int i = order.IndexOf(s.Id); return i < 0 ? int.MaxValue : i; })
+                .FirstOrDefault();
+        }
+
         // "№2 Дом" — the same number + name the tile shows for the variant.
         private string SlotLabel(VpnSlot slot)
         {
@@ -276,14 +310,16 @@ namespace MihomoLauncher.Views
             HookPickerDismiss();
 
             var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
-            if (slots.Count == 0 && !entry.IsBuiltIn)   // the built-in tiles still have «Блокировать»
+            // Nothing to pick: no VPN to move to, and the tile is already where «Напрямую» would
+            // put it (the built-in tiles still have «Блокировать»).
+            if (slots.Count == 0 && !entry.IsBuiltIn && !entry.RequiresVpn)
             {
                 _ = ShowDialog(Loc.T("Main_NoVariantsTitle"), Loc.T("Main_NoVariantsBody"));
                 return;
             }
 
             string currentSlotId = null;
-            if (!entry.IsNoNodeMode && _assignment.TryGetValue(entry.Id, out var proxy) && _proxySlot.TryGetValue(proxy, out var info))
+            if (entry.RequiresVpn && !entry.IsNoNodeMode && _assignment.TryGetValue(entry.Id, out var proxy) && _proxySlot.TryGetValue(proxy, out var info))
                 currentSlotId = info?.Id;
 
             var popup = new Popup
@@ -299,8 +335,20 @@ namespace MihomoLauncher.Views
             };
 
             var list = new StackPanel { Margin = new Thickness(4) };
-            foreach (var slot in slots)
+            // The rule's own VPNs first, in the order its settings rank them; a divider; then the
+            // rest in the Settings order (2026-11-14). A pick from either part connects once and
+            // changes nothing in the rule (PickVpnForRuleAsync).
+            var rank = entry.VpnSlotOrder ?? new List<string>();
+            var off = new HashSet<string>(entry.DisabledVpnSlotIds ?? new List<string>());
+            var chosen = slots.Where(s => !off.Contains(s.Id))
+                .OrderBy(s => { int i = rank.IndexOf(s.Id); return i < 0 ? int.MaxValue : i; }).ToList();
+            var others = slots.Where(s => off.Contains(s.Id)).ToList();
+            var ordered = new List<VpnSlot>(chosen);
+            ordered.AddRange(others);
+            foreach (var slot in ordered)
             {
+                if (others.Count > 0 && chosen.Count > 0 && ReferenceEquals(slot, others[0]))
+                    list.Children.Add(new Border { Height = 1, Background = Theme.PickerBorder, Margin = new Thickness(6, 4, 6, 4) });
                 bool current = slot.Id == currentSlotId;
                 var row = new Grid();
                 row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -351,6 +399,52 @@ namespace MihomoLauncher.Views
                     e.Handled = true;
                     popup.IsOpen = false;
                     await PickVpnForRuleAsync(entry, picked, current).ConfigureAwait(true);
+                };
+                list.Children.Add(cell);
+            }
+
+            // «Напрямую» — every tile but «Всё остальное» (switched off, that one is direct already),
+            // under the VPNs. Replaces the card's «Использовать VPN» switch (2026-11-14).
+            if (!entry.IsBuiltIn)
+            {
+                bool current = !entry.RequiresVpn;
+                var row = new Grid();
+                row.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("Main_PickDirect"),
+                    FontSize = 13,
+                    FontWeight = current ? FontWeights.SemiBold : FontWeights.Normal,
+                    Foreground = Theme.TextPrimary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                if (current)
+                    row.Children.Add(new Border
+                    {
+                        Width = 3,
+                        CornerRadius = new CornerRadius(2),
+                        Background = Theme.AccentGrey,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        Margin = new Thickness(-10, 9, 0, 9),
+                    });
+                var cell = new Border
+                {
+                    Height = 32,
+                    Padding = new Thickness(12, 0, 10, 0),
+                    CornerRadius = new CornerRadius(4),
+                    Background = current ? Theme.PickerRowCurrent : Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    Child = row,
+                };
+                if (slots.Count > 0)
+                    list.Children.Add(new Border { Height = 1, Background = Theme.PickerBorder, Margin = new Thickness(6, 4, 6, 4) });
+                var rest = cell.Background;
+                cell.MouseEnter += (s, e) => cell.Background = Theme.PickerRowHover;
+                cell.MouseLeave += (s, e) => cell.Background = rest;
+                cell.MouseLeftButtonUp += async (s, e) =>
+                {
+                    e.Handled = true;
+                    popup.IsOpen = false;
+                    await PickDirectForRuleAsync(entry).ConfigureAwait(true);
                 };
                 list.Children.Add(cell);
             }
@@ -435,6 +529,7 @@ namespace MihomoLauncher.Views
             {
                 if (rootGrid != null) rootGrid.Children.Remove(sheet);
                 if (_vpnPicker == popup) _vpnPicker = null;
+                FlushPickerRebuild();
             };
 
             _vpnPicker = popup;
@@ -446,6 +541,15 @@ namespace MihomoLauncher.Views
         // launches, no ⟳/✕, no button, whichever mouse button (2026-11-10: «любой клик просто
         // закрывает это меню и всё»). The picker is its own window, so presses inside it never
         // come here. Leaving the window (another app, minimise) or moving it closes it too.
+        // A RebuildTiles that came while a plate menu was open (it waits — see RebuildTiles).
+        private bool _pickerRebuildPending;
+        private void FlushPickerRebuild()
+        {
+            if (!_pickerRebuildPending) return;
+            _pickerRebuildPending = false;
+            RebuildTiles();
+        }
+
         private void HookPickerDismiss()
         {
             if (_pickerHooked) return;
@@ -496,16 +600,73 @@ namespace MihomoLauncher.Views
             if (alreadyOnIt && _workingApps.Contains(entry.Id)) return;
             if (_reconnectingId != null) return;   // another tile is mid-reconnect; a running full connect is waited out in ReconnectOneAsync
 
-            entry.Block = false;   // a VPN picked: no longer «Блокировать»
-            entry.DisabledVpnSlotIds?.Remove(slot.Id);
-            var order = entry.VpnSlotOrder ?? new List<string>();
-            order.Remove(slot.Id);
-            order.Insert(0, slot.Id);
-            entry.VpnSlotOrder = order;
-            try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("tile-pick-vpn-save", ex); }
-            Log.Info("Плитка «" + entry.Name + "»: выбран VPN «" + slot.Name + "».");
+            // A pick on the plate is "connect through this one now" — NOT an edit of the rule. The
+            // VPNs ticked and ranked in the rule's card are what the launcher remembers and uses on
+            // its own (restart, auto-retry); the plate leaves them alone (2026-11-14: «если выбрали
+            // впн через плашку не надо ставить галочку на впн в настройках»).
+            bool changed = false;
+            if (entry.Block) { entry.Block = false; changed = true; }   // a VPN picked: no longer «Блокировать»
+            if (!entry.RequiresVpn)
+            {
+                // From «Напрямую» back to a VPN: the kill-switch is what it was before «Напрямую»
+                // (PickDirectForRuleAsync had to turn it off) — not forced on: the plate does not
+                // edit the rule's settings.
+                entry.RequiresVpn = true;
+                bool kill = entry.KillSwitchBeforeDirect;
+                entry.KillSwitchBeforeDirect = false;
+                if (entry.KillSwitch != kill) { entry.KillSwitch = kill; SyncFirewallSoon(); }
+                changed = true;
+            }
+            if (changed) try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("tile-pick-vpn-save", ex); }
+            Log.Info("Плитка «" + entry.Name + "»: выбран VPN «" + slot.Name + "» (разово, настройки правила не менялись).");
 
             await ReconnectOneAsync(entry, manual: true, onlySlotId: slot.Id).ConfigureAwait(true);
+        }
+
+        // «Напрямую» picked on the plate (2026-11-14, replaces the card's «Использовать VPN»):
+        // the tile leaves its VPN and goes straight out — through its network cards, if it has
+        // any. The kill-switch goes off with it: on a direct tile it would mean "no internet at
+        // all" (the TinyMediaManager state on 2026-11-14's screenshot), which is not what anyone
+        // picking «Напрямую» asks for. Picking a VPN again turns it back on.
+        private async Task PickDirectForRuleAsync(AppEntry entry)
+        {
+            if (entry == null || entry.IsBuiltIn || !entry.RequiresVpn) return;
+            if (_reconnectingId != null || _state == UiState.Checking) return;
+
+            bool hadKill = entry.KillSwitch;
+            entry.KillSwitchBeforeDirect = hadKill;   // put back as it was if a VPN is picked again
+            entry.RequiresVpn = false;
+            entry.KillSwitch = false;
+            entry.AutoConnect = false;   // nothing to keep connected: the auto-retry must leave it be
+            _assignment.Remove(entry.Id);
+            _workingApps.Remove(entry.Id);
+            try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("tile-pick-direct-save", ex); }
+            Log.Info("Плитка «" + entry.Name + "»: выбрано «Напрямую»" + (hadKill ? " (кил-свитч выключен вместе с VPN)." : "."));
+            SyncFirewallSoon();   // its programs leave the firewall kill-switch
+            await ApplyTileRoutingAsync(entry, "плитка напрямую").ConfigureAwait(true);
+            RebuildTiles();
+            if (_state == UiState.Done) UpdateDoneBanner();
+            _ = ResolveProxyGeosAsync();
+        }
+
+        // A tile's routing changed by hand (its network cards, «Напрямую»): into the engine now,
+        // and what the tile has open is cut after the reload, so it re-dials the new way — open
+        // sockets otherwise keep their old path for as long as the program holds them. Mid-connect
+        // it is left alone: that connect writes the final config from _config itself.
+        private async Task ApplyTileRoutingAsync(AppEntry entry, string reason)
+        {
+            try
+            {
+                EngineLogStore.Instance.RefreshRules(_config);
+                if (_state == UiState.Checking || _reconnectingId != null) return;
+                if (!_hasChecked)
+                {
+                    await ArmKillSwitchAsync(CancellationToken.None).ConfigureAwait(true);
+                    CloseConnectionsFor(new[] { entry });
+                }
+                else ApplyFinalConfig(CurrentAssignedProxies(), reason, force: true, alsoCut: new[] { entry });
+            }
+            catch (Exception ex) { Log.Error("apply-tile-routing", ex); }
         }
     }
 }

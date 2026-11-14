@@ -153,6 +153,136 @@ namespace MihomoLauncher.Views
             LblConfigPathHint.Text = Loc.T("Set_DefaultPathHint", AppConfigStore.DefaultConfigPath);
 
             FillDnsUi();
+            FillNetUi();
+        }
+
+        // ---------- Network («Сеть», 2026-11-14) ----------
+
+        public sealed class NicRow : INotifyPropertyChanged
+        {
+            private int _number;
+            public int Number { get { return _number; } set { _number = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Number))); } }
+            public string Name { get; set; } = "";
+            public string State { get; set; } = "";
+            public string MetricLabel { get; set; } = "";
+            public event PropertyChangedEventHandler PropertyChanged;
+        }
+
+        private readonly ObservableCollection<NicRow> _nicRows = new ObservableCollection<NicRow>();
+        private bool _nicDragHooked, _nicBusy;
+
+        private void FillNetUi()
+        {
+            ChkShowNicPlate.IsChecked = _editing.ShowNicPlate;
+            GridNics.ItemsSource = _nicRows;
+            if (!_nicDragHooked)
+            {
+                _nicDragHooked = true;
+                // Order = priority: dragging only renumbers; «Применить» is what touches Windows.
+                new GridRowDrag<NicRow>(GridNics, _nicRows, r => false, (order, moved) =>
+                {
+                    for (int i = 0; i < _nicRows.Count; i++) _nicRows[i].Number = i + 1;
+                    SetNicStatus(Loc.T("Set_NicMovedHint"));
+                });
+            }
+            RefreshNicRows();
+        }
+
+        // The status line takes room only while it says something.
+        private void SetNicStatus(string text)
+        {
+            LblNicStatus.Text = text ?? "";
+            LblNicStatus.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        private void OnShowNicPlateChanged(object sender, RoutedEventArgs e)
+        {
+            if (_editing != null) _editing.ShowNicPlate = ChkShowNicPlate.IsChecked == true;
+        }
+
+        // The machine's physical cards, in the order Windows prefers them right now (lowest IPv4
+        // metric first), each with its metric and whether it is automatic.
+        private void RefreshNicRows()
+        {
+            _nicRows.Clear();
+            var metrics = NicMetrics.Read();
+            var rows = new List<KeyValuePair<long, NicRow>>();
+            foreach (var c in NetCards.List())
+            {
+                NicMetrics.Current m;
+                metrics.TryGetValue(c.Name, out m);
+                var state = Loc.T(c.Wireless ? "Main_NicWifi" : "Main_NicWired") + " · "
+                          + (!c.Up ? Loc.T("Main_NicDown") : !c.HasGateway ? Loc.T("Main_NicNoGw") : Loc.T("Main_NicUp"))
+                          + (string.IsNullOrEmpty(c.Description) ? "" : " · " + c.Description);
+                var label = m == null || !m.Has4 ? "—"
+                          : m.Auto4 ? Loc.T("Set_NicAuto", m.Metric4) : Loc.T("Set_NicManual", m.Metric4);
+                // Windows decides by gateway + card metric — a gateway set by hand is shown, since
+                // it can outweigh the card order on its own.
+                if (m != null && m.HasGw4 && m.Gw4 > 0) label = Loc.T("Set_NicWithGw", label, m.Gw4, m.Total4);
+                rows.Add(new KeyValuePair<long, NicRow>(m != null && m.Has4 ? m.Total4 : long.MaxValue,
+                    new NicRow { Name = c.Name, State = state, MetricLabel = label }));
+            }
+            int n = 0;
+            foreach (var r in rows.OrderBy(x => x.Key))
+            {
+                r.Value.Number = ++n;
+                _nicRows.Add(r.Value);
+            }
+            BtnNicApply.IsEnabled = BtnNicDefault.IsEnabled = _nicRows.Count > 0 && !_nicBusy;
+        }
+
+        private async void OnNicApply(object sender, RoutedEventArgs e) { await ApplyNicAsync(false).ConfigureAwait(true); }
+        private async void OnNicDefault(object sender, RoutedEventArgs e) { await ApplyNicAsync(true).ConfigureAwait(true); }
+
+        // The order on screen → metrics 10, 20, 30… (or all automatic), applied by the SYSTEM
+        // helper (NicMetrics). Applied right away, not on «Сохранить»: it is Windows' setting, not
+        // the launcher's — the same as the access-password buttons on the next tab.
+        private async Task ApplyNicAsync(bool auto)
+        {
+            if (_nicBusy || _nicRows.Count == 0) return;
+            // Which card the whole machine goes out through is routing — behind the access password.
+            if (!await LockPrompt.RequireAsync(this, _editing).ConfigureAwait(true)) return;
+            if (!MihomoSetup.IsFirewallTaskInstalled())
+            {
+                await OverlayDialog.MessageAsync(this, Loc.T("Set_NicPrioTitle"), Loc.T("Set_NicNoHelper")).ConfigureAwait(true);
+                return;
+            }
+            _nicBusy = true;
+            BtnNicApply.IsEnabled = BtnNicDefault.IsEnabled = false;
+            SetNicStatus(Loc.T("Set_NicApplying"));
+            string failure = null;
+            try
+            {
+                var plan = _nicRows.Select((r, i) => new KeyValuePair<string, uint>(r.Name, auto ? 0u : (uint)((i + 1) * 10))).ToList();
+                Log.Info("Сеть: приоритет карт Windows — " + (auto ? "по умолчанию (автоматическая метрика)"
+                         : string.Join(", ", plan.Select(p => p.Key + "=" + p.Value))) + ".");
+                var id = NicMetrics.WritePlan(plan);
+                bool sent = await Task.Run(() => MihomoSetup.RunFirewallTask()).ConfigureAwait(true);
+                if (!sent) failure = Loc.T("Set_NicNoHelper");
+                else
+                {
+                    string res = null;
+                    var deadline = DateTime.UtcNow.AddSeconds(25);
+                    while (DateTime.UtcNow < deadline && res == null)
+                    {
+                        await Task.Delay(400).ConfigureAwait(true);
+                        res = NicMetrics.ReadResult(id);
+                    }
+                    if (res == null) failure = Loc.T("Set_NicTimeout");
+                    else if (res.Length > 0) failure = res;
+                }
+            }
+            catch (Exception ex) { failure = ex.Message; Log.Error("nic-metric-apply-ui", ex); }
+            finally { _nicBusy = false; }
+
+            if (_closed) return;
+            RefreshNicRows();
+            SetNicStatus(failure == null ? Loc.T("Set_NicDone") : Loc.T("Set_NicFailed", failure));
+            if (failure != null)
+            {
+                Log.Info("Сеть: метрики не применены — " + failure);
+                await OverlayDialog.MessageAsync(this, Loc.T("Set_NicPrioTitle"), Loc.T("Set_NicFailed", failure)).ConfigureAwait(true);
+            }
         }
 
         // ---------- DNS for direct traffic ----------
@@ -296,7 +426,7 @@ namespace MihomoLauncher.Views
             LblDnsTest.Foreground = Theme.TextSecondary;
             LblDnsTest.Text = Loc.T("Set_DnsTesting");
             var lines = new List<string>();
-            bool anyOk = false, anyBad = false;
+            bool anyOk = false, anyBad = false, anyBlocked = false;
             try
             {
                 CommitMihomoFields();   // the engine path may have just been typed on the Mihomo tab
@@ -304,7 +434,7 @@ namespace MihomoLauncher.Views
                 {
                     var en = entries[i];
                     string text;
-                    bool ok = false;
+                    bool ok = false, blocked = false;
                     try
                     {
                         var answers = await DirectDns.QueryAsync(_editing, en.Engine,
@@ -312,17 +442,22 @@ namespace MihomoLauncher.Views
                         ok = answers.Count > 0 && answers[0].Ok && answers[0].Addresses.Count > 0;
                         text = DirectDns.Summarize(answers);
                     }
+                    catch (DirectDns.ProbeBlockedException ex) { blocked = true; text = ex.Message; }
                     catch (Exception ex) { text = Loc.T("Dns_TestFail", DirectDns.Shorten(ex.Message)); }
-                    anyOk |= ok; anyBad |= !ok;
-                    lines.Add((ok ? "✓ " : "✗ ") + en.Host + " — " + text);
+                    // Blocked = unknown, not dead: it neither passes nor fails the check.
+                    anyOk |= ok; anyBad |= !ok && !blocked; anyBlocked |= blocked;
+                    lines.Add((ok ? "✓ " : blocked ? "• " : "✗ ") + en.Host + " — " + text);
                 }
             }
             finally { BtnDnsTest.IsEnabled = true; }
 
             _dnsTestedSig = DnsSig();
-            _dnsTestAnyOk = anyOk;
+            // A server the probe can't reach under strict-route isn't shown to be dead — saving it
+            // doesn't need the "it doesn't answer, save anyway?" confirmation.
+            _dnsTestAnyOk = anyOk || anyBlocked;
             LblDnsTest.Text = string.Join(Environment.NewLine, lines);
-            LblDnsTest.Foreground = !anyOk ? Theme.AccentRed : anyBad ? Theme.AccentAmber : Theme.AccentGreen;
+            LblDnsTest.Foreground = anyBad ? (anyOk || anyBlocked ? Theme.AccentAmber : Theme.AccentRed)
+                                  : anyBlocked ? Theme.AccentAmber : Theme.AccentGreen;
         }
 
         // Saving with the switch on: never hand the engine a resolver that doesn't answer without

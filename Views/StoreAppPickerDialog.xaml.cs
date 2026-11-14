@@ -21,6 +21,11 @@ namespace MihomoLauncher.Views
         private readonly ObservableCollection<StoreRow> _rows = new ObservableCollection<StoreRow>();
         private List<StoreRow> _all = new List<StoreRow>();
 
+        // Apps already in the rule being edited: ticked in the list and not
+        // pickable again (set before the window shows).
+        public HashSet<string> ExcludeAumids { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        public HashSet<string> ExcludePaths { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         public StoreAppPickerDialog()
         {
             InitializeComponent();
@@ -35,7 +40,8 @@ namespace MihomoLauncher.Views
             try
             {
                 var list = await Task.Run(() => StoreApps.Query());
-                _all = list.Select(a => new StoreRow { Name = a.Name, Aumid = a.Aumid, Exe = a.Exe })
+                _all = list.Select(a => new StoreRow { Name = a.Name, Aumid = a.Aumid, Exe = a.Exe,
+                               Added = ExcludeAumids.Contains(a.Aumid ?? "") || ExcludePaths.Contains(a.Exe ?? "") })
                            .OrderBy(r => r.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
             }
             catch { _all = new List<StoreRow>(); }
@@ -66,6 +72,7 @@ namespace MihomoLauncher.Views
         private void OnPick(object sender, RoutedEventArgs e)
         {
             if (!(LstApps.SelectedItem is StoreRow row)) return;
+            if (row.Added) { LblHint.Text = Loc.T("Rule_DupProgram", row.Name); return; }
             SelectedName = row.Name;
             SelectedAumid = row.Aumid;
             SelectedExe = row.Exe;
@@ -84,6 +91,8 @@ namespace MihomoLauncher.Views
             public string Name { get; set; }
             public string Aumid { get; set; }
             public string Exe { get; set; }
+            public bool Added { get; set; }
+            public string Mark => Added ? "✓" : "";
         }
     }
 }

@@ -511,6 +511,64 @@ namespace MihomoLauncher.Services
             public string Error = "";
         }
 
+        // The probe copy could not reach the server at all because the tunnel's strict-route
+        // blocks plain DNS for everyone but the engine — not a verdict on the server.
+        public class ProbeBlockedException : InvalidOperationException
+        {
+            public ProbeBlockedException(string message) : base(message) { }
+        }
+
+        // Plain DNS on port 53 (UDP or TCP) — what strict-route closes outside the tunnel.
+        public static bool IsPort53(string engine)
+        {
+            var s = (engine ?? "").Trim().ToLowerInvariant();
+            if (s.StartsWith("udp://")) s = s.Substring(6);
+            else if (s.StartsWith("tcp://")) s = s.Substring(6);
+            else if (s.Contains("://")) return false;
+            // "1.1.1.1", "1.1.1.1:53", "[2a07::1]:53", "2a07::1", "dns.example:53"
+            if (s.StartsWith("["))
+            {
+                int close = s.IndexOf(']');
+                var tail = close < 0 ? "" : s.Substring(close + 1);
+                return tail.Length == 0 || tail == ":53";
+            }
+            int colons = s.Count(c => c == ':');
+            if (colons >= 2) return true;                 // bare IPv6, default port
+            if (colons == 1) return s.EndsWith(":53");
+            return true;
+        }
+
+        // Is our TUN adapter up (198.18.x address on an interface)? Only then is strict-route in force.
+        private static bool EngineTunnelUp()
+        {
+            try
+            {
+                foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (nic.OperationalStatus != OperationalStatus.Up) continue;
+                    IPInterfaceProperties props;
+                    try { props = nic.GetIPProperties(); } catch { continue; }
+                    if (props.UnicastAddresses.Any(a => a.Address.AddressFamily == AddressFamily.InterNetwork
+                                                        && a.Address.ToString().StartsWith("198.18.")))
+                        return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
+        // Bootstrap for the PROBE copy: the machine's resolvers first (the ones known to work
+        // here), then DoH by IP. While the tunnel runs, strict-route closes port 53 to the copy,
+        // so the machine's resolvers fail at once and DoH (port 443) finds the server's address.
+        // The engine asks them all at once and takes the first answer.
+        private static List<string> ProbeBootstrapServers()
+        {
+            var list = BootstrapServers();
+            foreach (var doh in new[] { "https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query", "https://9.9.9.9/dns-query" })
+                if (!list.Contains(doh)) list.Add(doh);
+            return list;
+        }
+
         private const string ProbeExeName = "mihomo-dnscheck.exe";
         private static readonly SemaphoreSlim _probeGate = new SemaphoreSlim(1, 1);
 
@@ -549,7 +607,7 @@ namespace MihomoLauncher.Services
 
                 int port = FreePort();
                 var secret = Guid.NewGuid().ToString("N");
-                var boot = BootstrapServers();
+                var boot = ProbeBootstrapServers();
                 var sb = new StringBuilder();
                 sb.AppendLine("mode: rule");
                 sb.AppendLine("log-level: warning");
@@ -628,6 +686,12 @@ namespace MihomoLauncher.Services
                         if (!a.Ok) break;   // it isn't answering at all — don't wait out the rest
                     }
                 }
+
+                // Plain port-53 DNS is closed to every program but the live engine while the tunnel
+                // runs (strict-route). The copy simply can't reach it, which says nothing about the
+                // server — the engine itself can. Say so instead of reporting it dead.
+                if (result.Count > 0 && !result[0].Ok && IsPort53(server) && EngineTunnelUp())
+                    throw new ProbeBlockedException(Loc.T("Dns_ProbePlainBlocked"));
             }
             finally
             {

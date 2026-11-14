@@ -296,21 +296,19 @@ namespace MihomoLauncher.Views
                 try { await CheckForUpdatesAsync().ConfigureAwait(true); }
                 catch (Exception ex) { Log.Error("update-check", ex); }
 
-                // Autostart: connect right away, so the machine comes up already routed. The
-                // whole flow runs against the hidden window (its overlay/banner are simply not
-                // on screen); the tray tooltip carries the outcome.
-                if (_autostart)
+                // Every start — at logon or by hand — brings back exactly what was on when the
+                // launcher last closed (or the machine went down): the «ON» button is gone
+                // (2026-11-14). On autostart the window is hidden; the tray tooltip carries the
+                // outcome.
+                if (!_engineReady)
                 {
-                    if (!_engineReady)
-                    {
-                        Log.Info("Автозапуск: движок не установлен — подключение пропущено.");
-                        UpdateTrayText();
-                    }
-                    else
-                    {
-                        try { await AutoConnectAtStartupAsync().ConfigureAwait(true); }
-                        catch (Exception ex) { Log.Error("autostart-connect", ex); }
-                    }
+                    Log.Info("Запуск: движок не установлен — восстановление подключений пропущено.");
+                    UpdateTrayText();
+                }
+                else
+                {
+                    try { await AutoConnectAtStartupAsync().ConfigureAwait(true); }
+                    catch (Exception ex) { Log.Error("autostart-connect", ex); }
                 }
             };
 
@@ -1353,6 +1351,9 @@ namespace MihomoLauncher.Views
         {
             // Mid-drag the tiles must stay put; the rebuild runs when the tile is dropped.
             if (TileDragActive) { _tileRebuildPending = true; return; }
+            // Same while a plate's menu (VPN / cards) is open: it hangs on a plate of the old tile,
+            // and with that tile gone WPF drops it in the screen's top-left corner. Runs on close.
+            if (_vpnPicker != null && _vpnPicker.IsOpen) { _pickerRebuildPending = true; return; }
             TilesPanel.Items.Clear();
             // Only rules with at least one «Плитка»-checked item get a tile; rules with all
             // checkboxes cleared are routing-only and stay off the main screen.
@@ -1400,6 +1401,12 @@ namespace MihomoLauncher.Views
             }
             if (row <= 0) return;
             double need = Math.Ceiling(row + 18 + 18 + 16);   // StackPanel margins + window frame
+            // The title bar too: caption + its button group + the window's own «—» and «✕». With
+            // only the row counted, dropping «ON» (2026-11-14) narrowed the window below the title
+            // bar and «✕» went off the edge.
+            need = Math.Max(need, TitleBarNeed());
+            // Five tiles in a row, at least — default and minimum (2026-11-14).
+            need = Math.Max(need, FiveTilesNeed);
             if (need > SystemParameters.WorkArea.Width) need = SystemParameters.WorkArea.Width;
             MinWidth = need;
             // Start at the minimum width (the button row), not wider. Keep following it while the
@@ -1414,6 +1421,31 @@ namespace MihomoLauncher.Views
         }
 
         private double _autoWidth;
+
+        private const double CaptionButtonsWidth = 2 * 46 + 8;   // «—» + «✕» (no maximize)
+
+        // Tile 112 + its 3.5 margins on both sides, ×5; + TilesPanel margins 14+14; + window
+        // frame 16; + 4 so rounding never drops the fifth tile to the next row.
+        private const double TileOuter = TileSizePx + 7;
+        private const double FiveTilesNeed = 5 * TileOuter + 28 + 16 + 4;
+        private const double TileSizePx = 112;
+
+        private double TitleBarNeed()
+        {
+            // Header: inset 18 + fox 18 + the caption at its full text width (its DesiredSize may
+            // already be squeezed by a too-narrow window) up to its MaxWidth, + its margins 8/12.
+            double caption = Math.Min(TxtCaption.MaxWidth,
+                                      TextWidth(TxtCaption.Text ?? "", TxtCaption.FontSize, TxtCaption.FontWeight));
+            double w = 18 + 18 + 8 + Math.Ceiling(caption) + 12;
+            var trailing = BtnLang.Parent as Panel;
+            if (trailing != null)
+                foreach (UIElement ch in trailing.Children)
+                {
+                    var fe = ch as FrameworkElement;
+                    if (fe != null && fe.Visibility != Visibility.Collapsed) w += fe.DesiredSize.Width;
+                }
+            return Math.Ceiling(w + CaptionButtonsWidth + 16);   // + window frame
+        }
 
         // Width change → tiles re-wrap into more/fewer rows → height must follow.
         private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
@@ -1508,13 +1540,14 @@ namespace MihomoLauncher.Views
             bool enabled = IsAppEnabled(entry);
             bool notChecked = !_hasChecked && entry.RequiresVpn;
 
-            const double TileSize = 112;
+            const double TileSize = TileSizePx;
             const double IconSize = 40;   // 44 before the VPN plate took the bottom 37 px
 
             var border = new Border
             {
                 Width = TileSize,
-                Height = TileSize,
+                // Taller by the network-card strip along the bottom (2026-11-14).
+                Height = TileSize + NicStrip,
                 Margin = new Thickness(3.5),
                 CornerRadius = new CornerRadius(9),
                 Background = enabled ? Theme.TileBg : Theme.TileDisabledBg,
@@ -1599,6 +1632,7 @@ namespace MihomoLauncher.Views
             var grid = new Grid();
             grid.Children.Add(stack);
             grid.Children.Add(MakeVpnPlate(entry, enabled, reconnecting, notChecked));
+            if (ShowNicPlate) grid.Children.Add(MakeNicPlate(entry, reconnecting));
             if (launching)
             {
                 // Spinning over the (dimmed) icon: the click went through, the program is starting.
@@ -1792,6 +1826,8 @@ namespace MihomoLauncher.Views
             catch { return true; }   // can't tell → assume yes and let the connect flow decide
         }
 
+        // The «ON» button's handler. The button is gone (2026-11-14); kept for nothing else but
+        // reference — nothing calls it now.
         private async void OnCheck(object sender, RoutedEventArgs e)
         {
             // «Подключить» is an explicit "bring everything up": every rule that is not already
@@ -2279,7 +2315,8 @@ namespace MihomoLauncher.Views
         // fake-ip each one takes the machine's RESOLVER down with it — measured: five reloads
         // in three seconds, then a minute in which the launcher itself could not resolve
         // api.github.com or byfox.dev. That is what "the launcher killed my internet" was.
-        private void ApplyFinalConfig(List<ParsedProxy> usedProxies, string reason = null, bool force = false)
+        private void ApplyFinalConfig(List<ParsedProxy> usedProxies, string reason = null, bool force = false,
+                                      IEnumerable<AppEntry> alsoCut = null)
         {
             var vpnApps = _config.Apps.Where(a => a.RequiresVpn).ToList();
             var liveProxyNames = new HashSet<string>(_assignment.Values);
@@ -2293,6 +2330,9 @@ namespace MihomoLauncher.Views
             // closed them itself. Cut exactly the rules that moved — cutting the rest would drop
             // working connections for nothing.
             var moved = MovedSinceLastApply();
+            // A tile whose path changed without changing node (its network cards, «Напрямую»).
+            foreach (var a in alsoCut ?? Enumerable.Empty<AppEntry>())
+                if (a != null && !moved.Contains(a)) moved.Add(a);
 
             var rules = BuildVpnRules(vpnApps, _assignment, null, null);
             try
@@ -3550,6 +3590,7 @@ namespace MihomoLauncher.Views
                 SetTitleCaption();
 
                 await ApplyConfigChangeAsync(before).ConfigureAwait(true);
+                RebuildTiles();   // «Сеть» → the card strip on tiles may have been switched on/off
             }
         }
 

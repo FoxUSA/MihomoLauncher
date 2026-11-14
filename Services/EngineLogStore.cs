@@ -279,7 +279,8 @@ namespace MihomoLauncher.Services
             // to say.
             var ownDns = MihomoConfigBuilder.LastDirectDns;
             bool ownDnsOn = ownDns != null && ownDns.Count > 0;
-            bool directRoute = (e.Target ?? "").Trim().Equals("DIRECT", StringComparison.OrdinalIgnoreCase);
+            bool directRoute = (e.Target ?? "").Trim().Equals("DIRECT", StringComparison.OrdinalIgnoreCase)
+                               || MihomoConfigBuilder.IsNicTarget(e.Target);   // through a tile's chosen card
             bool ownDnsFailed = ownDnsOn && directRoute && e.Kind == EngineLogKind.Failed && !adBlocked
                                 && e.Detail.IndexOf("dns", StringComparison.OrdinalIgnoreCase) >= 0;
             bool ownDnsStub = ownDnsOn && directRoute && adBlocked;
@@ -448,6 +449,7 @@ namespace MihomoLauncher.Services
             var t = (target ?? "").Trim();
             if (t.Length == 0) return false;
             return !t.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)
+                && !MihomoConfigBuilder.IsNicTarget(t)
                 && !t.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)
                 && !t.Equals("PASS", StringComparison.OrdinalIgnoreCase)
                 && !t.Equals("COMPATIBLE", StringComparison.OrdinalIgnoreCase);
