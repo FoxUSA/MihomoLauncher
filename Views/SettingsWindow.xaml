@@ -165,14 +165,6 @@
                                            FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" Text="" />
                             </StackPanel>
 
-                            <!-- "Remote desktop session" safe mode (same toggle as on the main
-                                 screen): force-stop mihomo every 60s so a bad config can't lock
-                                 you out remotely. -->
-                            <ui:ToggleSwitch x:Name="SwitchSafeMode" Margin="0,12,0,0"
-                                             Content="{DynamicResource Main_KillTimerLabel}" />
-                            <TextBlock Text="{DynamicResource Set_SafeModeHint}" FontSize="12"
-                                       Opacity="0.6" TextWrapping="Wrap" Margin="0,3,0,0" />
-
                             <!-- Firewall kill-switch: the protection that keeps working when the
                                  engine does not. -->
                             <ui:ToggleSwitch x:Name="SwitchFirewall" Margin="0,14,0,0"
@@ -472,23 +464,36 @@
                                     <DataGridTextColumn Header="{DynamicResource Set_NicColState}" Binding="{Binding State}" Width="*"
                                                         ElementStyle="{StaticResource TruncatedTextStyle}" />
                                     <DataGridTextColumn Header="{DynamicResource Set_NicColMetric}" Binding="{Binding MetricLabel}" Width="Auto" />
+                                    <!-- ▲▼ beside the drag (2026-11-15). A template column: GridRowDrag never starts from it. -->
+                                    <DataGridTemplateColumn Width="Auto">
+                                        <DataGridTemplateColumn.CellTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="2,0">
+                                                    <ui:Button Appearance="Transparent" Padding="0" Width="24" Height="22" Margin="0,0,2,0"
+                                                               BorderThickness="0" Cursor="Hand"
+                                                               IsEnabled="{Binding CanUp}" Click="OnNicUp"
+                                                               ToolTip="{DynamicResource Set_NicUpTip}">
+                                                        <ui:SymbolIcon Symbol="ChevronUp16" FontSize="13" />
+                                                    </ui:Button>
+                                                    <ui:Button Appearance="Transparent" Padding="0" Width="24" Height="22"
+                                                               BorderThickness="0" Cursor="Hand"
+                                                               IsEnabled="{Binding CanDown}" Click="OnNicDown"
+                                                               ToolTip="{DynamicResource Set_NicDownTip}">
+                                                        <ui:SymbolIcon Symbol="ChevronDown16" FontSize="13" />
+                                                    </ui:Button>
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </DataGridTemplateColumn.CellTemplate>
+                                    </DataGridTemplateColumn>
                                 </DataGrid.Columns>
                             </DataGrid>
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                <ui:Button x:Name="BtnNicApply" Content="{DynamicResource Set_NicApply}" Margin="0,0,8,0" MinWidth="120"
-                                           Appearance="Primary" Click="OnNicApply" />
                                 <ui:Button x:Name="BtnNicDefault" Content="{DynamicResource Set_NicDefault}" MinWidth="120" Click="OnNicDefault" />
                             </StackPanel>
                             <TextBlock x:Name="LblNicStatus" FontSize="12" Opacity="0.85" TextWrapping="Wrap" Margin="0,8,0,0"
                                        Visibility="Collapsed" />
-
-                            <!-- Just an option, not a section of its own (asked 2026-11-14): small, at the bottom. -->
-                            <CheckBox x:Name="ChkShowNicPlate" FontSize="12" Opacity="0.85" Margin="0,12,0,0"
-                                      HorizontalAlignment="Left"
-                                      ToolTip="{DynamicResource Set_ShowNicPlateHint}"
-                                      Checked="OnShowNicPlateChanged" Unchecked="OnShowNicPlateChanged">
-                                <TextBlock Text="{DynamicResource Set_ShowNicPlate}" VerticalAlignment="Center" />
-                            </CheckBox>
+                            <!-- The «показывать выбор карты / скорость» boxes are gone (2026-11-16): speed
+                                 is always shown, the card icon whenever there are two cards or more. -->
                         </StackPanel>
                     </ui:Card>
                 </Grid>

@@ -62,6 +62,10 @@ namespace MihomoLauncher.Models
 
         public string Name { get; set; } = "";
 
+        // The main-window tab the tile lives on (2026-11-16): a TileTab.Id; "" / unknown = «Основная».
+        // Also its place in the rule order — see TileTabs.
+        public string TabId { get; set; } = "";
+
         // ----- Rule contents -----
         public List<RuleProgram> Programs { get; set; } = new List<RuleProgram>();
         public List<RuleSite> Sites { get; set; } = new List<RuleSite>();
@@ -152,8 +156,10 @@ namespace MihomoLauncher.Models
         // living their own lives. Switched off (✕), it blocks nothing. Picking a VPN clears it.
         public bool Block { get; set; } = false;
 
+        // Any tile since 2026-11-16 («добавь сюда пункт Блокировать»): switched on, everything the
+        // tile claims (its programs, sites, templates) is REJECT — no VPN node involved.
         [XmlIgnore]
-        public bool IsBlockMode => Block && IsAllTraffic;
+        public bool IsBlockMode => Block;
 
         // Blocking right now: block mode AND switched on.
         [XmlIgnore]

@@ -11,6 +11,27 @@ namespace MihomoLauncher.Services
 {
     public static class IconLoader
     {
+        // Big enough to fill a 40-dip tile icon at 150% (60 px) without being blown up visibly —
+        // measured after TrimTransparent, which cuts the empty margins (2026-11-17).
+        public const int MinSharpPx = 56;
+
+        public static bool IsSharp(ImageSource s) =>
+            s is BitmapSource b && Math.Max(b.PixelWidth, b.PixelHeight) >= MinSharpPx;
+
+        // The biggest picture inside an image file's bytes (every frame of an .ico), in pixels.
+        public static int PixelSizeOf(byte[] bytes)
+        {
+            try
+            {
+                using (var ms = new MemoryStream(bytes))
+                {
+                    var dec = BitmapDecoder.Create(ms, BitmapCreateOptions.None, BitmapCacheOption.OnLoad);
+                    return dec.Frames.Count == 0 ? 0 : dec.Frames.Max(f => Math.Max(f.PixelWidth, f.PixelHeight));
+                }
+            }
+            catch { return 0; }
+        }
+
         public static ImageSource Load(string iconPath, string exePath, int size = 96)
         {
             try
@@ -71,11 +92,13 @@ namespace MihomoLauncher.Services
                 if (siteFile.Length > 0)
                 {
                     var img = Load(siteFile, null);
-                    if (img != null) return img;
+                    if (img != null && IsSharp(img)) return img;
                 }
 
+                // The old 32-px exe icon only if it is somehow big enough — else the tile's monogram.
                 var exe = progs.FirstOrDefault(p => !string.IsNullOrEmpty(p.Path))?.Path;
-                return Load(null, exe);
+                var small = Load(null, exe);
+                return small != null && IsSharp(small) ? small : null;
             }
             catch { return null; }
         }

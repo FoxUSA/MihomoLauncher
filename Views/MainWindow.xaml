@@ -265,7 +265,11 @@
                                    Padding="14,8"
                                    Tag="#FF3E4B64"
                                    ToolTip="{DynamicResource Main_RulesListTip}"
-                                   Click="OnOpenRulesList" />
+                                   Click="OnOpenRulesList">
+                            <ui:Button.Icon>
+                                <ui:SymbolIcon Symbol="Apps24" Foreground="#EAF1FF" />
+                            </ui:Button.Icon>
+                        </ui:Button>
 
                         <!-- DNS for direct traffic: opens Settings on its tab. The icon turns sage
                              while the user's own resolver is in use (SyncDnsButton). -->
@@ -356,17 +360,23 @@
                 <!-- Tiles. No ScrollViewer: it reports ~0 desired height, which collapses
                      the row under the window's SizeToContent and clips the tiles. Direct
                      in an Auto row, the window grows to fit them. -->
-                <ItemsControl x:Name="TilesPanel"
-                              Grid.Row="1"
-                              Margin="14,10,14,0"
-                              HorizontalAlignment="Center">
-                    <ItemsControl.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <WrapPanel Orientation="Horizontal"
-                                       HorizontalAlignment="Center" />
-                        </ItemsPanelTemplate>
-                    </ItemsControl.ItemsPanel>
-                </ItemsControl>
+                <!-- The tiles of the open tab, then the tabs right under them on the same grid
+                     (2026-11-16, MainWindow.TileTabs.cs): both are exactly N tiles wide
+                     (SyncTileGrid) and left-aligned, so a tab sits under a tile column. -->
+                <StackPanel x:Name="TilesArea"
+                            Grid.Row="1"
+                            Margin="10.5,10,10.5,0"
+                            HorizontalAlignment="Center">
+                    <ItemsControl x:Name="TilesPanel">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal"
+                                           HorizontalAlignment="Left" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                    <WrapPanel x:Name="TabsPanel" Orientation="Horizontal" Margin="0,4,0,0" />
+                </StackPanel>
 
                 <!-- ONE plate at the bottom (MainWindow.Stats.cs) — no space reserved for anything:
                      the status message (TopBanner/BannerText), the footer note (StatusFoot), the
@@ -375,7 +385,7 @@
                      something to say; with nothing at all the plate is gone. Click = the log. -->
                 <Border x:Name="StatsStrip"
                         Grid.Row="2"
-                        Margin="18,12,18,14"
+                        Margin="14,7.5,14,14"
                         Visibility="Collapsed"
                         Padding="12,7"
                         CornerRadius="7"

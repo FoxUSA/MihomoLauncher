@@ -144,7 +144,9 @@ namespace MihomoLauncher.Views
             var dlg = new EditRuleDialog(null, _cfg.VpnSlots) { Owner = this };
             if (dlg.ShowDialog() != true || dlg.Result == null) return;
             var added = dlg.Result;
-            await CommitAsync(() => _cfg.Apps.Add(added)).ConfigureAwait(true);
+            // On the tab open on the main window, at the end of its group (2026-11-16).
+            added.TabId = TileTabs.CurrentIdForNew(_cfg);
+            await CommitAsync(() => { _cfg.Apps.Add(added); TileTabs.Normalize(_cfg); }).ConfigureAwait(true);
             RefreshAppRows();
             int at = _appRows.ToList().FindIndex(r => r.Entry == added);
             if (at >= 0) GridApps.SelectedIndex = at;
@@ -217,7 +219,9 @@ namespace MihomoLauncher.Views
                     var copy = new RuleSite { Url = s.Url, ClashRuleUrl = s.ClashRuleUrl, Launch = s.Launch };
                     try
                     {
-                        await ClashRuleService.RefreshAsync(copy).ConfigureAwait(true);
+                        // Off the UI thread: .NET Framework resolves DNS synchronously on the
+                        // thread that starts the request — the window froze on a cold lookup.
+                        await Task.Run(() => ClashRuleService.RefreshAsync(copy)).ConfigureAwait(true);
                         fresh.Add((s, copy.RuleItems, copy.RuleFetchedUtc));
                         okCount++; total += copy.RuleItems?.Count ?? 0;
                     }

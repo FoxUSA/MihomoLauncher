@@ -42,6 +42,11 @@ kimi=kimi-ai
 @x.ai=grok
 
 # ---- video / music ----
+# kinozal.png — our own (smoothed from the site's «К», 2026-11-16)
+кинозал=kinozal
+@kinozal.tv=kinozal
+@kinozal.guru=kinozal
+@kinozal.me=kinozal
 ютуб=youtube
 youtube music=youtube-music
 @googlevideo.com=youtube

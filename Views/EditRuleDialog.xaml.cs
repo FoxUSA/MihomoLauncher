@@ -118,6 +118,7 @@ namespace MihomoLauncher.Views
         }
 
         // Wire the back-reference and collapse any pre-existing multi-launch down to the first.
+        // None ticked is left as it is: the person took the tick off by hand to hide the tile.
         private void AdoptItems()
         {
             foreach (var i in _items) i.Owner = this;
@@ -127,6 +128,15 @@ namespace MihomoLauncher.Views
                 if (!i.Launch) continue;
                 if (seen) i.Launch = false; else seen = true;
             }
+        }
+
+        // Deleting the ticked row must not hide the tile on its own (2026-11-16: «мы не скрываем
+        // авто плитки» — only an unticked box, by hand, hides it): the tick moves to what is left,
+        // program > address > template, the first of the best kind.
+        private void GiveTileToBest()
+        {
+            var best = _items.OrderByDescending(i => i.TileRank).FirstOrDefault();
+            if (best != null) best.Launch = true;
         }
 
         // Click on empty space (not a row / button / input) drops the table selection and
@@ -421,7 +431,10 @@ namespace MihomoLauncher.Views
 
         private void OnRemoveItem(object sender, RoutedEventArgs e)
         {
-            if ((sender as FrameworkElement)?.DataContext is ItemRow row) _items.Remove(row);
+            if (!((sender as FrameworkElement)?.DataContext is ItemRow row)) return;
+            _items.Remove(row);
+            // The ticked row deleted: the tick moves to what is left, the tile stays.
+            if (row.Launch && !_items.Any(i => i.Launch)) GiveTileToBest();
         }
 
         // Click on the «Тип» cell: open what the row points at. Site → its URL, Шаблон → the
@@ -521,7 +534,10 @@ namespace MihomoLauncher.Views
 
             try
             {
-                var items = await ClashRuleService.FetchRuleItemsAsync(svc.ClashUrl).ConfigureAwait(true);
+                // Started off the UI thread: .NET Framework resolves DNS synchronously on the thread
+                // that begins the request — a cold lookup froze the whole editor for seconds.
+                var clashUrl = svc.ClashUrl;
+                var items = await Task.Run(() => ClashRuleService.FetchRuleItemsAsync(clashUrl)).ConfigureAwait(true);
                 row.RuleItems = items;
                 row.RuleFetchedUtc = DateTime.UtcNow.ToString("o");
                 row.TemplateLabel = Loc.T("Rule_TplRanges", svc.Name, items.Count);
@@ -678,7 +694,10 @@ namespace MihomoLauncher.Views
                         Id = _editing.Id,
                         Name = _editing.Name,
                         IsAllTraffic = true,
-                        RequiresVpn = true,
+                        // As it is: «Напрямую» on the plate sets it false (2026-11-16) — saving the
+                        // card must not quietly put the tile back on a VPN.
+                        RequiresVpn = _editing.RequiresVpn,
+                        KillSwitchBeforeDirect = _editing.KillSwitchBeforeDirect,
                         AutoConnect = _editing.AutoConnect,
                         SkipCheck = _editing.SkipCheck,
                         AutoIcon = false,
@@ -757,6 +776,7 @@ namespace MihomoLauncher.Views
                 }
 
                 var entry = _editing != null ? new AppEntry { Id = _editing.Id } : new AppEntry();
+                entry.TabId = _editing?.TabId ?? "";   // the tab is chosen on the main window, kept here
                 entry.Name = name;
                 entry.Sites = sites;
                 entry.Programs = progs;
@@ -779,10 +799,8 @@ namespace MihomoLauncher.Views
                 entry.VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
                     .Select(c => c.Id).Concat(_hiddenRankedIds).ToList();
 
-                await ApplyIconAsync(entry, name).ConfigureAwait(true);
+                ApplyIcon(entry);
 
-                // The window may have been closed during the icon fetch — DialogResult on a
-                // no-longer-modal window throws, so bail / guard.
                 if (!IsLoaded) return;
                 Result = entry;
                 try { DialogResult = true; } catch (InvalidOperationException) { }
@@ -798,7 +816,7 @@ namespace MihomoLauncher.Views
 
         // Auto mode: download by name into the icon cache (force-refresh). Manual: copy the chosen
         // file into the icon store. Mirrors the old per-app/per-link behaviour.
-        private async Task ApplyIconAsync(AppEntry entry, string name)
+        private void ApplyIcon(AppEntry entry)
         {
             if (entry.AutoIcon)
             {
@@ -813,16 +831,12 @@ namespace MihomoLauncher.Views
                     entry.IconPath = _editing.IconPath ?? "";
                     return;
                 }
-                string fetched = "";
-                // Cap the save-time download so a slow/unreachable server can't freeze Save for
-                // the full HttpClient timeout (15s).
-                try
-                {
-                    using (var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(8)))
-                        fetched = await IconFetcher.TryFetchAsync(entry, force: true, cts.Token).ConfigureAwait(true);
-                }
-                catch { }
-                entry.IconPath = fetched ?? "";
+                // New slug (renamed rule, other program…): never wait for the server here — Save
+                // hung up to 8 s on it (cold DNS), mostly to learn there is no such icon. Take
+                // what is on disk; if nothing, download in the background and MainWindow puts
+                // it on the tile when it arrives (IconFetcher.IconDownloaded).
+                entry.IconPath = IconFetcher.CachedFor(entry);
+                if (entry.IconPath.Length == 0) IconFetcher.FetchInBackground(entry);
                 return;
             }
 

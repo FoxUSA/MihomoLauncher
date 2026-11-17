@@ -50,7 +50,15 @@ namespace MihomoLauncher.Services
         private static bool IsShipped(string path)
             => path.StartsWith(ShippedDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
+        // The icon index (2026-11-16): shipped Data\icons.txt PLUS the server's copy beside the
+        // update manifest, cached in DataUser\icons.txt. A new icon = upload the png + icons.txt,
+        // every installed launcher picks it up without a new release. Both are read and merged,
+        // so neither a stale server copy nor an old build loses an icon the other knows.
         private static string IndexPath => Path.Combine(AppContext.BaseDirectory, "Data", "icons.txt");
+        private static string CachedIndexPath => Path.Combine(VersionInfo.DataUserDir, "icons.txt");
+        private const string IndexUrl = "https://byfox.dev/data/mihomolauncher/icons.txt";
+        private static DateTime _indexCheckedUtc = DateTime.MinValue;
+        private static bool _indexFailLogged;
 
         private static readonly HttpClient Http = CreateClient();
 
@@ -83,33 +91,93 @@ namespace MihomoLauncher.Services
             {
                 if (_index != null) return _index;
                 var ix = new Index();
-                try
-                {
-                    if (File.Exists(IndexPath))
-                    {
-                        foreach (var raw in File.ReadAllLines(IndexPath, System.Text.Encoding.UTF8))
-                        {
-                            var line = raw.Trim().ToLowerInvariant();
-                            if (line.Length == 0 || line[0] == '#') continue;
-                            int eq = line.LastIndexOf('=');
-                            if (eq < 0)
-                            {
-                                ix.Slugs.Add(line);
-                                var c = CompactKey(line);
-                                if (c.Length > 0 && !ix.Compact.ContainsKey(c)) ix.Compact[c] = line;
-                                continue;
-                            }
-                            var key = line.Substring(0, eq).Trim();
-                            var slug = line.Substring(eq + 1).Trim();
-                            if (key.Length == 0 || slug.Length == 0) continue;
-                            if (key[0] == '@') ix.Domains[key.Substring(1).Trim('.')] = slug;
-                            else ix.Aliases[NormKey(key)] = slug;
-                        }
-                    }
-                }
-                catch { }
+                ReadIndexInto(ix, IndexPath);         // shipped
+                ReadIndexInto(ix, CachedIndexPath);   // from the server — newer aliases win
                 _index = ix;
                 return ix;
+            }
+        }
+
+        private static void ReadIndexInto(Index ix, string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return;
+                foreach (var raw in File.ReadAllLines(path, System.Text.Encoding.UTF8))
+                {
+                    var line = raw.Trim().ToLowerInvariant();
+                    if (line.Length == 0 || line[0] == '#') continue;
+                    int eq = line.LastIndexOf('=');
+                    if (eq < 0)
+                    {
+                        ix.Slugs.Add(line);
+                        var c = CompactKey(line);
+                        if (c.Length > 0 && !ix.Compact.ContainsKey(c)) ix.Compact[c] = line;
+                        continue;
+                    }
+                    var key = line.Substring(0, eq).Trim();
+                    var slug = line.Substring(eq + 1).Trim();
+                    if (key.Length == 0 || slug.Length == 0) continue;
+                    if (key[0] == '@') ix.Domains[key.Substring(1).Trim('.')] = slug;
+                    else ix.Aliases[NormKey(key)] = slug;
+                }
+            }
+            catch { }
+        }
+
+        // Fetch the server's icons.txt into DataUser\. force=false: at most once an hour (the
+        // periodic tick). Conditional GET (If-Modified-Since = the cached file's date, set from
+        // the server's Last-Modified), so an unchanged index costs a 304 and no body.
+        // True when the index changed — the caller re-runs EnsureAsync.
+        public static async Task<bool> RefreshIndexAsync(bool force, CancellationToken ct = default)
+        {
+            if (!force && DateTime.UtcNow - _indexCheckedUtc < TimeSpan.FromHours(1)) return false;
+            _indexCheckedUtc = DateTime.UtcNow;
+            try
+            {
+                using (var req = new HttpRequestMessage(HttpMethod.Get, IndexUrl))
+                {
+                    if (File.Exists(CachedIndexPath))
+                        req.Headers.IfModifiedSince = new DateTimeOffset(File.GetLastWriteTimeUtc(CachedIndexPath), TimeSpan.Zero);
+                    using (var resp = await Http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false))
+                    {
+                        if (resp.StatusCode == HttpStatusCode.NotModified || resp.StatusCode == HttpStatusCode.NotFound) return false;
+                        if (!resp.IsSuccessStatusCode) throw new HttpRequestException("HTTP " + (int)resp.StatusCode);
+                        var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
+                        var text = System.Text.Encoding.UTF8.GetString(bytes ?? new byte[0]);
+
+                        // Only a real index replaces the cache (an HTML error page must not).
+                        int slugs = text.Split('\n').Count(l => { var t = l.Trim(); return t.Length > 0 && t[0] != '#' && t.IndexOf('=') < 0 && t.IndexOf('<') < 0; });
+                        if (slugs < 100 || text.IndexOf("<html", StringComparison.OrdinalIgnoreCase) >= 0) return false;
+
+                        string old = null;
+                        try { if (File.Exists(CachedIndexPath)) old = File.ReadAllText(CachedIndexPath, System.Text.Encoding.UTF8); } catch { }
+                        Directory.CreateDirectory(Path.GetDirectoryName(CachedIndexPath));
+                        if (old != text)
+                        {
+                            var tmp = CachedIndexPath + ".tmp";
+                            File.WriteAllBytes(tmp, bytes);
+                            if (File.Exists(CachedIndexPath)) File.Delete(CachedIndexPath);
+                            File.Move(tmp, CachedIndexPath);
+                        }
+                        var lm = resp.Content.Headers.LastModified;
+                        if (lm.HasValue) File.SetLastWriteTimeUtc(CachedIndexPath, lm.Value.UtcDateTime);
+                        if (old == text) return false;
+
+                        lock (IndexLock) _index = null;
+                        Log.Info("Иконки: список с byfox.dev обновлён (" + slugs + " иконок).");
+                        return true;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                if (!_indexFailLogged)
+                {
+                    _indexFailLogged = true;
+                    Log.Info("Иконки: список с byfox.dev не скачался: " + (ex.InnerException ?? ex).Message + " — попробую позже.");
+                }
+                return false;
             }
         }
 
@@ -276,9 +344,41 @@ namespace MihomoLauncher.Services
         // Download the icon for `app` from the server. Returns the local file path if it now
         // exists (freshly downloaded or already cached), or "" if there is no such icon on the
         // server / the download failed. `force` re-downloads even if cached.
-        public static async Task<string> TryFetchAsync(AppEntry app, bool force, CancellationToken ct = default)
+        public static Task<string> TryFetchAsync(AppEntry app, bool force, CancellationToken ct = default)
+            => TryFetchSlugAsync(SlugFor(app), force, ct);
+
+        // The icon already on disk for this rule (shipped or downloaded), "" if none. No network.
+        public static string CachedFor(AppEntry app)
         {
             var slug = SlugFor(app);
+            return slug.Length == 0 ? "" : Existing(slug);
+        }
+
+        // Raised (on a pool thread) when FetchInBackground put a new icon on disk; MainWindow
+        // then points the rules' IconPath at it and rebuilds the tiles.
+        public static event Action IconDownloaded;
+
+        // Saving a rule must not wait for the server (2026-11-16): a renamed rule asked byfox.dev
+        // for the new name and Save hung until the answer — 11 s of cold DNS on a two-card
+        // machine, and the answer was "no such icon" anyway. The slug is taken now, on the
+        // caller's thread; the download runs on its own.
+        public static void FetchInBackground(AppEntry app)
+        {
+            var slug = SlugFor(app);
+            if (slug.Length == 0) return;
+            Task.Run(async () =>
+            {
+                try
+                {
+                    var path = await TryFetchSlugAsync(slug, force: false).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(path)) IconDownloaded?.Invoke();
+                }
+                catch { }
+            });
+        }
+
+        private static async Task<string> TryFetchSlugAsync(string slug, bool force, CancellationToken ct = default)
+        {
             if (slug.Length == 0) return "";
             var dest = Path.Combine(IcoDir, slug + ".png");
 
@@ -346,6 +446,9 @@ namespace MihomoLauncher.Services
         public static async Task<bool> EnsureAsync(IEnumerable<AppEntry> apps, CancellationToken ct = default, bool checkServer = true)
         {
             if (apps == null) return false;
+            // The server's icon list first: at startup always, on the periodic pass at most hourly.
+            // A changed list may recognise a tile that had nothing — the loop below fetches it.
+            await RefreshIndexAsync(force: checkServer, ct).ConfigureAwait(false);
             bool changed = false;
             foreach (var app in apps.ToList())
             {
@@ -416,7 +519,15 @@ namespace MihomoLauncher.Services
         // True when a new icon file appeared (the caller redraws the tiles).
         public static async Task<bool> FetchSiteIconAsync(string host, CancellationToken ct = default)
         {
-            if (string.IsNullOrWhiteSpace(host) || SiteIconFile(host).Length > 0) return false;
+            if (string.IsNullOrWhiteSpace(host)) return false;
+            // A file kept from before is fine only if it is big enough; a small one (12306's 48-px
+            // favicon) is looked past once a run — perhaps the site has a bigger one now.
+            var have = SiteIconFile(host);
+            if (have.Length > 0)
+            {
+                try { if (IconLoader.PixelSizeOf(File.ReadAllBytes(have)) >= IconLoader.MinSharpPx) return false; }
+                catch { return false; }
+            }
             lock (_siteTried) if (!_siteTried.Add(host)) return false;
 
             var candidates = new List<string>();
@@ -437,7 +548,12 @@ namespace MihomoLauncher.Services
                             var bytes = await resp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
                             var ext = ImageExt(bytes);
                             if (ext == null) continue;   // an HTML error page, an SVG, nothing
+                            // Too small to look sharp on a tile → try the next one (2026-11-17).
+                            if (IconLoader.PixelSizeOf(bytes) < IconLoader.MinSharpPx) continue;
                             Directory.CreateDirectory(SiteIconDir);
+                            // Another extension may hold the old small one — it must not win.
+                            foreach (var old in new[] { ".png", ".ico", ".jpg" })
+                                try { var p = Path.Combine(SiteIconDir, host.ToLowerInvariant() + old); if (old != ext && File.Exists(p)) File.Delete(p); } catch { }
                             var dest = Path.Combine(SiteIconDir, host.ToLowerInvariant() + ext);
                             File.WriteAllBytes(dest + ".tmp", bytes);
                             if (File.Exists(dest)) File.Delete(dest);

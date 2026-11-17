@@ -436,6 +436,7 @@ namespace MihomoLauncher.Services
 
             // A rule whose kill-switch is OFF never reaches REJECT (it falls through to DIRECT),
             // so a REJECT on a known rule IS the kill-switch — say so plainly.
+            if (owner.Blocking) return Loc.T("Log_WhyTileBlock", owner.RuleName, item);
             return owner.KillSwitch
                 ? Loc.T("Log_WhyKillSwitch", owner.RuleName, item)
                 : Loc.T("Log_WhyBlockedRule", owner.RuleName, item);

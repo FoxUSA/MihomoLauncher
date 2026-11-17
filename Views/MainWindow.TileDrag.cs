@@ -48,7 +48,11 @@ namespace MihomoLauncher.Views
             var d = source as DependencyObject;
             while (d != null && d != TilesPanel)
             {
-                var parent = VisualTreeHelper.GetParent(d);
+                // A press on text made of Runs (the speed plate, 2026-11-16) starts at a Run — not a
+                // Visual: VisualTreeHelper threw «Run не является Visual». Text elements go up the
+                // logical tree to their TextBlock.
+                var parent = d is Visual || d is System.Windows.Media.Media3D.Visual3D
+                    ? VisualTreeHelper.GetParent(d) : LogicalTreeHelper.GetParent(d);
                 if (parent is Panel && d is FrameworkElement fe && fe.Tag is AppEntry) return fe;
                 d = parent;
             }
@@ -75,7 +79,11 @@ namespace MihomoLauncher.Views
             {
                 var p = e.GetPosition(_dragPanel);
                 _dragGhost?.MoveTo(p - _dragGrab);
-                MoveHoleToward(p);
+                // Over a tab (or «+») below: it lights up and takes the tile on release
+                // (MainWindow.TileTabs); the tiles stay where they are meanwhile.
+                var tab = TabUnder(e);
+                SetTabDrop(tab);
+                if (tab == null) MoveHoleToward(p);
                 e.Handled = true;
                 return;
             }
@@ -142,7 +150,10 @@ namespace MihomoLauncher.Views
                 _dragGhost = null;
             }
             if (tile != null) tile.Opacity = 1.0;
-            SaveTileOrder();
+            var tabTarget = _tabDrop;
+            SetTabDrop(null);
+            if (tabTarget != null && tile?.Tag is AppEntry moved) MoveTileToTab(moved, tabTarget);
+            else SaveTileOrder();
             if (_tileRebuildPending)
             {
                 _tileRebuildPending = false;
@@ -164,7 +175,7 @@ namespace MihomoLauncher.Views
             for (int i = minIndex; i < items.Count; i++)
             {
                 var fe = items[i] as FrameworkElement;
-                if (fe == null) continue;
+                if (fe == null || !(fe.Tag is AppEntry)) continue;   // the «new rule» tile stays last
                 var r = LayoutInformation.GetLayoutSlot(fe);
                 double dx = p.X - (r.X + r.Width / 2), dy = p.Y - (r.Y + r.Height / 2);
                 double d = dx * dx + dy * dy;

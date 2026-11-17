@@ -41,11 +41,12 @@ namespace MihomoLauncher.Services
         private const string HealthCheckUrl = "https://www.gstatic.com/generate_204";
 
         // Addresses kept OUT of the TUN route table. Local/LAN ranges are always excluded
-        // (RDP-over-LAN, file shares, router, printers stay direct). The live RDP *peer* is
-        // excluded too — UNLESS the user put an RDP client (mstsc) into the VPN list, which
-        // means they deliberately route RDP through the tunnel on this machine, so we must
-        // NOT auto-protect it. On mom's PC (no mstsc listed) the incoming session is shielded;
-        // on the admin's PC (mstsc listed) the RDP client rides the VPN via its PROCESS-NAME rule.
+        // (file shares, router, printers stay direct) — that is networking, not RDP.
+        // Live RDP peers (local AND external) are excluded ONLY while the «RDP» mode is on
+        // (2026-11-16, the user's rule: «нам вообще не нужны никакие условия в коде для рдп» —
+        // nothing the person doesn't know about). The mode = an explicit «let me in»: the engine
+        // is stopped every 60 s and the remote desktop is let through whatever the tiles say,
+        // «Блокировать» on «Всё остальное» included.
         private static IEnumerable<string> TunRouteExcludes(AppConfig cfg)
         {
             var list = new List<string>
@@ -55,7 +56,7 @@ namespace MihomoLauncher.Services
                 "169.254.0.0/16",                                  // link-local
                 "fc00::/7", "fe80::/10",                           // IPv6 ULA + link-local
             };
-            if (!RdpClientIsRouted(cfg))
+            if (cfg?.RemoteDesktopSafeMode == true)
             {
                 var peers = new List<string>();
                 try { peers = RdpClients.ActivePeerCidrs() ?? new List<string>(); } catch { }
@@ -66,8 +67,7 @@ namespace MihomoLauncher.Services
             return list.Distinct();
         }
 
-        // The RDP peers the most recent build actually excluded — null when it deliberately
-        // excluded none (the user routes an RDP client through the VPN on purpose).
+        // The RDP peers the most recent build actually excluded — null when the «RDP» mode is off.
         //
         // This list is a snapshot taken while the config was being written, and a remote session
         // that appears LATER isn't in it: its return traffic gets captured by TUN's auto-route
@@ -123,17 +123,6 @@ namespace MihomoLauncher.Services
                 if (!_droppedLogged.Add(where + "|" + value)) return;   // once per value per run
             Log.Info("Конфиг: пропущен неверный адрес «" + value + "» (" + where + ") — "
                      + "с ним движок отказался бы от конфига целиком.");
-        }
-
-        // True if the user routes an RDP client through the VPN (mstsc/msrdc is a VPN-flagged
-        // app). On such a machine we don't auto-exclude RDP peers — RDP is meant to go via VPN.
-        private static bool RdpClientIsRouted(AppConfig cfg)
-        {
-            var rdp = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "mstsc.exe", "msrdc.exe" };
-            return (cfg?.Apps ?? new List<AppEntry>())
-                .Where(a => a != null && a.RequiresVpn)
-                .SelectMany(a => a.Programs ?? new List<RuleProgram>())
-                .Any(p => p != null && rdp.Contains(ProcessImageName(p)));
         }
 
         // Base config with no proxies — everything goes DIRECT. Used only as a neutral
@@ -683,6 +672,12 @@ namespace MihomoLauncher.Services
             return null;
         }
 
+        // The engine name a variant runs under for a tile tied to these cards — the `.via-` copy
+        // Build makes (NicPlan.Route) — or the variant itself when the key is null. What a check
+        // of "is this node up FOR THIS TILE" has to ask the engine about.
+        public static string ViaName(string proxyName, string nicKey)
+            => string.IsNullOrEmpty(nicKey) || string.IsNullOrEmpty(proxyName) ? proxyName : proxyName + ViaMarker + Hash8(nicKey);
+
         // The tile's cards as one key ("A\nB"), null when it leaves the choice to Windows.
         public static string NicKey(AppEntry app)
         {
@@ -938,10 +933,14 @@ namespace MihomoLauncher.Services
             // Network cards (NicPlan): every line of a tile tied to cards is re-pointed through them,
             // switched on or off, VPN or direct. A copy of each RuleDef — the caller's list is not
             // ours to change.
+            // The launcher's own probe rule too, when the tile under test is tied to cards
+            // (2026-11-16): its check has to cross the same card the tile will, or a VPN that answers
+            // only through that card (ekb_home: through Wi-Fi yes, through the Turkish Ethernet no)
+            // was judged dead and the tile thrown back to «напрямую».
             var nic = new NicPlan(cfg, directProxies, providers);
             rules = rules.Where(r => r != null)
-                .Select(r => r.Nic == null || r.Probe ? r
-                    : new RuleDef(r.Type, r.Value, nic.Route(r.Target, r.Nic)) { Raw = r.Raw, Site = r.Site })
+                .Select(r => r.Nic == null ? r
+                    : new RuleDef(r.Type, r.Value, nic.Route(r.Target, r.Nic)) { Raw = r.Raw, Site = r.Site, Probe = r.Probe })
                 .ToList();
             // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
             // on, in which case its target (a proxy, or REJECT under its kill-switch). The engine
@@ -967,12 +966,18 @@ namespace MihomoLauncher.Services
                     StringComparer.OrdinalIgnoreCase);
                 foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && !a.IsAllTraffic))
                 {
-                    if (catchAllDirect && !app.HasInterfaces) continue;
                     var mine = new List<RuleDef>();
                     AddAppRules(mine, app, "DIRECT");
                     foreach (var r in mine)
+                    {
+                        // Catch-all DIRECT, no cards: the tile's PROGRAMS need no line (they end up
+                        // DIRECT anyway). Its SITES do (2026-11-16): without a line, another tile's
+                        // program (chrome.exe → VPN / Wi-Fi) took kinozal.tv away from the «без VPN»
+                        // tile that lists it. Sites beat programs whatever the tiles' modes.
+                        if (catchAllDirect && !app.HasInterfaces && !r.Site) continue;
                         if (written.Add(r.Type + "|" + r.Value))
                             pinned.Add(new RuleDef(r.Type, r.Value, nic.Route("DIRECT", r.Nic)) { Site = r.Site });
+                    }
                 }
             }
             directProxies.AddRange(nic.DirectClones);
@@ -1078,9 +1083,15 @@ namespace MihomoLauncher.Services
             // The engine stops at the first match: the launcher's probe first, then the sites and
             // templates of every tile, then the programs (and check addresses) of every tile —
             // each block in the order of the tiles (stable). «Всё остальное» (MATCH) is last.
+            // The pinned lines (DIRECT / card tiles, see `pinned` above) take part in the same split
+            // (2026-11-16): they used to trail after everything in tile order, so a «без VPN» tile's
+            // site (kinozal.tv → LAN) sat below another tile's program (chrome.exe → Wi-Fi) and the
+            // browser took it. Sites of every tile above programs of every tile — pinned or not.
             rules = rules.Where(r => r != null && r.Probe)
                 .Concat(rules.Where(r => r != null && !r.Probe && r.Site))
-                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site)).ToList();
+                .Concat(pinned.Where(r => r.Site))
+                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site))
+                .Concat(pinned.Where(r => !r.Site)).ToList();
             sb.AppendLine("rules:");
             bool ownWritten = false;
             foreach (var r in rules)
@@ -1108,15 +1119,6 @@ namespace MihomoLauncher.Services
                                      + "» (скобки или запятая в имени) — идёт целиком через VPN.");
                 }
                 sb.AppendLine("  - " + r.Type + "," + r.Value + "," + r.Target + suffix);
-            }
-            // What is left of the tiles, pinned (see `pinned` above): DIRECT, or their cards.
-            if (pinned.Count > 0 && !ownWritten) { AppendOwnServer(sb); ownWritten = true; }
-            foreach (var r in pinned)
-            {
-                if (IsAsnRule(r.Type) && !asnReady) continue;
-                bool ipRule = IsIpRule(r.Type);
-                if (IsCidrRule(r.Type) && !IsValidPrefix(r.Value)) { NoteDroppedPrefix(r.Type, r.Value); continue; }
-                sb.AppendLine("  - " + r.Type + "," + r.Value + "," + r.Target + (ipRule ? ",no-resolve" : ""));
             }
             if (!ownWritten) AppendOwnServer(sb);
             // «Весь трафик» on a subscription: everything left over follows the subscription.

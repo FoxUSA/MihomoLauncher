@@ -589,6 +589,76 @@ namespace MihomoLauncher.Services
             catch (Exception ex) { try { Log.Error("close-connections", ex); } catch { } return 0; }
         }
 
+        // One open connection as the tile speed needs it (2026-11-16): the rule that routed it
+        // (`rule` = "ProcessName" / "DomainSuffix" / "Match"…, `rulePayload` = its value — what
+        // ties it to a tile), who and where, and the bytes it has carried so far.
+        public sealed class ConnStat
+        {
+            public string Id = "", Rule = "", Payload = "", Process = "", Host = "", SniffHost = "";
+            // For the speed window's «кто и куда» (2026-11-16): the program's full path, where the
+            // connection goes (the real address — remoteDestination when the engine resolved it
+            // itself), its port and TCP/UDP.
+            public string ProcessPath = "", DestIp = "", Port = "", Network = "";
+            public long Up, Down;
+        }
+
+        // GET /connections, parsed; null = no answer (engine down / restarting).
+        public async Task<List<ConnStat>> GetConnectionStatsAsync(CancellationToken ct = default)
+        {
+            try
+            {
+                string json;
+                using (var http = NewClient(3))
+                using (var resp = await http.GetAsync(ApiBase + "/connections", ct).ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode) return null;
+                    json = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                }
+                var list = new List<ConnStat>();
+                foreach (var conn in SplitConnections(json))
+                {
+                    var id = JsonField(conn, "id");
+                    if (id.Length == 0) continue;
+                    list.Add(new ConnStat
+                    {
+                        Id = id,
+                        Rule = JsonField(conn, "rule"),
+                        Payload = JsonField(conn, "rulePayload"),
+                        Process = ImageNameOf(JsonField(conn, "process")),
+                        Host = JsonField(conn, "host").ToLowerInvariant(),
+                        SniffHost = JsonField(conn, "sniffHost").ToLowerInvariant(),
+                        ProcessPath = JsonField(conn, "processPath"),
+                        DestIp = DestAddress(conn),
+                        Port = JsonField(conn, "destinationPort"),
+                        Network = JsonField(conn, "network"),
+                        Up = JsonNumber(conn, "upload"),
+                        Down = JsonNumber(conn, "download"),
+                    });
+                }
+                return list;
+            }
+            catch { return null; }
+        }
+
+        // The address the connection really went to: destinationIP, else remoteDestination (set
+        // when the engine resolved the name itself), with any ":port" taken off.
+        private static string DestAddress(string conn)
+        {
+            var ip = JsonField(conn, "destinationIP");
+            if (ip.Length == 0) ip = JsonField(conn, "remoteDestination");
+            if (ip.StartsWith("[")) { int end = ip.IndexOf(']'); return end > 0 ? ip.Substring(1, end - 1) : ip; }
+            int colon = ip.LastIndexOf(':');
+            if (colon > 0 && ip.IndexOf(':') == colon) ip = ip.Substring(0, colon);   // IPv4:port
+            return ip;
+        }
+
+        private static long JsonNumber(string obj, string name)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(obj, "\"" + name + "\"\\s*:\\s*(\\d+)");
+            long v;
+            return m.Success && long.TryParse(m.Groups[1].Value, out v) ? v : 0;
+        }
+
         // One IP-CIDR from a template, kept as first/last so a destination is one comparison.
         private sealed class IpNet
         {

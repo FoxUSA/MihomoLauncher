@@ -125,6 +125,22 @@ namespace MihomoLauncher.Views
         private readonly Dictionary<string, string> _appliedAssignment = new Dictionary<string, string>();
         // proxy name -> which configured variant (number + name) it came from.
         private readonly Dictionary<string, ProxySlotInfo> _proxySlot = new Dictionary<string, ProxySlotInfo>();
+        // rule Id -> VPN last picked on its tile's plate (this session only; the rule's settings
+        // are not touched by a pick). Lets the ⟳ work on a rule that ticks no VPN of its own.
+        private readonly Dictionary<string, string> _platePick = new Dictionary<string, string>();
+
+        // The VPN the tile's ⟳ / ▷ should use when the rule's own settings tick none: the one it is
+        // on right now, else the one last picked on its plate; null = nothing to go through.
+        private string TileOwnSlotId(AppEntry e)
+        {
+            string proxy, pick;
+            ProxySlotInfo info;
+            var enabledIds = new HashSet<string>((_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).Select(s => s.Id));
+            if (_assignment.TryGetValue(e.Id, out proxy) && proxy != null && _proxySlot.TryGetValue(proxy, out info)
+                && info != null && enabledIds.Contains(info.Id)) return info.Id;
+            if (_platePick.TryGetValue(e.Id, out pick) && enabledIds.Contains(pick)) return pick;
+            return null;
+        }
         // proxy name -> resolved VPN server geo ("Франция, Париж"), filled in the background.
         private readonly Dictionary<string, string> _proxyGeo = new Dictionary<string, string>();
         // proxy name -> the parsed proxy it came from (so per-tile reconnect can rebuild
@@ -215,6 +231,9 @@ namespace MihomoLauncher.Views
                 if (IconFetcher.AnyMissing(_config.Apps)) await EnsureAutoIconsAsync(checkServer: false).ConfigureAwait(true);
             };
             iconRetry.Start();
+            // A rule saved with a new name gets its icon in the background — show it on arrival.
+            IconFetcher.IconDownloaded += () => Dispatcher.BeginInvoke(new Action(async () =>
+                await EnsureAutoIconsAsync(checkServer: false).ConfigureAwait(true)));
             // The template catalog and its lists live on api.byfox.dev, which asks to be checked
             // daily — and this window may stay open for weeks. Each tick costs a 1–2 KB manifest
             // at most once a day (the period gate); lists download only when their template moved.
@@ -438,7 +457,20 @@ namespace MihomoLauncher.Views
             _config.RemoteDesktopSafeMode = on;
             try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("safemode-save", ex); }
             if (on) StartSafeMode(); else StopSafeMode();
+            ApplyRdpModeRouting(on);
             StatusFoot.Text = Loc.T(on ? "Main_KillTimerOn" : "Main_KillTimerOff");
+        }
+
+        // The mode also lets the live remote desktop through (TUN route-exclude + firewall) — or
+        // stops letting it through. Both live in the config and the firewall plan, so rebuild
+        // them now rather than at the next unrelated change. The first engine stop is still 60 s
+        // after switching on (StartSafeMode), never at once.
+        private void ApplyRdpModeRouting(bool on)
+        {
+            Log.Info("Режим RDP " + (on ? "включён: движок будет останавливаться раз в 60 с, удалённый рабочий стол пропускается мимо туннеля и блокировок."
+                                        : "выключен: удалённый рабочий стол идёт по правилам, как всё остальное."));
+            ReapplyLiveConfig(on ? "режим RDP включён" : "режим RDP выключен");
+            SyncFirewallSoon();
         }
 
         private void StartSafeMode()
@@ -691,6 +723,9 @@ namespace MihomoLauncher.Views
             var pending = (_config.Apps ?? new List<AppEntry>())
                 .Where(a => a != null && a.RequiresVpn && !a.IsNoNodeMode && !_workingApps.Contains(a.Id))
                 .Where(a => a.AutoConnect)                   // only rules somebody switched on
+                // A rule that ticks no VPN can only go where its plate sent it this session —
+                // nowhere at all if it never was: nothing to retry (RDP, 2026-11-16).
+                .Where(a => !HasNoAllowedVpnVariant(a) || TileOwnSlotId(a) != null)
                 .Where(a => !_retryNextAt.TryGetValue(a.Id, out var when) || now >= when)
                 .ToList();
             if (pending.Count == 0) return;
@@ -702,7 +737,7 @@ namespace MihomoLauncher.Views
                 // while, and a queue of them would keep the engine's config churning.
                 var entry = pending[0];
                 Log.Info("Автоповтор: пробую подключить «" + entry.Name + "» ещё раз.");
-                await ReconnectOneAsync(entry).ConfigureAwait(true);
+                await ReconnectOneAsync(entry, onlySlotId: HasNoAllowedVpnVariant(entry) ? TileOwnSlotId(entry) : null).ConfigureAwait(true);
 
                 if (_workingApps.Contains(entry.Id))
                 {
@@ -799,7 +834,7 @@ namespace MihomoLauncher.Views
             try
             {
                 var applied = MihomoConfigBuilder.LastRdpExcludes;
-                if (applied == null) return;             // auto-exclusion is off on purpose
+                if (applied == null) return;             // «RDP» mode is off: no RDP rules at all
 
                 var peers = RdpClients.ActivePeerCidrs();
                 if (peers == null || peers.Count == 0) return;
@@ -1355,14 +1390,32 @@ namespace MihomoLauncher.Views
             // and with that tile gone WPF drops it in the screen's top-left corner. Runs on close.
             if (_vpnPicker != null && _vpnPicker.IsOpen) { _pickerRebuildPending = true; return; }
             TilesPanel.Items.Clear();
+            // Rules grouped by tab = the rule order (TileTabs). Anything that moved rules around
+            // (the «Правила» list, an import) is put back in groups here — and the engine told.
+            if (TileTabs.Normalize(_config))
+            {
+                try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("tabs-normalize", ex); }
+                ApplyRuleOrder();
+            }
+            var tab = TileTabs.Current(_config);
             // Only rules with at least one «Плитка»-checked item get a tile; rules with all
             // checkboxes cleared are routing-only and stay off the main screen.
             // «Весь трафик» first, whatever order the list ended up in. Its name follows the UI
             // language (footer lines, the Routing table and Settings read Name directly).
             foreach (var a in _config.Apps.Where(a => a != null && a.IsAllTraffic))
                 a.Name = AllTrafficName();
-            foreach (var entry in _config.Apps.Where(a => a != null && a.HasTileTarget).OrderBy(a => a.IsAllTraffic ? 0 : 1))
+            foreach (var entry in _config.Apps.Where(a => a != null && a.HasTileTarget && TileTabs.OnTab(_config, a, tab))
+                                              .OrderBy(a => a.IsAllTraffic ? 0 : 1))
                 TilesPanel.Items.Add(CreateTile(entry));
+            // The outline of a new tile ends the row; an empty tab says how to fill it, beside it.
+            // Only in a free place of the last row — a row full of tiles gets none (2026-11-17: «не
+            // переноси на новую строчку… просто не показываем»); «APP» adds rules as well.
+            int count = TilesPanel.Items.Count;
+            bool empty = count == 0;
+            if (empty || count % Math.Max(1, _tileCols) != 0) TilesPanel.Items.Add(AddRuleTile());
+            if (empty) TilesPanel.Items.Add(EmptyTabHint());
+            RenderTabs();
+            SyncTileGrid();
             UpdateConflictIcon();
             RecalcHeight();
         }
@@ -1424,10 +1477,11 @@ namespace MihomoLauncher.Views
 
         private const double CaptionButtonsWidth = 2 * 46 + 8;   // «—» + «✕» (no maximize)
 
-        // Tile 112 + its 3.5 margins on both sides, ×5; + TilesPanel margins 14+14; + window
-        // frame 16; + 4 so rounding never drops the fifth tile to the next row.
+        // Five tiles (112 + 3.5 margins each side) and exactly 14 from each tile's edge to the
+        // window's (2026-11-16: «14 дипов слева и справа»): TilesArea margins 10.5 + the tiles'
+        // own 3.5. No «frame» — this window has none (measured: the old +16+4 made 27 per side).
         private const double TileOuter = TileSizePx + 7;
-        private const double FiveTilesNeed = 5 * TileOuter + 28 + 16 + 4;
+        private const double FiveTilesNeed = 5 * TileOuter + 21;
         private const double TileSizePx = 112;
 
         private double TitleBarNeed()
@@ -1450,7 +1504,7 @@ namespace MihomoLauncher.Views
         // Width change → tiles re-wrap into more/fewer rows → height must follow.
         private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (e.WidthChanged) RecalcHeight();
+            if (e.WidthChanged) { SyncTileGrid(); RecalcHeight(); }
         }
 
         // FluentWindow + SizeToContent="Height" under-reports when content changes after
@@ -1467,7 +1521,10 @@ namespace MihomoLauncher.Views
 
                     // Sum the (correctly-arranged) heights of ResultRoot's rows + the title
                     // bar. ActualHeight is right even when SizeToContent under-reports.
-                    double content = (TitleBarMain?.ActualHeight ?? 0) + 6;
+                    // No slack: the bottom gap is the plate's own 14 (2026-11-16; a +6 here made it 20).
+                    // With no plate the tabs are last: their own 3.5 + 10.5 = the same 14.
+                    double content = (TitleBarMain?.ActualHeight ?? 0)
+                                     + (StatsStrip.Visibility == Visibility.Visible ? 0 : 10.5);
                     foreach (System.Windows.UIElement ch in ResultRoot.Children)
                     {
                         if (ch.Visibility != Visibility.Visible) continue;
@@ -1501,8 +1558,19 @@ namespace MihomoLauncher.Views
             if (e == null) return false;
             if (!e.RequiresVpn) return true;
             if (e.IsBlocking) return true;   // it is doing its job
+            // No VPN ticked and none picked on the plate: the traffic goes direct and works — a
+            // «без VPN» tile, as bright as a direct one (2026-11-16: «должны быть ярче, не
+            // приглушать»). With a kill-switch it is blocked instead, and stays dimmed.
+            if (IsVpnTileGoingDirect(e)) return true;
             return _workingApps.Contains(e.Id);
         }
+
+        // A VPN-kind tile with no VPN ticked, none picked on its plate and no kill-switch: its
+        // traffic goes direct. Bright like a direct tile, plate says «без VPN» (not the green
+        // «connected» plate — enabled alone used to mean «riding a VPN» for VPN tiles).
+        private bool IsVpnTileGoingDirect(AppEntry e)
+            => e != null && e.RequiresVpn && !e.IsBlockMode && !e.KillSwitch
+               && HasNoAllowedVpnVariant(e) && TileOwnSlotId(e) == null;
 
         // A VPN rule that requires VPN but has UNCHECKED every available variant in its
         // allow-list (all enabled slots excluded) — it can never connect. This is a config
@@ -1537,8 +1605,12 @@ namespace MihomoLauncher.Views
         {
             bool reconnecting = entry.Id == _reconnectingId;
             bool launching = _launchingIds.Contains(entry.Id);
-            bool enabled = IsAppEnabled(entry);
+            bool enabled = IsAppEnabled(entry);     // what the plate says (VPN riding or not)
             bool notChecked = !_hasChecked && entry.RequiresVpn;
+            // How it looks: dimmed only while its plate says «Блокирует» / «Заблокировано · kill-switch».
+            bool plateBlocks;
+            var plate = MakeVpnPlate(entry, enabled, reconnecting, notChecked, out plateBlocks);
+            bool bright = !plateBlocks;
 
             const double TileSize = TileSizePx;
             const double IconSize = 40;   // 44 before the VPN plate took the bottom 37 px
@@ -1547,16 +1619,17 @@ namespace MihomoLauncher.Views
             {
                 Width = TileSize,
                 // Taller by the network-card strip along the bottom (2026-11-14).
-                Height = TileSize + NicStrip,
+                // + the one-line speed strip under that (2026-11-16).
+                Height = TileSize + NicStrip + SpeedStrip,
                 Margin = new Thickness(3.5),
                 CornerRadius = new CornerRadius(9),
-                Background = enabled ? Theme.TileBg : Theme.TileDisabledBg,
-                BorderBrush = enabled ? Theme.TileBorder : Theme.TileDisabledBorder,
+                Background = bright ? Theme.TileBg : Theme.TileDisabledBg,
+                BorderBrush = bright ? Theme.TileBorder : Theme.TileDisabledBorder,
                 BorderThickness = new Thickness(1),
                 // hand cursor is reserved for actual buttons; "arrow + hourglass" while it launches
                 Cursor = launching ? Cursors.AppStarting : Cursors.Arrow,
                 Tag = entry,              // drag-to-reorder finds the rule by it
-                Effect = enabled ? new System.Windows.Media.Effects.DropShadowEffect
+                Effect = bright ? new System.Windows.Media.Effects.DropShadowEffect
                 {
                     Color = Theme.ShadowColor,
                     BlurRadius = 10,
@@ -1581,6 +1654,10 @@ namespace MihomoLauncher.Views
             // icon not fetched yet is fetched in the background and the tiles redrawn.
             var iconSource = IconLoader.Load(entry.IconPath, null, (int)IconSize)
                              ?? (entry.IsBuiltIn ? null : IconLoader.Fallback(entry));
+            // Every tile icon the same size and sharp (2026-11-17: «все в одном стиле и размере,
+            // одинаково ровные и чёткие»): a picture too small to fill 40 dip without blowing it up
+            // (12306's 48-px favicon came out ragged) is not used — the tile gets its monogram.
+            if (iconSource != null && !IconLoader.IsSharp(iconSource)) iconSource = null;
             if (iconSource == null && !entry.IsBuiltIn) FetchSiteIconSoon(entry);
             if (iconSource != null)
             {
@@ -1592,7 +1669,7 @@ namespace MihomoLauncher.Views
                     Stretch = Stretch.Uniform,
                     Margin = new Thickness(0, 0, 0, 4),
                     HorizontalAlignment = HorizontalAlignment.Center,
-                    Opacity = launching ? 0.35 : enabled ? 1.0 : 0.4,
+                    Opacity = launching ? 0.35 : bright ? 1.0 : 0.4,
                 };
                 // WPF's default (bilinear) samples only a few source pixels per output pixel, so a
                 // 1024 px icon squeezed into ~66 px came out grainy and jagged. HighQuality (Fant)
@@ -1602,13 +1679,15 @@ namespace MihomoLauncher.Views
             }
             else
             {
-                stack.Children.Add(MakePlaceholderGlyph(enabled, IconSize));
+                var mono = MakeMonogram(entry.IsAllTraffic ? AllTrafficName() : entry.Name, IconSize);
+                mono.Opacity = launching ? 0.35 : bright ? 1.0 : 0.4;
+                stack.Children.Add(mono);
             }
 
             // The name fits the tile: a long one («TinyMediaManager») is set smaller, down to
             // 10.5 px, and only past that cut with «…» — the full name is in the tooltip.
             var title = entry.IsAllTraffic ? AllTrafficName() : entry.Name;
-            var titleWeight = enabled ? FontWeights.SemiBold : FontWeights.Normal;
+            var titleWeight = bright ? FontWeights.SemiBold : FontWeights.Normal;
             const double TitleRoom = 100;
             double titleSize = 13;
             while (titleSize > 10.5 && TextWidth(title, titleSize, titleWeight) > TitleRoom) titleSize -= 0.5;
@@ -1621,7 +1700,7 @@ namespace MihomoLauncher.Views
                 HorizontalAlignment = HorizontalAlignment.Center,
                 MaxWidth = TitleRoom,
                 TextTrimming = TextTrimming.CharacterEllipsis,
-                Foreground = enabled ? Theme.TextPrimary : Theme.TextDisabled,
+                Foreground = bright ? Theme.TextPrimary : Theme.TextDisabled,
             };
             if (TextWidth(title, titleSize, titleWeight) > TitleRoom) titleBlock.ToolTip = title;
             stack.Children.Add(titleBlock);
@@ -1631,8 +1710,9 @@ namespace MihomoLauncher.Views
             // and every tile the VPN/status plate along the bottom.
             var grid = new Grid();
             grid.Children.Add(stack);
-            grid.Children.Add(MakeVpnPlate(entry, enabled, reconnecting, notChecked));
-            if (ShowNicPlate) grid.Children.Add(MakeNicPlate(entry, reconnecting));
+            grid.Children.Add(plate);
+            if (ShowNicPlate && !NicAsIcon) grid.Children.Add(MakeNicPlate(entry, reconnecting));
+            if (ShowTileSpeed) grid.Children.Add(MakeSpeedPlate(entry));
             if (launching)
             {
                 // Spinning over the (dimmed) icon: the click went through, the program is starting.
@@ -1651,128 +1731,168 @@ namespace MihomoLauncher.Views
             grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Settings24, 14,
                 new Thickness(5, 5, 0, 0), HorizontalAlignment.Left, Loc.T("Main_TipEditRule"), false,
                 () => OpenRuleEditor(entry)));
+            // The network card, as an icon under the gear (2026-11-16 try-out, see NicAsIcon).
+            if (ShowNicPlate && NicAsIcon) grid.Children.Add(MakeNicChip(entry, reconnecting));
 
+            // Right corner (2026-11-17): the bin on top (swapped the same day), under it ONE switch — ▷ while off, ⏸ while on (it is the old ✕:
+            // stops the rule). No ⟳ any more: to reconnect, pick the same VPN
+            // on the plate again.
             if (entry.RequiresVpn)
             {
-                if (reconnecting)
-                {
-                    // While THIS tile reconnects, show a self-animating spinner in the corner
-                    // (ui:ProgressRing spins reliably — a RenderTransform on the icon did not).
-                    grid.Children.Add(new Wpf.Ui.Controls.ProgressRing
-                    {
-                        IsIndeterminate = true,
-                        Width = 20,
-                        Height = 20,
-                        HorizontalAlignment = HorizontalAlignment.Right,
-                        VerticalAlignment = VerticalAlignment.Top,
-                        Margin = new Thickness(0, 6, 6, 0),
-                    });
-                }
-                // No VPN variant allowed for this rule → nothing to connect to: no button (the VPN
-                // plate's drop-down is how to pick one). Direct rules never get here at all.
-                else if (!HasNoAllowedVpnVariant(entry))
-                {
-                    // Not connected → ▷ «подключить» (the plug read as «сосиска»); connected → ⟳ «переподключить».
-                    // Same action either way (2026-11-10: «логичнее эту кнопку делать что подключить,
-                    // а обновить уже оставить когда подключено»).
-                    bool busyElsewhere = _reconnectingId != null;
-                    // «Блокировать» switched on counts as on, exactly like a connected VPN.
-                    bool isConnected = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id) || entry.IsBlocking;
-                    grid.Children.Add(MakeCornerChip(
-                        isConnected ? Wpf.Ui.Controls.SymbolRegular.ArrowSync24 : Wpf.Ui.Controls.SymbolRegular.Play24, 14,
-                        new Thickness(0, 5, 5, 0), HorizontalAlignment.Right,
-                        Loc.T(isConnected ? "Main_TipReconnectOne" : "Main_TipConnectOne"), busyElsewhere,
-                        async () => await ReconnectOneAsync(entry, manual: true)));   // switches the rule on, see there
-                }
-
-                // ✕ directly under the ⟳. Busy only with ANOTHER rule: on the tile that is
-                // reconnecting the ✕ is exactly how to stop it (it used to be greyed out right then).
-                // Shown only where there is something to stop (2026-11-10: «крестик показывай
-                // только у тех, где VPN поднят»): connected, connecting right now, or switched on
-                // and being retried by the auto-retry — the ✕ is the only way to stop that from the
-                // tile (msedge, 2026-10-10). A rule that is simply off gets no ✕.
+                // «Блокировать» switched on counts as on, exactly like a connected VPN.
                 bool vpnUp = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id) || entry.IsBlocking;
-                if (vpnUp || reconnecting || entry.AutoConnect)
+                // No VPN ticked in the rule → it goes through the VPN the tile is on (or was last
+                // picked on its plate); with neither there is nothing to go through. «Блокировать»
+                // needs no VPN. A plate pick lasts one session: after a restart a rule ticking none of
+                // its own still had AutoConnect set while nothing ran (chrome, 2026-11-17) — not «on».
+                bool canConnect = entry.IsBlockMode || !HasNoAllowedVpnVariant(entry) || TileOwnSlotId(entry) != null;
+                // On: connected, connecting right now, or switched on and being retried by the
+                // auto-retry — ⏸ is the way to stop that from the tile (msedge, 2026-10-10).
+                if (vpnUp || reconnecting || (entry.AutoConnect && canConnect))
                 {
+                    // Busy only with ANOTHER rule: on the tile that is connecting ⏸ is how to stop it.
                     bool offBusy = _reconnectingId != null && _reconnectingId != entry.Id;
-                    grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Dismiss24, 12,
+                    grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Pause24, 13,
                         new Thickness(0, 31, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDisconnectOne"), offBusy,
                         () => DisconnectOneRule(entry)));
+                    if (reconnecting)
+                    {
+                        // Connecting: a ring spins around the ⏸ (ui:ProgressRing spins reliably — a
+                        // RenderTransform on the icon did not). It lets the clicks through to ⏸.
+                        grid.Children.Add(new Wpf.Ui.Controls.ProgressRing
+                        {
+                            IsIndeterminate = true,
+                            Width = 28,
+                            Height = 28,
+                            HorizontalAlignment = HorizontalAlignment.Right,
+                            VerticalAlignment = VerticalAlignment.Top,
+                            Margin = new Thickness(0, 28, 2, 0),
+                            IsHitTestVisible = false,
+                        });
+                    }
+                }
+                else if (canConnect)
+                {
+                    string viaSlot = !entry.IsBlockMode && HasNoAllowedVpnVariant(entry) ? TileOwnSlotId(entry) : null;
+                    grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Play24, 14,
+                        new Thickness(0, 31, 5, 0), HorizontalAlignment.Right,
+                        Loc.T("Main_TipConnectOne"), _reconnectingId != null,
+                        async () => await ReconnectOneAsync(entry, manual: true, onlySlotId: viaSlot)));   // switches the rule on, see there
                 }
             }
 
-            // «Глобально» / «Всё остальное» are not obvious: a «?» under the gear explains each
-            // (the right column keeps its usual ▷ / ✕).
+            // The bin, always on top (▷/⏸ under it): deletes the tile with its rule, after
+            // asking. Dull red under the pointer. «Всё остальное» is built in — no bin.
+            if (!entry.IsBuiltIn)
+            {
+                var bin = MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Delete24, 13,
+                    new Thickness(0, 5, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDeleteTile"), false,
+                    () => DeleteTile(entry));
+                if (bin is Border binChip)
+                {
+                    // After the chip's own hover (handlers run in order) — the red wins.
+                    binChip.MouseEnter += (s, e) => { binChip.Background = TileBinHotBg; binChip.BorderBrush = TileBinHotBorder; };
+                }
+                grid.Children.Add(bin);
+            }
+
+            // «Всё остальное» is not obvious: a «?» explains it — top centre, shown only while the
+            // mouse is over the tile (2026-11-16; under the gear is the network card now).
             if (entry.IsBuiltIn)
             {
-                grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.QuestionCircle24, 14,
-                    new Thickness(5, 31, 0, 0), HorizontalAlignment.Left, Loc.T("Main_TipBuiltInHelp"), false,
-                    () => _ = ShowBuiltInHelpAsync(entry)));
+                var help = MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.QuestionCircle24, 14,
+                    new Thickness(0, 5, 0, 0), HorizontalAlignment.Center, Loc.T("Main_TipBuiltInHelp"), false,
+                    () => _ = ShowBuiltInHelpAsync(entry), Theme.SpeedGreen);   // green: grey vanished over the picture
+                // It sits over the tile's picture: the chip's own see-through background vanished
+                // into it (2026-11-16) — a solid backing of the tile's colour under it.
+                var helpBox = new Grid
+                {
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, 5, 0, 0),
+                    Visibility = Visibility.Hidden,
+                };
+                helpBox.Children.Add(new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = Theme.OverlayCardBg });
+                help.Margin = new Thickness(0);
+                helpBox.Children.Add(help);
+                border.MouseEnter += (s, e) => helpBox.Visibility = Visibility.Visible;
+                border.MouseLeave += (s, e) => helpBox.Visibility = Visibility.Hidden;
+                grid.Children.Add(helpBox);
             }
 
             border.Child = grid;
 
-            // Right click = just open it, whatever the tile's state: no connect, no checks, no
-            // status line. Grey or not, the program/site starts exactly as from a shortcut.
-            if (!entry.IsBuiltIn)
+            // Every tile is clickable, left and right, whatever its state (2026-11-16: «убери
+            // вообще запрет на кликабельность плитки»): the program/site opens exactly as from a
+            // shortcut; «Всё остальное» has nothing to open and says where its traffic goes.
+            border.MouseEnter += (s, e) =>
             {
-                border.MouseRightButtonUp += async (s, e) =>
-                {
-                    e.Handled = true;
-                    await LaunchFromTileAsync(entry).ConfigureAwait(true);
-                };
-            }
-
-            if (enabled)
+                border.Background = Theme.TileBgHover;
+                border.BorderBrush = Theme.TileBorderHover;
+            };
+            border.MouseLeave += (s, e) =>
             {
-                border.MouseEnter += (s, e) =>
-                {
-                    border.Background = Theme.TileBgHover;
-                    border.BorderBrush = Theme.TileBorderHover;
-                };
-                border.MouseLeave += (s, e) =>
-                {
-                    border.Background = Theme.TileBg;
-                    border.BorderBrush = Theme.TileBorder;
-                };
-                border.MouseLeftButtonUp += (s, e) => OnTileClick(entry);
-            }
-            else
-            {
-                border.MouseLeftButtonUp += (s, e) =>
-                {
-                    StatusFoot.Text = entry.IsAllTraffic
-                        ? Loc.T("Main_FootAllTrafficHint")
-                        : notChecked
-                        ? Loc.T("Main_FootPressConnectFirst")
-                        : Loc.T("Main_FootAppNotWorking", entry.Name);
-                };
-            }
+                // Back to how it looks — a dimmed tile stays dimmed.
+                border.Background = bright ? Theme.TileBg : Theme.TileDisabledBg;
+                border.BorderBrush = bright ? Theme.TileBorder : Theme.TileDisabledBorder;
+            };
+            border.MouseLeftButtonUp += (s, e) => OnTileClick(entry);
+            border.MouseRightButtonUp += (s, e) => { e.Handled = true; OnTileClick(entry); };
 
             return border;
         }
 
-        private FrameworkElement MakePlaceholderGlyph(bool enabled, double size = 56)
+        // A tile with no sharp picture: its initials on a rounded square of a colour picked by the
+        // name (the same name — the same colour, every time). Drawn, not a bitmap: sharp at any
+        // scale, exactly the icon's size. Replaced the grey «?» (2026-11-17).
+        private static readonly Color[] MonogramColors =
         {
-            var border = new Border
+            Color.FromRgb(0x3F, 0x6F, 0xD8), Color.FromRgb(0x2F, 0x9A, 0x6B), Color.FromRgb(0xC2, 0x6A, 0x2E),
+            Color.FromRgb(0x87, 0x5C, 0xCF), Color.FromRgb(0xC0, 0x4B, 0x5C), Color.FromRgb(0x2A, 0x8E, 0xA8),
+            Color.FromRgb(0x9C, 0x7C, 0x2C), Color.FromRgb(0x5E, 0x6B, 0x84),
+        };
+
+        private FrameworkElement MakeMonogram(string name, double size)
+        {
+            name = (name ?? "").Trim();
+            int h = 17;
+            foreach (char c in name.ToLowerInvariant()) h = unchecked(h * 31 + c);
+            var color = MonogramColors[(h & 0x7FFFFFFF) % MonogramColors.Length];
+            var bg = new LinearGradientBrush(
+                Color.FromArgb(0xFF, (byte)Math.Min(255, color.R + 24), (byte)Math.Min(255, color.G + 24), (byte)Math.Min(255, color.B + 24)),
+                color, 90);
+            bg.Freeze();
+            return new Border
             {
                 Width = size,
                 Height = size,
-                CornerRadius = new CornerRadius(size / 2),
-                Background = enabled ? Theme.PlaceholderBg : Theme.TileDisabledBorder,
+                CornerRadius = new CornerRadius(size * 0.24),
+                Background = bg,
                 Margin = new Thickness(0, 0, 0, 4),
                 HorizontalAlignment = HorizontalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = Initials(name),
+                    FontSize = size * 0.42,
+                    FontWeight = FontWeights.SemiBold,
+                    Foreground = Brushes.White,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 0, size * 0.03),
+                },
             };
-            border.Child = new TextBlock
-            {
-                Text = "?",
-                FontSize = size * 0.5,
-                FontWeight = FontWeights.Bold,
-                Foreground = enabled ? Theme.PlaceholderText : Theme.TextMuted,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            return border;
+        }
+
+        // «12306» → «12», «GitHub» → «G», «Multi Server Sync» → «MS», «kinozal.tv» → «K».
+        private static string Initials(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "?";
+            var words = name.Split(new[] { ' ', '-', '_', '.' }, StringSplitOptions.RemoveEmptyEntries)
+                            .Where(w => char.IsLetterOrDigit(w[0])).ToList();
+            if (words.Count == 0) return name.Substring(0, 1).ToUpperInvariant();
+            if (char.IsDigit(words[0][0])) return new string(words[0].Where(char.IsLetterOrDigit).Take(2).ToArray()).ToUpperInvariant();
+            if (words.Count >= 2 && name.Contains(' ')) return (words[0].Substring(0, 1) + words[1].Substring(0, 1)).ToUpperInvariant();
+            return words[0].Substring(0, 1).ToUpperInvariant();
         }
 
         private async void OnTileClick(AppEntry entry)
@@ -1894,7 +2014,10 @@ namespace MihomoLauncher.Views
             // switched on still started the engine and probed every variant in turn — a minute of
             // reloads, each one interrupting the whole machine's traffic, to then connect nothing.
             // («Блокировать» needs no node — its lines are written by the arming/final config.)
-            if (!vpnApps.Any(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id)))
+            // A rule that ticks no VPN at all has nothing for the sweep to try: it does not count
+            // (RDP, 2026-11-16: «Подождите, проверяю доступ» at every start with no VPN tile on —
+            // a preflight of every variant and a full-screen wait, to connect nothing).
+            if (!vpnApps.Any(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id) && !HasNoAllowedVpnVariant(a)))
             {
                 if (_assignment.Count == 0) await ArmKillSwitchAsync(ct).ConfigureAwait(true);
                 else ApplyFinalConfig(CurrentAssignedProxies());
@@ -1934,7 +2057,7 @@ namespace MihomoLauncher.Views
             if (ct.IsCancellationRequested) { SetState(UiState.Idle); return; }
             slots = LiveFirst(slots);
 
-            var failing = vpnApps.Where(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id)).ToList();
+            var failing = vpnApps.Where(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id) && !HasNoAllowedVpnVariant(a)).ToList();
             // Nodes already carrying rules stay in the config: leaving them out would drop the
             // very rules this sweep is supposed to leave untouched.
             var usedProxies = CurrentAssignedProxies();
@@ -2014,6 +2137,16 @@ namespace MihomoLauncher.Views
                 if (eligible.Count == 0) continue;
                 foreach (var a in eligible) Tried(a).Add(slot.Id);
 
+                // One trial per set of network cards (2026-11-16): the launcher's checks must cross
+                // the node the way those tiles will — a VPN may answer through one card and not
+                // through another. Tiles that leave the card to Windows are one group, as before;
+                // with no cards anywhere this is exactly the old single trial.
+                var eligibleAll = eligible;
+                foreach (var cardGroup in eligibleAll.GroupBy(a => MihomoConfigBuilder.NicKey(a) ?? "").ToList())
+                {
+                eligible = cardGroup.ToList();
+                var nicKey = cardGroup.Key.Length == 0 ? null : cardGroup.Key;
+
                 // Config for this trial: already-assigned apps stay on their nodes (their
                 // tunnels keep running in parallel); the eligible apps AND the launcher
                 // ride THIS node. The launcher rule goes first so all of its probe traffic
@@ -2028,7 +2161,7 @@ namespace MihomoLauncher.Views
                 var proxiesForConfig = new List<ParsedProxy>(usedProxies);
                 if (!proxiesForConfig.Any(p => p.ProxyName == parsed.ProxyName)) proxiesForConfig.Add(parsed);
                 var rules = BuildVpnRules(vpnApps, _assignment, eligible, parsed.ProxyName);
-                rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true, Probe = true });
+                rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true, Probe = true, Nic = nicKey });
 
                 _mihomo.WriteConfig(MihomoConfigBuilder.Build(_config, proxiesForConfig, rules));
                 if (!await _mihomo.ReloadAsync(ct).ConfigureAwait(true))
@@ -2037,18 +2170,20 @@ namespace MihomoLauncher.Views
                     continue;
                 }
 
-                // Wait for the node to come up.
+                // Wait for the node to come up — through these tiles' cards, if they have any.
                 bool up = false;
+                var nodeName = MihomoConfigBuilder.ViaName(parsed.ProxyName, nicKey);
                 var deadline = DateTime.UtcNow.AddSeconds(nodeWaitSeconds);
                 while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
                 {
-                    if (await _mihomo.IsNodeUpAsync(parsed.ProxyName, ct).ConfigureAwait(true)) { up = true; break; }
+                    if (await _mihomo.IsNodeUpAsync(nodeName, ct).ConfigureAwait(true)) { up = true; break; }
                     try { await Task.Delay(500, ct).ConfigureAwait(true); }
                     catch (OperationCanceledException) { SetState(UiState.Idle); return; }
                 }
                 // First-hand knowledge, worth more than the preflight's: a variant that woke
-                // up since then stops being demoted, one that just died starts being.
-                SlotHealth.Set(slot.Id, up);
+                // up since then stops being demoted, one that just died starts being. Through a
+                // tile's own card a failure says nothing about the VPN in general.
+                if (nicKey == null || up) SlotHealth.Set(slot.Id, up);
                 if (!up)
                 {
                     StatusFoot.Text = Loc.T("Main_FootVariantNotUp", slot.Name);
@@ -2081,6 +2216,7 @@ namespace MihomoLauncher.Views
                     }
                     failing = failing.Where(a => !_workingApps.Contains(a.Id)).ToList();
                 }
+                }   // card group
             }
             }
 
@@ -2177,7 +2313,11 @@ namespace MihomoLauncher.Views
         {
             try
             {
-                bool changed = await IconFetcher.EnsureAsync(_config.Apps, CancellationToken.None, checkServer).ConfigureAwait(true);
+                // On a pool thread: .NET Framework resolves DNS synchronously on the thread that
+                // starts a request, so an await from here still froze the window (11 s cold DNS on
+                // a two-card machine, 2026-11-16). Snapshot the list on the UI thread.
+                var apps = _config.Apps.ToList();
+                bool changed = await Task.Run(() => IconFetcher.EnsureAsync(apps, CancellationToken.None, checkServer)).ConfigureAwait(true);
                 if (changed)
                 {
                     AppConfigStore.Save(_config);
@@ -2201,7 +2341,9 @@ namespace MihomoLauncher.Views
                 bool changed = false;
                 foreach (var site in stale)
                 {
-                    try { await ClashRuleService.RefreshAsync(site).ConfigureAwait(true); changed = true; }
+                    // Off the UI thread — the synchronous DNS of .NET Framework would freeze the window.
+                    var s = site;
+                    try { await Task.Run(() => ClashRuleService.RefreshAsync(s)).ConfigureAwait(true); changed = true; }
                     catch { }
                 }
                 if (!changed) return;
@@ -2261,13 +2403,15 @@ namespace MihomoLauncher.Views
         {
             try
             {
+                // Always fetched now (2026-11-16): the speed window names each address's provider
+                // from it. The engine reads it only for IP-ASN rules, so having it changes no config.
+                if (_mihomo == null) return;
                 bool needed = _config.Apps.Where(a => a != null)
                     .SelectMany(a => a.Sites ?? new List<RuleSite>())
                     .Any(s => s?.RuleItems != null && s.RuleItems.Any(i => (i ?? "").StartsWith("IP-ASN,", StringComparison.OrdinalIgnoreCase)));
-                if (!needed || _mihomo == null) return;
                 bool had = System.IO.File.Exists(System.IO.Path.Combine(_mihomo.WorkDir, "ASN.mmdb"));
-                // A refresh of an existing base needs no reload; the first one brings the rules in.
-                if (await UpdateService.EnsureAsnDbAsync(_mihomo.WorkDir, CancellationToken.None).ConfigureAwait(true) && !had)
+                // A refresh of an existing base needs no reload; the first one brings the IP-ASN rules in.
+                if (await Task.Run(() => UpdateService.EnsureAsnDbAsync(_mihomo.WorkDir, CancellationToken.None)).ConfigureAwait(true) && !had && needed)
                     await ApplyRuleListChangesAsync().ConfigureAwait(true);
             }
             catch (Exception ex) { Log.Error("asn-db", ex); }
@@ -2532,6 +2676,9 @@ namespace MihomoLauncher.Views
             // The tile's ⟳ means "switch this rule on", and that is exactly the state that has
             // to persist: from now on the rule comes back by itself after a restart, and the
             // auto-retry is allowed to look after it.
+            // Off after «Напрямую» with VPNs ticked: its ▷ brings the kill-switch back as it was,
+            // exactly like picking a VPN on the plate (saved by SetAutoConnect just below).
+            RestoreKillAfterDirect(entry);
             SetAutoConnect(entry, true, "reconnect-one");
 
             var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
@@ -2591,8 +2738,12 @@ namespace MihomoLauncher.Views
                 // which is what «весь интернет умер» looked like from the outside.
                 // Never skip the last one standing: if every candidate is down, one of them still
                 // has to be tried or the rule could never come back on its own.
+                // The tile's own network cards (null = Windows decides). «Dead» was learned through
+                // Windows' main card; a tile tied to another card may well reach that VPN — so for
+                // it nothing is skipped (ekb_home 2026-11-16: dead via Ethernet, alive via Wi-Fi).
+                var nicKey = MihomoConfigBuilder.NicKey(entry);
                 var liveCandidates = candidates.Where(s => !RecentlyDead(s.Id)).ToList();
-                if (liveCandidates.Count > 0) candidates = liveCandidates;
+                if (liveCandidates.Count > 0 && nicKey == null) candidates = liveCandidates;
 
                 // entry.AutoConnect: the tile's ✕ may switch the rule off while this runs — then
                 // stop trying and do not assign it.
@@ -2617,20 +2768,23 @@ namespace MihomoLauncher.Views
                     if (!proxiesForConfig.Any(p => p.ProxyName == parsed.ProxyName)) proxiesForConfig.Add(parsed);
 
                     var rules = BuildVpnRules(vpnApps, _assignment, new List<AppEntry> { entry }, parsed.ProxyName);
-                    rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true, Probe = true });
+                    // The launcher's checks cross the node the way the tile will — through its cards.
+                    rules.Insert(0, new RuleDef("PROCESS-NAME", launcherExe, parsed.ProxyName) { Raw = true, Probe = true, Nic = nicKey });
                     _mihomo.WriteConfig(MihomoConfigBuilder.Build(_config, proxiesForConfig, rules));
                     if (!await _mihomo.ReloadAsync(ct).ConfigureAwait(true)) { StatusFoot.Text = Loc.T("Main_FootApplyFail", slot.Name); continue; }
 
                     bool up = false;
+                    var nodeName = MihomoConfigBuilder.ViaName(parsed.ProxyName, nicKey);
                     var deadline = DateTime.UtcNow.AddSeconds(NodeUpWaitSeconds);
                     while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested && entry.AutoConnect)
                     {
-                        if (await _mihomo.IsNodeUpAsync(parsed.ProxyName, ct).ConfigureAwait(true)) { up = true; break; }
+                        if (await _mihomo.IsNodeUpAsync(nodeName, ct).ConfigureAwait(true)) { up = true; break; }
                         try { await Task.Delay(500, ct).ConfigureAwait(true); }
                         catch (OperationCanceledException) { return; }
                     }
                     if (!entry.AutoConnect) break;   // switched off mid-wait: says nothing about the node
-                    SlotHealth.Set(slot.Id, up);
+                    // Through a tile's own card a failure says nothing about the VPN in general.
+                    if (nicKey == null || up) SlotHealth.Set(slot.Id, up);
                     if (!up) { StatusFoot.Text = Loc.T("Main_FootVariantNotUp", slot.Name); continue; }
 
                     bool ok;
@@ -3276,6 +3430,7 @@ namespace MihomoLauncher.Views
                 _config.RemoteDesktopSafeMode = res.Toggle;
                 try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("safemode-save", ex); }
                 SyncSafeModeUi();
+                ApplyRdpModeRouting(res.Toggle);
             }
             if (!res.Ok) return false;
 
@@ -3731,8 +3886,6 @@ namespace MihomoLauncher.Views
             EngineLogStore.Instance.RefreshRules(_config);   // rules may have been renamed/added
             // The engine could have been downloaded / set up from the Settings → mihomo tab.
             RefreshEngineState();
-            // The "Remote desktop session" switch may have changed in Settings.
-            SyncSafeModeUi();
             // Rules dragged in Settings: the order is the priority — into config.yaml now.
             if (RuleOrder(_config) != beforeOrder) ApplyRuleOrder();
                 }
@@ -3755,6 +3908,45 @@ namespace MihomoLauncher.Views
                 else ApplyFinalConfig(CurrentAssignedProxies());
             }
             catch (Exception ex) { Log.Error("apply-rule-order", ex); }
+        }
+
+        private static readonly SolidColorBrush TileBinHotBg = FrozenBrush(0x5C, 0x30, 0x30);
+        private static readonly SolidColorBrush TileBinHotBorder = FrozenBrush(0x80, 0x44, 0x44);
+
+        private static SolidColorBrush FrozenBrush(byte r, byte g, byte b)
+        {
+            var br = new SolidColorBrush(Color.FromRgb(r, g, b));
+            br.Freeze();
+            return br;
+        }
+
+        // The tile's bin: the rule goes with its tile (a tile IS a rule). Asked first; behind the
+        // access password like every routing change. What it routed falls to «Всё остальное».
+        private async void DeleteTile(AppEntry entry)
+        {
+            try
+            {
+                if (entry == null || entry.IsBuiltIn || _config.Apps.IndexOf(entry) < 0) return;
+                bool ok = await OverlayDialog.ConfirmAsync(this, Loc.T("Main_DelTileTitle", entry.Name),
+                    Loc.T("Main_DelTileBody"), Loc.T("Set_BtnDelete"), Loc.T("Set_BtnCancel"),
+                    Wpf.Ui.Controls.ControlAppearance.Danger).ConfigureAwait(true);
+                if (!ok) return;
+                if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
+                if (_config.Apps.IndexOf(entry) < 0) return;   // gone meanwhile
+                await CommitLiveEditAsync(() =>
+                {
+                    _config.Apps.Remove(entry);
+                    return Task.CompletedTask;
+                }).ConfigureAwait(true);
+                _platePick.Remove(entry.Id);
+                Log.Info("Плитка «" + entry.Name + "» удалена вместе с правилом (корзина на плитке).");
+                RebuildTiles();
+            }
+            catch (Exception ex)
+            {
+                Log.Error("tile-delete", ex);
+                try { await OverlayDialog.MessageAsync(this, Loc.T("Set_Error"), ex.Message).ConfigureAwait(true); } catch { }
+            }
         }
 
         // Tile gear: open this rule's editor directly. On save, persist and rebuild tiles;

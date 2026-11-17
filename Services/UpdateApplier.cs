@@ -14,6 +14,23 @@ namespace MihomoLauncher.Services
     // root, then relaunch. DataUser\ and anything not present in the archive are left alone.
     //
     // Every step reports progress so the UpdaterWindow can show exactly what is happening.
+    // The update could not be put in place. RolledBack: the install is exactly as before — start
+    // it again and ask to retry after a reboot. LockedFile / Holder: what was in the way, if known.
+    public sealed class UpdateBlockedException : Exception
+    {
+        public string LockedFile { get; }
+        public string Holder { get; }
+        public bool RolledBack { get; }
+
+        public UpdateBlockedException(string message, string lockedFile, string holder, bool rolledBack, Exception inner)
+            : base(message, inner)
+        {
+            LockedFile = lockedFile;
+            Holder = holder ?? "";
+            RolledBack = rolledBack;
+        }
+    }
+
     public static class UpdateApplier
     {
         // Parsed --apply-update arguments.
@@ -86,19 +103,11 @@ namespace MihomoLauncher.Services
             onStatus?.Invoke(Loc.T("Upd_SavingUserData"));
             try { MigrateLegacyDataToDataUser(root); } catch (Exception ex) { Log.Error("update.migrate", ex); UpLog(opt, "migrate err: " + ex.Message); }
 
-            // 4) Delete the old Data\ folder and MihomoLauncher.exe (NEVER DataUser\). Clear the
-            //    Hidden/System/ReadOnly bits FolderIcons set so nothing blocks the delete.
+            // 4+5) Put the old Data\ + exe aside, copy the new ones in — or, if anything is in the
+            //    way, put everything back as it was (UpdateBlockedException → the old version is
+            //    started again and the user is told to retry after a reboot).
             onStatus?.Invoke(Loc.T("Upd_RemovingOld"));
-            DeleteWithRetry(() => ForceDeleteDir(Path.Combine(root, "Data")));
-            DeleteWithRetry(() => { var e = Path.Combine(root, "MihomoLauncher.exe"); if (File.Exists(e)) File.Delete(e); });
-            UpLog(opt, "3/5 старая версия удалена (Data + MihomoLauncher.exe)");
-
-            // 5) Copy EVERYTHING from the archive into the install root, overwriting. The
-            //    archive has no DataUser\, so user data is untouched; help/uninstall files are
-            //    replaced if present. ("всё, что есть в архиве, берём без исключений").
-            onStatus?.Invoke(Loc.T("Upd_InstallingNew"));
-            CopyTreeWithProgress(src, root, onPercent, ct);
-            UpLog(opt, "4/5 новая версия установлена");
+            SwapIn(opt, () => onStatus?.Invoke(Loc.T("Upd_InstallingNew")), onPercent, ct);
 
             // 6) Re-apply folder icons + shortcuts on the fresh install.
             try { FolderIcons.Apply(root); } catch (Exception ex) { Log.Error("update.icons", ex); }
@@ -113,6 +122,152 @@ namespace MihomoLauncher.Services
                 UpLog(opt, "5/5 запущена новая версия: " + newExe);
             }
             catch (Exception ex) { Log.Error("update.relaunch", ex); UpLog(opt, "relaunch err: " + ex.Message); throw; }
+        }
+
+        // ---- The swap: rename aside, copy in, roll back on any failure ----
+        //
+        // It used to DELETE Data\ and the exe, then copy. A file nobody could free (the engine
+        // service hung with its admin prompt refused, an antivirus, Dropbox) stopped the delete
+        // halfway — silently — and then the copy, with «Процесс не может получить доступ к файлу
+        // …» on screen and an install left with half its Data\ and no MihomoLauncher.exe at all
+        // (2026-11-16). A rename is all or nothing: if it can't happen, nothing has been touched.
+        public static void SwapIn(Options opt, Action onCopying, Action<int> onPercent, CancellationToken ct)
+        {
+            var root = opt.InstallRoot;
+            var data = Path.Combine(root, "Data");
+            var exe = Path.Combine(root, "MihomoLauncher.exe");
+            var dataOld = FreeAside(data + ".old", dir: true);
+            var exeOld = FreeAside(exe + ".old", dir: false);
+            bool dataMoved = false, exeMoved = false;
+
+            try
+            {
+                if (Directory.Exists(data)) { WithRetry(() => Directory.Move(data, dataOld)); dataMoved = true; }
+                if (File.Exists(exe)) { WithRetry(() => File.Move(exe, exeOld)); exeMoved = true; }
+            }
+            catch (Exception ex)
+            {
+                // Which file is held, and by whom — asked before anything is moved back, while the
+                // place is still the one that failed.
+                string locked = FindLocked(dataMoved ? null : data, exeMoved ? null : exe);
+                string holder = locked != null ? FileHolders.Describe(locked) : "";
+                bool back = PutBack(data, dataOld, dataMoved, exe, exeOld, exeMoved);
+                UpLog(opt, "3/5 ОТМЕНА: старую версию не отложить (" + ex.Message + ")"
+                           + (locked != null ? "; занят " + locked + (holder.Length > 0 ? " — " + holder : "") : "")
+                           + (back ? "; всё возвращено как было" : "; ВЕРНУТЬ НЕ УДАЛОСЬ"));
+                throw new UpdateBlockedException(ex.Message, locked, holder, back, ex);
+            }
+            UpLog(opt, "3/5 старая версия отложена: " + Path.GetFileName(dataOld) + ", " + Path.GetFileName(exeOld));
+
+            // Copy EVERYTHING from the archive into the install root, overwriting. The archive has
+            // no DataUser\, so user data is untouched; help/uninstall files are replaced too.
+            onCopying?.Invoke();
+            try
+            {
+                CopyTreeWithProgress(opt.SrcRoot, root, onPercent, ct);
+            }
+            catch (Exception ex)
+            {
+                // Half a new version is worse than the old one: clear what got copied, put the old back.
+                string locked = ex is IOException ? LockedIn(ex.Message, root) : null;
+                string holder = locked != null ? FileHolders.Describe(locked) : "";
+                try { if (Directory.Exists(data)) ForceDeleteDir(data); } catch { }
+                try { if (File.Exists(exe)) { File.SetAttributes(exe, FileAttributes.Normal); File.Delete(exe); } } catch { }
+                bool back = PutBack(data, dataOld, dataMoved, exe, exeOld, exeMoved);
+                UpLog(opt, "4/5 ОТМЕНА: новая версия не скопировалась (" + ex.Message + ")"
+                           + (back ? "; прежняя возвращена" : "; ВЕРНУТЬ НЕ УДАЛОСЬ"));
+                throw new UpdateBlockedException(ex.Message, locked, holder, back, ex);
+            }
+            UpLog(opt, "4/5 новая версия установлена");
+
+            // The old copies are of no use now; whatever can't go yet goes at the next start.
+            CleanAside(root);
+        }
+
+        // Moving back whatever was moved aside. True when the install is as it was.
+        private static bool PutBack(string data, string dataOld, bool dataMoved, string exe, string exeOld, bool exeMoved)
+        {
+            bool ok = true;
+            if (exeMoved)
+            {
+                try
+                {
+                    if (File.Exists(exe)) { File.SetAttributes(exe, FileAttributes.Normal); File.Delete(exe); }
+                    WithRetry(() => File.Move(exeOld, exe));
+                }
+                catch { ok = false; }
+            }
+            if (dataMoved)
+            {
+                try
+                {
+                    if (Directory.Exists(data)) ForceDeleteDir(data);
+                    WithRetry(() => Directory.Move(dataOld, data));
+                }
+                catch { ok = false; }
+            }
+            return ok;
+        }
+
+        // "<path>.old" — or, when a leftover of an earlier attempt is there and can't be removed,
+        // "<path>.old-<ticks>".
+        private static string FreeAside(string path, bool dir)
+        {
+            try
+            {
+                if (dir && Directory.Exists(path)) ForceDeleteDir(path);
+                else if (!dir && File.Exists(path)) { File.SetAttributes(path, FileAttributes.Normal); File.Delete(path); }
+            }
+            catch { }
+            if (!Directory.Exists(path) && !File.Exists(path)) return path;
+            return path + "-" + DateTime.Now.Ticks;
+        }
+
+        // Remove Data.old* / MihomoLauncher.exe.old* left by an update. Best effort; also run at start.
+        public static void CleanAside(string root)
+        {
+            try
+            {
+                foreach (var d in Directory.GetDirectories(root, "Data.old*"))
+                    try { ForceDeleteDir(d); } catch { }
+                foreach (var f in Directory.GetFiles(root, "MihomoLauncher.exe.old*"))
+                    try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
+            }
+            catch { }
+        }
+
+        // The first file under `dir` (and `exe`) somebody holds open — opened exclusively to see.
+        private static string FindLocked(string dir, string exe)
+        {
+            var files = new System.Collections.Generic.List<string>();
+            try { if (dir != null && Directory.Exists(dir)) files.AddRange(Directory.GetFiles(dir, "*", SearchOption.AllDirectories)); } catch { }
+            if (exe != null && File.Exists(exe)) files.Add(exe);
+            foreach (var f in files)
+            {
+                try { using (new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.None)) { } }
+                catch (IOException) { return f; }
+                catch (UnauthorizedAccessException) { return f; }
+                catch { }
+            }
+            return null;
+        }
+
+        // The path quoted in an IOException's message («…к файлу "D:\…\x.exe", так как…»), if it
+        // is under the install root.
+        private static string LockedIn(string message, string root)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(message ?? "", "[\"«']([A-Za-z]:\\\\[^\"»']+)[\"»']");
+            return m.Success && m.Groups[1].Value.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? m.Groups[1].Value : null;
+        }
+
+        private static void WithRetry(Action act)
+        {
+            for (int i = 0; i < 10; i++)
+            {
+                try { act(); return; }
+                catch { Thread.Sleep(300); }
+            }
+            act();   // last try: let it throw
         }
 
         private static async Task WaitForExitAsync(int pid, TimeSpan timeout, CancellationToken ct)
@@ -222,16 +377,6 @@ namespace MihomoLauncher.Services
             }
             catch { }
             Directory.Delete(dir, true);
-        }
-
-        private static void DeleteWithRetry(Action del)
-        {
-            for (int i = 0; i < 10; i++)
-            {
-                try { del(); return; }
-                catch { Thread.Sleep(300); }
-            }
-            try { del(); } catch (Exception ex) { Log.Error("update.delete", ex); }
         }
 
         // Recursively copy src into dst, overwriting, reporting 0..100 by file count.

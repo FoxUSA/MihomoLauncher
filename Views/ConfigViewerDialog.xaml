@@ -27,17 +27,26 @@
                 Background="{DynamicResource ControlFillColorDefaultBrush}"
                 BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
                 BorderThickness="1">
-            <TextBox x:Name="TxtConfig"
-                     IsReadOnly="True"
-                     Background="Transparent"
-                     BorderThickness="0"
-                     FontFamily="Consolas"
-                     FontSize="12.5"
-                     Padding="10,8"
-                     VerticalScrollBarVisibility="Auto"
-                     HorizontalScrollBarVisibility="Auto"
-                     TextWrapping="NoWrap"
-                     AcceptsReturn="True" />
+            <!-- The scroll bars belong to an outer ScrollViewer (2026-11-16: «скролл ползунка не
+                 хватает»): the styled TextBox showed none of its own. The TextBox grows to the
+                 whole text; the wheel is routed to the outer viewer in code. -->
+            <ScrollViewer x:Name="Scroller"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Auto"
+                          CanContentScroll="False"
+                          PreviewMouseWheel="OnWheel">
+                <TextBox x:Name="TxtConfig"
+                         IsReadOnly="True"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         FontFamily="Consolas"
+                         FontSize="12.5"
+                         Padding="10,8"
+                         VerticalScrollBarVisibility="Disabled"
+                         HorizontalScrollBarVisibility="Disabled"
+                         TextWrapping="NoWrap"
+                         AcceptsReturn="True" />
+            </ScrollViewer>
         </Border>
 
         <Border Grid.Row="3" Padding="20,12">

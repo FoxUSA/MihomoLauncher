@@ -23,8 +23,117 @@ namespace MihomoLauncher.Views
 
         // Settings → «Сеть» → «Показывать плашку сетевой карты»: the room the strip takes at the
         // bottom of a tile (its height + the gap above it), 0 when hidden.
-        private bool ShowNicPlate => _config?.ShowNicPlate != false;
-        private double NicStrip => ShowNicPlate ? NicPlateHeight + 6 : 0;   // + the gap above it
+        // «The machine has two cards or more» — no setting any more (2026-11-16: the box went).
+        // Asked every stats tick: the card count is cached for 5 s (NetCards.List only — not
+        // CurrentNetCards, which also reads the metrics over WMI).
+        private bool ShowNicPlate
+        {
+            get
+            {
+                if ((DateTime.UtcNow - _nicCountAt).TotalSeconds > 5)
+                {
+                    try { _nicCount = NetCards.List().Count; } catch { }
+                    _nicCountAt = DateTime.UtcNow;
+                }
+                return NetCards.ShowPicker(_config, _nicCount);
+            }
+        }
+        private int _nicCount;
+        private DateTime _nicCountAt = DateTime.MinValue;
+        // 2026-11-16, a try-out: the card choice as an icon under the gear (Wi-Fi / cable, coloured
+        // like the plate was) instead of the plate. false = the plate again.
+        internal const bool NicAsIcon = true;
+        // The same gap between every pair of plates (VPN · card · speed), and under the last one.
+        internal const double PlateGap = 5;
+        private double NicStrip => ShowNicPlate && !NicAsIcon ? NicPlateHeight + PlateGap : 0;   // + the gap above it
+
+        // The card chip under the gear: Wi-Fi or cable — the tile's first card, else the one Windows
+        // uses. Grey = Windows decides; green = its own card works; amber = on its backup; red = none
+        // of its cards works. A click opens the same picker the plate had.
+        private FrameworkElement MakeNicChip(AppEntry entry, bool reconnecting)
+        {
+            var cards = NetCards.Chosen(entry, CurrentNetCards());
+            if (IsJustDefaultCard(cards.Select(c => c.Name))) cards = new List<NetCard>();
+            bool clickable = !reconnecting && _reconnectingId == null;
+
+            NetCard shown;
+            Brush color;
+            string tip;
+            if (cards.Count == 0)
+            {
+                shown = DefaultCard();
+                // Coloured like a chosen card (2026-11-16: «цвет иконки wi-fi и лан одинаковый»):
+                // green while Windows' card works, red when there is none working.
+                // Later the same day: «верни цвет надписи лан серый» — Windows' card is light grey
+                // again; colour is for a card the tile chose. Red still when nothing works.
+                color = shown != null && shown.Present && shown.Up ? Theme.ChipIconBright : Theme.SpeedRed;
+                tip = (shown != null ? shown.Name + " — " + Loc.T("Main_NicDefaultShort") : Loc.T("Main_NicDefaultShort"))
+                    + "\n\n" + Loc.T("Main_TipPickNic") + "\n" + Loc.T("Main_NicDefaultRow");
+            }
+            else
+            {
+                bool firstOk = cards[0].Present && cards[0].Up;
+                bool anyOk = cards.Any(c => c.Present && c.Up);
+                shown = cards[0];
+                color = !anyOk ? Theme.SpeedRed : !firstOk ? Theme.SpeedAmber : Theme.SpeedGreen;
+                tip = string.Join("\n", cards.Select((c, i) => (i + 1) + ". " + c.Name + " — " + NicStateText(c)))
+                    + "\n\n" + Loc.T("Main_TipPickNic");
+                if (!anyOk) tip += "\n\n" + Loc.T("Main_TipNicDead");
+                else if (!firstOk) tip += "\n\n" + Loc.T("Main_TipNicBackup");
+            }
+            bool wifi = shown != null && shown.Wireless;
+
+            Action<Brush> paint;
+            var glyph = NicGlyph(wifi, out paint);
+            FrameworkElement chip = null;
+            chip = MakeCornerChip(glyph, paint,
+                new Thickness(5, 31, 0, 0), HorizontalAlignment.Left, tip, !clickable,
+                async () =>
+                {
+                    // Which card a tile goes out through is a routing change — behind the access password.
+                    if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
+                    ShowNicPicker(entry, chip);
+                },
+                color);
+            return chip;
+        }
+
+        // The chip's picture, drawn (picked on the 2026-11-16 mock-up): a bold Wi-Fi fan, or «LAN»
+        // in a rounded frame for a cable (no font icon read as «провод»). 24×24 design, scaled.
+        private static FrameworkElement NicGlyph(bool wifi, out Action<Brush> paint)
+        {
+            if (wifi)
+            {
+                var arcs = new System.Windows.Shapes.Path
+                {
+                    Data = Geometry.Parse("M2.5,9.5 A14,14 0 0 1 21.5,9.5 M5.5,12.8 A9.5,9.5 0 0 1 18.5,12.8 M8.6,16 A5,5 0 0 1 15.4,16"),
+                    StrokeThickness = 2.3,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                };
+                var dot = new System.Windows.Shapes.Ellipse { Width = 3, Height = 3 };
+                Canvas.SetLeft(dot, 10.5);
+                Canvas.SetTop(dot, 17.5);
+                var c = new Canvas { Width = 24, Height = 24 };
+                c.Children.Add(arcs);
+                c.Children.Add(dot);
+                paint = b => { arcs.Stroke = b; dot.Fill = b; };
+                return new Viewbox { Width = 14, Height = 14, Child = c };
+            }
+            // Just the word, no frame of its own (2026-11-16) — the chip is the frame.
+            var text = new TextBlock
+            {
+                Text = "LAN",
+                FontSize = 7,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 1),
+                IsHitTestVisible = false,
+            };
+            paint = b => text.Foreground = b;
+            return text;
+        }
 
         // The card list is read once per tile redraw, not once per tile.
         private List<NetCard> _netCardsCache;
@@ -177,7 +286,8 @@ namespace MihomoLauncher.Views
             var plate = new Border
             {
                 Height = NicPlateHeight,
-                Margin = new Thickness(5, 0, 5, 5),
+                // The speed strip (MakeSpeedPlate) takes the bottom under it.
+                Margin = new Thickness(5, 0, 5, PlateGap + SpeedStrip),
                 Padding = new Thickness(clickable ? 9 : 4, 0, 4, 0),
                 VerticalAlignment = VerticalAlignment.Bottom,
                 CornerRadius = new CornerRadius(7),
@@ -253,15 +363,8 @@ namespace MihomoLauncher.Views
             void Render()
             {
                 list.Children.Clear();
-                list.Children.Add(new TextBlock
-                {
-                    Text = Loc.T("Main_NicHint"),
-                    FontSize = 11.5,
-                    Foreground = Theme.TextMuted,
-                    TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 300,
-                    Margin = new Thickness(10, 4, 10, 6),
-                });
+                // No hint paragraph on top any more (2026-11-16: «убери это описание») — the box and
+                // the row say what they do in their tooltips, and the box lights up on its own.
 
                 // No «По умолчанию» row any more (2026-11-14): untick every card and Windows decides;
                 // the card it decides for is marked «по умолчанию» in the list.
@@ -305,6 +408,24 @@ namespace MihomoLauncher.Views
                     // The box ticks / unticks (1, 2… order) and keeps the menu open; a click anywhere
                     // else on the row picks just this card and closes the menu (2026-11-14).
                     box.Cursor = Cursors.Hand;
+                    box.ToolTip = Loc.T("Main_NicBoxTip");
+                    // Under the mouse the box lights up by itself (blue frame + tint), so it reads as
+                    // its own action — «отметить по порядку» — not as the row's quick pick.
+                    var boxBg = box.Background;
+                    var boxBd = box.BorderBrush;
+                    var blue = (Theme.AccentBlue as SolidColorBrush)?.Color ?? Colors.DodgerBlue;
+                    box.MouseEnter += (s, e) =>
+                    {
+                        box.BorderBrush = Theme.AccentBlue;
+                        box.BorderThickness = new Thickness(2);
+                        box.Background = new SolidColorBrush(Color.FromArgb(rank > 0 ? (byte)0xCC : (byte)0x40, blue.R, blue.G, blue.B));
+                    };
+                    box.MouseLeave += (s, e) =>
+                    {
+                        box.BorderBrush = boxBd;
+                        box.BorderThickness = new Thickness(1);
+                        box.Background = boxBg;
+                    };
                     box.MouseLeftButtonUp += (s, e) =>
                     {
                         e.Handled = true;
@@ -354,12 +475,14 @@ namespace MihomoLauncher.Views
                     Grid.SetColumn(names, 1);
                     g.Children.Add(names);
 
-                    list.Children.Add(Row(g, false, () =>
+                    var rowCell = Row(g, false, () =>
                     {
                         order.Clear();
                         order.Add(name);
                         popup.IsOpen = false;
-                    }));
+                    });
+                    names.ToolTip = Loc.T("Main_NicRowTip");   // the name part only: the box has its own
+                    list.Children.Add(rowCell);
                 }
             }
             Render();

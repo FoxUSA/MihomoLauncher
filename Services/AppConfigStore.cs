@@ -34,9 +34,11 @@ namespace MihomoLauncher.Services
         // «Переустановить движок» button does it, one UAC prompt).
         public bool FirewallKillSwitch { get; set; } = true;
 
-        // Show the network-card strip under each tile (Settings → «Сеть», 2026-11-14). Hiding it
-        // hides only the strip: cards a tile already has keep applying.
+        // IGNORED since 2026-11-16 (their Settings boxes went): the card icon shows whenever the
+        // machine has two cards or more, the speed always. Kept so old config.xml files load as is.
         public bool ShowNicPlate { get; set; } = true;
+        public bool ShowNicPlateByUser { get; set; } = false;
+        public bool ShowTileSpeed { get; set; } = true;
 
         // ----- mihomo (Clash.Meta) runtime -----
         // Empty until the engine is installed; a fresh config gets AppConfigStore's writable
@@ -70,6 +72,12 @@ namespace MihomoLauncher.Services
         public List<VpnSlot> VpnSlots { get; set; } = new List<VpnSlot>();
 
         public List<AppEntry> Apps { get; set; } = new List<AppEntry>();
+
+        // Main-window tabs (2026-11-16), in order; the first is always «Основная» (TileTabs.MainId).
+        // Apps is kept grouped by them, so the rule order is «Основная» first, then the next tab…
+        public List<TileTab> Tabs { get; set; } = new List<TileTab>();
+        // The tab last open — reopened at start, and where a rule added in «Правила» lands.
+        public string CurrentTabId { get; set; } = "";
 
         // Access password (see AccessLock): salted PBKDF2 hash, its salt, and the hashed place
         // (PC + Windows user + launcher copy) the data was locked in. All empty = no password.
@@ -247,6 +255,7 @@ namespace MihomoLauncher.Services
                 }
                 if (NormalizeRules(loaded.Apps)) dirty = true;
                 if (EnsureAllTraffic(loaded.Apps)) dirty = true;
+                if (NormalizeDirectWithTicks(loaded)) dirty = true;
                 if (dirty) Save(loaded);
                 return loaded;
             }
@@ -269,6 +278,10 @@ namespace MihomoLauncher.Services
 
         public static void Save(AppConfig config)
         {
+            // Every write, not only at load (2026-11-16): a «без VPN» tile given a VPN in its card
+            // was saved as «без VPN» with Turkey ticked — the plate said «без VPN» until a restart.
+            // Ticked VPNs = a VPN tile (switched off: first VPN in grey with ▷), whatever path set them.
+            try { NormalizeDirectWithTicks(config); } catch { }
             EnsureDirs();
             try
             {
@@ -404,6 +417,35 @@ namespace MihomoLauncher.Services
         // make it what it is pinned (a VPN rule with no contents and its own icon). Everything
         // the user may change — variants, their order, kill-switch, on/off — is left alone.
         // Returns true if anything changed (caller should save).
+        // VPNs the person actually ticked in a tile's card (2026-11-16): something is allowed AND the
+        // choice was made by hand (an order, or some unticked). A tile whose lists were never
+        // touched (both empty — old configs, mom's) counts as «nothing ticked».
+        public static bool HasTickedVpn(AppEntry e, IEnumerable<VpnSlot> slots)
+        {
+            if (e == null) return false;
+            var order = e.VpnSlotOrder ?? new List<string>();
+            var off = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
+            if (order.Count == 0 && off.Count == 0) return false;
+            return (slots ?? Enumerable.Empty<VpnSlot>()).Any(s => s != null && s.Enabled && !off.Contains(s.Id));
+        }
+
+        // «Напрямую» on a tile with VPNs ticked keeps it a VPN tile, switched off (2026-11-16: «если
+        // впн отмечены, не пиши без VPN — укажи первый»): the plate then shows that first VPN in grey
+        // with its ▷. Configs saved before that carry RequiresVpn=false with ticks — put right here;
+        // off and without a kill-switch it goes direct exactly as before.
+        public static bool NormalizeDirectWithTicks(AppConfig cfg)
+        {
+            bool changed = false;
+            foreach (var a in (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && !a.RequiresVpn && !a.Block))
+            {
+                if (!HasTickedVpn(a, cfg.VpnSlots)) continue;
+                a.RequiresVpn = true;
+                if (a.AutoConnect) a.AutoConnect = false;
+                changed = true;
+            }
+            return changed;
+        }
+
         public static bool EnsureAllTraffic(List<AppEntry> apps)
         {
             if (apps == null) return false;
@@ -437,7 +479,8 @@ namespace MihomoLauncher.Services
                 changed = true;
             }
 
-            if (!keep.RequiresVpn) { keep.RequiresVpn = true; changed = true; }
+            // RequiresVpn is NOT pinned any more: «Напрямую» on its plate (2026-11-16) sets it false,
+            // and pinning it back at every start undid that choice («выбор не сохраняется»).
             if (keep.AutoIcon) { keep.AutoIcon = false; changed = true; }
             if (keep.IconPath != AppEntry.AllTrafficIcon) { keep.IconPath = AppEntry.AllTrafficIcon; changed = true; }
             if (keep.Programs == null || keep.Programs.Count > 0) { keep.Programs = new List<RuleProgram>(); changed = true; }

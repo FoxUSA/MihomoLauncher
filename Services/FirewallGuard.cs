@@ -161,7 +161,7 @@ namespace MihomoLauncher.Services
             // Destinations. Everything public, minus what must never be cut.
             var exempt = new List<string>(ExemptRemoteBase);
             var peers6 = new List<string>();
-            foreach (var peer in LivePeers())
+            foreach (var peer in LivePeers(cfg))
             {
                 if (peer.IndexOf(':') >= 0) peers6.Add(peer);
                 else exempt.Add(peer);
@@ -173,13 +173,13 @@ namespace MihomoLauncher.Services
             return plan;
         }
 
-        // A live Remote Desktop session must survive everything this class does. The peer's
-        // address is excluded from the block exactly as it is excluded from the TUN route table
-        // (MihomoConfigBuilder.TunRouteExcludes) — the difference being that this exclusion holds
-        // even when the engine is not running, which is precisely when a remote session used to
-        // be at the mercy of whatever else was going on.
-        private static List<string> LivePeers()
+        // While the «RDP» mode is on (and only then — 2026-11-16, no hidden RDP rules), a live
+        // Remote Desktop session survives everything this class does: the peer's address is
+        // excluded from the block exactly as from the TUN route table (TunRouteExcludes), and
+        // this exclusion holds even when the engine is not running.
+        private static List<string> LivePeers(AppConfig cfg)
         {
+            if (cfg?.RemoteDesktopSafeMode != true) return new List<string>();
             try
             {
                 return (RdpClients.ActivePeerCidrs() ?? new List<string>())

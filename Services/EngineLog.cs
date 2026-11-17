@@ -341,6 +341,7 @@ namespace MihomoLauncher.Services
             public string ItemLabel = "";      // template name, site URL, exe name…
             public bool KillSwitch;
             public bool RequiresVpn;
+            public bool Blocking;              // «Блокировать» switched on (any tile since 2026-11-16)
         }
 
         // value -> who put it into the config. Built from the live config, so a blocked host is
@@ -376,6 +377,7 @@ namespace MihomoLauncher.Services
                         ItemLabel = label ?? "",
                         KillSwitch = app.KillSwitch,
                         RequiresVpn = app.RequiresVpn,
+                        Blocking = app.IsBlocking,
                     };
                 }
 

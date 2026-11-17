@@ -70,7 +70,8 @@ namespace MihomoLauncher.Views
 
             VpnStatus.Changed += OnVpnStatusChanged;
             // «Сохранить» only when something differs: the whole edited config + every field.
-            _saveGuard = SaveGuard.Attach(this, BtnSave, () => SaveGuard.Xml(_editing));
+            // + a card order / «По умолчанию» waiting on the «Сеть» tab (the button reads «Применить»).
+            _saveGuard = SaveGuard.Attach(this, BtnSave, () => SaveGuard.Xml(_editing) + "\u0003" + NicPendingSig());
             Loaded += (s, e) =>
             {
                 RefreshDiagnostics();
@@ -145,7 +146,6 @@ namespace MihomoLauncher.Views
 
             TxtMihomoWorkDir.Text = AppConfigStore.ResolveMihomoWorkDir(_editing);
             ChkAutostart.IsChecked = Autostart.IsEnabled();
-            SwitchSafeMode.IsChecked = _editing.RemoteDesktopSafeMode;
             SwitchFirewall.IsChecked = _editing.FirewallKillSwitch;
             UpdateFirewallStatus();
 
@@ -161,31 +161,81 @@ namespace MihomoLauncher.Views
         public sealed class NicRow : INotifyPropertyChanged
         {
             private int _number;
-            public int Number { get { return _number; } set { _number = value; PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Number))); } }
+            public int Number { get { return _number; } set { _number = value; Notify(nameof(Number)); } }
+            private bool _canUp, _canDown;
+            public bool CanUp { get { return _canUp; } set { _canUp = value; Notify(nameof(CanUp)); } }
+            public bool CanDown { get { return _canDown; } set { _canDown = value; Notify(nameof(CanDown)); } }
             public string Name { get; set; } = "";
             public string State { get; set; } = "";
             public string MetricLabel { get; set; } = "";
+            public bool IsAuto { get; set; } = true;   // IPv4 metric left to Windows
             public event PropertyChangedEventHandler PropertyChanged;
+            private void Notify(string p) { PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p)); }
         }
 
         private readonly ObservableCollection<NicRow> _nicRows = new ObservableCollection<NicRow>();
         private bool _nicDragHooked, _nicBusy;
+        // Nothing touches Windows until the footer button (2026-11-15: «уберём "Применить порядок",
+        // вместо "Сохранить" будет загораться "Применить"»): a move (drag or ▲▼) or «По умолчанию»
+        // only marks the change; «Сохранить» turns into «Применить» and applies it.
+        private List<string> _nicOrigOrder = new List<string>();
+        private bool _nicAutoPending;
+
+        private bool NicOrderChanged =>
+            !_nicRows.Select(r => r.Name).SequenceEqual(_nicOrigOrder, StringComparer.OrdinalIgnoreCase);
+        private bool NicPending => _nicRows.Count > 0 && (_nicAutoPending || NicOrderChanged);
+        private string NicPendingSig() =>
+            !NicPending ? "" : _nicAutoPending ? "auto" : string.Join(",", _nicRows.Select(r => r.Name));
 
         private void FillNetUi()
         {
-            ChkShowNicPlate.IsChecked = _editing.ShowNicPlate;
             GridNics.ItemsSource = _nicRows;
             if (!_nicDragHooked)
             {
                 _nicDragHooked = true;
-                // Order = priority: dragging only renumbers; «Применить» is what touches Windows.
-                new GridRowDrag<NicRow>(GridNics, _nicRows, r => false, (order, moved) =>
-                {
-                    for (int i = 0; i < _nicRows.Count; i++) _nicRows[i].Number = i + 1;
-                    SetNicStatus(Loc.T("Set_NicMovedHint"));
-                });
+                // Order = priority: dragging only renumbers; the footer «Применить» touches Windows.
+                new GridRowDrag<NicRow>(GridNics, _nicRows, r => false, (order, moved) => OnNicOrderChanged());
             }
             RefreshNicRows();
+        }
+
+        private void OnNicUp(object sender, RoutedEventArgs e) { MoveNic(sender, -1); }
+        private void OnNicDown(object sender, RoutedEventArgs e) { MoveNic(sender, +1); }
+
+        private void MoveNic(object sender, int delta)
+        {
+            if (_nicBusy) return;
+            var row = (sender as FrameworkElement)?.DataContext as NicRow;
+            int i = row == null ? -1 : _nicRows.IndexOf(row), j = i + delta;
+            if (i < 0 || j < 0 || j >= _nicRows.Count) return;
+            _nicRows.Move(i, j);
+            OnNicOrderChanged();
+        }
+
+        private void RenumberNics()
+        {
+            for (int i = 0; i < _nicRows.Count; i++)
+            {
+                _nicRows[i].Number = i + 1;
+                _nicRows[i].CanUp = i > 0;
+                _nicRows[i].CanDown = i < _nicRows.Count - 1;
+            }
+        }
+
+        private void OnNicOrderChanged()
+        {
+            RenumberNics();
+            _nicAutoPending = false;   // an order picked by hand replaces a pending «По умолчанию»
+            UpdateNicPending();
+        }
+
+        // The footer button says «Применить» while a card change waits, «Сохранить» otherwise.
+        private void UpdateNicPending()
+        {
+            bool pending = NicPending;
+            BtnSave.Content = Loc.T(pending ? "Set_BtnApply" : "Set_BtnSave");
+            SetNicStatus(!pending ? "" : Loc.T(_nicAutoPending ? "Set_NicDefaultHint" : "Set_NicMovedHint"));
+            _saveGuard?.Schedule();
         }
 
         // The status line takes room only while it says something.
@@ -193,11 +243,6 @@ namespace MihomoLauncher.Views
         {
             LblNicStatus.Text = text ?? "";
             LblNicStatus.Visibility = string.IsNullOrEmpty(text) ? Visibility.Collapsed : Visibility.Visible;
-        }
-
-        private void OnShowNicPlateChanged(object sender, RoutedEventArgs e)
-        {
-            if (_editing != null) _editing.ShowNicPlate = ChkShowNicPlate.IsChecked == true;
         }
 
         // The machine's physical cards, in the order Windows prefers them right now (lowest IPv4
@@ -220,35 +265,41 @@ namespace MihomoLauncher.Views
                 // it can outweigh the card order on its own.
                 if (m != null && m.HasGw4 && m.Gw4 > 0) label = Loc.T("Set_NicWithGw", label, m.Gw4, m.Total4);
                 rows.Add(new KeyValuePair<long, NicRow>(m != null && m.Has4 ? m.Total4 : long.MaxValue,
-                    new NicRow { Name = c.Name, State = state, MetricLabel = label }));
+                    new NicRow { Name = c.Name, State = state, MetricLabel = label, IsAuto = m == null || !m.Has4 || m.Auto4 }));
             }
-            int n = 0;
-            foreach (var r in rows.OrderBy(x => x.Key))
-            {
-                r.Value.Number = ++n;
-                _nicRows.Add(r.Value);
-            }
-            BtnNicApply.IsEnabled = BtnNicDefault.IsEnabled = _nicRows.Count > 0 && !_nicBusy;
+            foreach (var r in rows.OrderBy(x => x.Key)) _nicRows.Add(r.Value);
+            RenumberNics();
+            _nicOrigOrder = _nicRows.Select(r => r.Name).ToList();
+            _nicAutoPending = false;
+            BtnNicDefault.IsEnabled = _nicRows.Count > 0 && !_nicBusy;
+            UpdateNicPending();
         }
 
-        private async void OnNicApply(object sender, RoutedEventArgs e) { await ApplyNicAsync(false).ConfigureAwait(true); }
-        private async void OnNicDefault(object sender, RoutedEventArgs e) { await ApplyNicAsync(true).ConfigureAwait(true); }
-
-        // The order on screen → metrics 10, 20, 30… (or all automatic), applied by the SYSTEM
-        // helper (NicMetrics). Applied right away, not on «Сохранить»: it is Windows' setting, not
-        // the launcher's — the same as the access-password buttons on the next tab.
-        private async Task ApplyNicAsync(bool auto)
+        // «По умолчанию» only marks it; the footer «Применить» hands it to Windows. Already all
+        // automatic → nothing to change: just back to the order Windows has.
+        private void OnNicDefault(object sender, RoutedEventArgs e)
         {
             if (_nicBusy || _nicRows.Count == 0) return;
+            if (_nicRows.All(r => r.IsAuto)) { RefreshNicRows(); return; }
+            _nicAutoPending = true;
+            UpdateNicPending();
+        }
+
+        // The order on screen → metrics 10, 20, 30… (or all automatic), applied by the SYSTEM
+        // helper (NicMetrics). Run by the footer «Применить» (OnSave) before the rest is saved.
+        // False = not applied (password refused, no helper, helper failed) — the window stays.
+        private async Task<bool> ApplyNicAsync(bool auto)
+        {
+            if (_nicBusy || _nicRows.Count == 0) return false;
             // Which card the whole machine goes out through is routing — behind the access password.
-            if (!await LockPrompt.RequireAsync(this, _editing).ConfigureAwait(true)) return;
+            if (!await LockPrompt.RequireAsync(this, _editing).ConfigureAwait(true)) return false;
             if (!MihomoSetup.IsFirewallTaskInstalled())
             {
                 await OverlayDialog.MessageAsync(this, Loc.T("Set_NicPrioTitle"), Loc.T("Set_NicNoHelper")).ConfigureAwait(true);
-                return;
+                return false;
             }
             _nicBusy = true;
-            BtnNicApply.IsEnabled = BtnNicDefault.IsEnabled = false;
+            BtnNicDefault.IsEnabled = false;
             SetNicStatus(Loc.T("Set_NicApplying"));
             string failure = null;
             try
@@ -273,16 +324,15 @@ namespace MihomoLauncher.Views
                 }
             }
             catch (Exception ex) { failure = ex.Message; Log.Error("nic-metric-apply-ui", ex); }
-            finally { _nicBusy = false; }
+            finally { _nicBusy = false; BtnNicDefault.IsEnabled = true; }
 
-            if (_closed) return;
-            RefreshNicRows();
-            SetNicStatus(failure == null ? Loc.T("Set_NicDone") : Loc.T("Set_NicFailed", failure));
-            if (failure != null)
-            {
-                Log.Info("Сеть: метрики не применены — " + failure);
-                await OverlayDialog.MessageAsync(this, Loc.T("Set_NicPrioTitle"), Loc.T("Set_NicFailed", failure)).ConfigureAwait(true);
-            }
+            if (_closed) return false;
+            if (failure == null) return true;
+            // The order on screen stays as picked, still pending — fix the cause, press again.
+            SetNicStatus(Loc.T("Set_NicFailed", failure));
+            Log.Info("Сеть: метрики не применены — " + failure);
+            await OverlayDialog.MessageAsync(this, Loc.T("Set_NicPrioTitle"), Loc.T("Set_NicFailed", failure)).ConfigureAwait(true);
+            return false;
         }
 
         // ---------- DNS for direct traffic ----------
@@ -617,7 +667,7 @@ namespace MihomoLauncher.Views
         {
             CommitMihomoFields();
 
-            // No engine yet? Download the latest stable build (GitHub → byfox fallback) to the
+            // No engine yet? Download the latest stable build (api.byfox.dev/engine) to the
             // configured path (or a writable default) before setting it up.
             if (string.IsNullOrWhiteSpace(_editing.MihomoExePath) || !File.Exists(_editing.MihomoExePath))
             {
@@ -651,7 +701,6 @@ namespace MihomoLauncher.Views
             var exeText = (TxtMihomoExe.Text ?? "").Trim();
             _editing.MihomoExePath = exeText.Length > 0 ? exeText : AppConfigStore.DefaultMihomoExeTarget;
             _editing.MihomoWorkDir = (TxtMihomoWorkDir.Text ?? "").Trim();
-            _editing.RemoteDesktopSafeMode = SwitchSafeMode.IsChecked == true;
             _editing.FirewallKillSwitch = SwitchFirewall.IsChecked == true;
         }
 
@@ -673,7 +722,7 @@ namespace MihomoLauncher.Views
 
         // ---------- Download the mihomo engine (used by «Настроить mihomo» when missing) ----------
 
-        // Download the latest stable engine (GitHub → byfox fallback) to the configured path,
+        // Download the latest stable engine (api.byfox.dev/engine) to the configured path,
         // or to a writable default if none is set. Stamps the local version and updates the
         // path field. Returns false (with a message shown) if it couldn't be downloaded.
         private async Task<bool> DownloadEngineIfMissingAsync()
@@ -1022,10 +1071,12 @@ namespace MihomoLauncher.Views
             {
                 // Empty exe path is valid now (CommitMihomoFields fills in the default), so
                 // there's nothing to block on here.
+                // Card priority first: if Windows refuses it, nothing is saved and the window stays.
+                ok = !NicPending || await ApplyNicAsync(_nicAutoPending);
                 CommitMihomoFields();
                 // Settings no longer shows the DNS page: leave the stored DNS as it is (no
                 // DNS check on every Settings save).
-                ok = !_dnsOnly || await CommitDnsAsync();
+                ok = ok && (!_dnsOnly || await CommitDnsAsync());
             }
             finally
             {

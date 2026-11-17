@@ -227,18 +227,19 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <Grid Margin="0,2,12,2">
+                        <!-- The whole row toggles — the box AND the name (2026-11-16). Transparent
+                             background so the gaps between them take the click too. -->
+                        <Grid Margin="0,2,12,2" Background="Transparent" Cursor="Hand"
+                              Tag="{Binding Id}" ToolTip="{Binding BoxTip}"
+                              MouseLeftButtonUp="OnSlotToggle">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Border Grid.Column="0" Width="28" Height="28" CornerRadius="5"
-                                    BorderThickness="1" Margin="0,0,10,0" Cursor="Hand"
+                                    BorderThickness="1" Margin="0,0,10,0"
                                     Background="{Binding BoxFill}"
-                                    BorderBrush="{Binding BoxEdge}"
-                                    Tag="{Binding Id}"
-                                    ToolTip="{Binding BoxTip}"
-                                    MouseLeftButtonUp="OnSlotToggle">
+                                    BorderBrush="{Binding BoxEdge}">
                                 <TextBlock Text="{Binding RankText}" FontSize="12.5" FontWeight="SemiBold"
                                            Foreground="#EAF1FF"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />

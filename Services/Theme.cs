@@ -78,6 +78,16 @@ namespace MihomoLauncher.Services
         public static readonly SolidColorBrush AccentBlue = B("#FFAAB9D6");
         public static readonly SolidColorBrush AccentGrey = B("#FF8A909A");
 
+        // Speed classes (tile speed plate + its 24-hour chart, 2026-11-16): brighter than the
+        // muted accents on purpose — the first, muted version could not be seen at all.
+        public static readonly SolidColorBrush SpeedRed = B("#FFEF6B6B");     // < 1 Mbit/s
+        public static readonly SolidColorBrush SpeedAmber = B("#FFE9B64E");   // 1–10
+        public static readonly SolidColorBrush SpeedGreen = B("#FF6FCF8F");   // 10–50
+        public static readonly SolidColorBrush SpeedBlue = B("#FF5AA9FF");    // 50+
+        public static readonly SolidColorBrush SpeedTrack = B("#FF45454A");   // the empty part of the level bar
+        // The network-card chip's icon when Windows decides: light, not the dim chip grey.
+        public static readonly SolidColorBrush ChipIconBright = B("#FFD6D6DA");
+
         // ----- Banner: info (idle) — calm slate-blue -----
         public static readonly SolidColorBrush BannerInfoBg = B("#FF20242E");
         public static readonly SolidColorBrush BannerInfoBorder = B("#FF333B49");

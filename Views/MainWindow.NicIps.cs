@@ -30,6 +30,7 @@ namespace MihomoLauncher.Views
         private DateTime _nicIpDue = DateTime.MinValue;
         private bool _nicIpBusy;
         private bool _nicIpHooked;
+        private bool _nicIpChangedWhileBusy;
 
         private void HookNicIpChanges()
         {
@@ -42,6 +43,10 @@ namespace MihomoLauncher.Views
                     Dispatcher.BeginInvoke(new Action(() =>
                     {
                         _nicIpDue = DateTime.UtcNow.AddSeconds(3);   // let DHCP settle
+                        // Mid-lookup the finally below would overwrite that due time with
+                        // +10 min, and a card that got its address meanwhile stayed off the line
+                        // (TX20E switching Wi-Fi networks, 2026-11-16) — so remember it.
+                        if (_nicIpBusy) _nicIpChangedWhileBusy = true;
                     }));
                 }
                 catch { }
@@ -52,9 +57,25 @@ namespace MihomoLauncher.Views
         private void MaybeRefreshNicIps()
         {
             HookNicIpChanges();
-            if (!ShowNicPlate || _nicIpBusy || DateTime.UtcNow < _nicIpDue) return;
+            if (!ShowNicPlate || _nicIpBusy) return;
+            // Safety net for an address event Windows never sent: every 5 s compare which cards are
+            // up with an address against the line — a card that came or went is asked about now.
+            if (DateTime.UtcNow >= _nicIpCardsCheckedAt.AddSeconds(5))
+            {
+                _nicIpCardsCheckedAt = DateTime.UtcNow;
+                try
+                {
+                    var now = NetCards.List().Where(c => c.Up && NicIpLookup.CardAddress(c.Name) != null).Select(c => c.Name);
+                    if (!now.SequenceEqual(_nicIpCards.Select(c => c.Name), StringComparer.OrdinalIgnoreCase))
+                        _nicIpDue = DateTime.MinValue;
+                }
+                catch { }
+            }
+            if (DateTime.UtcNow < _nicIpDue) return;
             RefreshNicIps();
         }
+
+        private DateTime _nicIpCardsCheckedAt = DateTime.MinValue;
 
         private async void RefreshNicIps()
         {
@@ -70,7 +91,7 @@ namespace MihomoLauncher.Views
                 if (cards.Count == 0) return;
 
                 var servers = await NicIpLookup.ServerAddressesAsync(_mihomo, CancellationToken.None).ConfigureAwait(true);
-                var tasks = cards.Select(c => NicIpLookup.LookupAsync(c.Name, servers, CancellationToken.None)).ToList();
+                var tasks = cards.Select(c => NicIpLookup.LookupAsync(c.Name, servers, _mihomo, CancellationToken.None)).ToList();
                 await System.Threading.Tasks.Task.WhenAll(tasks).ConfigureAwait(true);
                 foreach (var t in tasks)
                 {
@@ -89,8 +110,10 @@ namespace MihomoLauncher.Views
             finally
             {
                 _nicIpBusy = false;
-                _nicIpDue = anyFailed ? DateTime.UtcNow.AddSeconds(NicIpRetrySeconds)
-                                      : DateTime.UtcNow.AddMinutes(NicIpRefreshMinutes);
+                _nicIpDue = _nicIpChangedWhileBusy ? DateTime.UtcNow.AddSeconds(3)
+                          : anyFailed ? DateTime.UtcNow.AddSeconds(NicIpRetrySeconds)
+                          : DateTime.UtcNow.AddMinutes(NicIpRefreshMinutes);
+                _nicIpChangedWhileBusy = false;
                 RenderStats();
             }
         }

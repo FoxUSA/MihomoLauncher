@@ -13,6 +13,7 @@ namespace MihomoLauncher.Services
     {
         public string Country { get; set; } = "";
         public string City { get; set; } = "";
+        public string IsoCode { get; set; } = "";   // "RU", "NL" — the badge in the speed window
 
         public string Display
         {
@@ -181,9 +182,62 @@ namespace MihomoLauncher.Services
                 {
                     Country = PickName(resp?.Country?.Names, lang, resp?.Country?.Name),
                     City = PickName(resp?.City?.Names, lang, resp?.City?.Name),
+                    IsoCode = resp?.Country?.IsoCode ?? "",
                 };
             }
             catch { return null; }
+        }
+
+        // "Сочи, Россия" (city first), "" when the base knows nothing.
+        public static string PlaceOf(GeoInfo g)
+        {
+            if (g == null) return "";
+            if (!string.IsNullOrEmpty(g.City) && !string.IsNullOrEmpty(g.Country)) return g.City + ", " + g.Country;
+            return !string.IsNullOrEmpty(g.City) ? g.City : g.Country ?? "";
+        }
+
+        // ---------- Provider (GeoLite2-ASN) ----------
+
+        // The engine's own ASN.mmdb (in its work dir), read into memory — not memory-mapped, so
+        // the file stays free for the 90-day refresh to replace. Reopened when the file changes.
+        private static DatabaseReader _asn;
+        private static string _asnPath;
+        private static DateTime _asnStamp;
+        private static readonly Dictionary<string, string> _orgCache = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        // "Google LLC" for an address, "" when unknown (no ASN.mmdb, a private address…).
+        public static string OrgOf(string ip, string asnPath)
+        {
+            if (string.IsNullOrEmpty(ip) || string.IsNullOrEmpty(asnPath)) return "";
+            lock (_lock)
+            {
+                string org;
+                if (_orgCache.TryGetValue(ip, out org)) return org;
+                org = "";
+                try
+                {
+                    if (File.Exists(asnPath))
+                    {
+                        var stamp = File.GetLastWriteTimeUtc(asnPath);
+                        if (_asn == null || _asnPath != asnPath || _asnStamp != stamp)
+                        {
+                            try { _asn?.Dispose(); } catch { }
+                            _asn = new DatabaseReader(asnPath, MaxMind.Db.FileAccessMode.Memory);
+                            _asnPath = asnPath;
+                            _asnStamp = stamp;
+                            _orgCache.Clear();
+                        }
+                        MaxMind.GeoIP2.Responses.AsnResponse r;
+                        IPAddress addr;
+                        if (IPAddress.TryParse(ip, out addr) && _asn.TryAsn(addr, out r))
+                            org = r?.AutonomousSystemOrganization ?? "";
+                    }
+                }
+                catch { org = ""; }
+                if (_orgCache.Count > 20000) _orgCache.Clear();
+                _orgCache[ip] = org;
+                return org;
+            }
         }
 
         // Localized place name: the current language, else English, else the DB default.

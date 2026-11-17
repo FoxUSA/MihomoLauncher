@@ -32,6 +32,32 @@ namespace MihomoLauncher.Views
                 _finished = true;
                 Application.Current.Shutdown();
             }
+            catch (UpdateBlockedException ub) when (ub.RolledBack)
+            {
+                // Nothing changed: start the version that is there again, then say what happened
+                // and that a reboot frees whatever held the file (2026-11-16).
+                Log.Error("UpdaterWindow", ub);
+                _finished = true;
+                SetStatus(Loc.T("Upd_BlockedStatus"));
+                SetPercent(-1);
+                try
+                {
+                    var exe = System.IO.Path.Combine(_opt.InstallRoot, "MihomoLauncher.exe");
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = exe, UseShellExecute = true, WorkingDirectory = _opt.InstallRoot });
+                }
+                catch (Exception rex) { Log.Error("UpdaterWindow.relaunch-old", rex); }
+                string file = string.IsNullOrEmpty(ub.LockedFile) ? "" : System.IO.Path.GetFileName(ub.LockedFile);
+                string why = file.Length == 0 ? Loc.T("Upd_BlockedSomeFile")
+                           : ub.Holder.Length > 0 ? Loc.T("Upd_BlockedFileBy", file, ub.Holder)
+                           : Loc.T("Upd_BlockedFile", file);
+                try
+                {
+                    Topmost = true;
+                    MessageBox.Show(this, Loc.T("Upd_BlockedDialog", why), Loc.T("Upd_Title"), MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+                catch { }
+                Application.Current.Shutdown();
+            }
             catch (Exception ex)
             {
                 Log.Error("UpdaterWindow", ex);

@@ -170,7 +170,7 @@ if (Test-Path -LiteralPath $cacheExe) {
     Copy-Item -LiteralPath $cacheExe -Destination (Join-Path $dataUser $engineName) -Force
     Write-Host "[layout-release] engine: DataUser\$engineName = mihomo v$haveVer"
 } else {
-    Write-Host "[layout-release] WARNING: no engine to ship (GitHub unreachable and nothing cached)"
+    Write-Host "[layout-release] WARNING: no engine to ship (api.byfox.dev unreachable and nothing cached)"
 }
 Remove-Item -LiteralPath (Join-Path $dataUser 'icons') -Recurse -Force -ErrorAction SilentlyContinue
 # Downloaded at runtime: the cached parts of api.byfox.dev's search index.
@@ -246,6 +246,18 @@ if ($signThumb -or $signPfx) {
         }
     }
 }
+
+# Icon index (2026-11-16): regenerated from ico\ + icon-aliases.txt on every Release, shipped in
+# Data\ AND put beside the zips in bin\Release — mirrored from there to
+# /var/www/byfox.dev/data/mihomolauncher/icons.txt, where installed launchers read it (IconFetcher).
+try {
+    $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+    & (Join-Path $PSScriptRoot 'gen-icons.ps1')
+    $idx = Join-Path $repo 'icons.txt'
+    Copy-Item -LiteralPath $idx -Destination (Join-Path $data 'icons.txt') -Force
+    Copy-Item -LiteralPath $idx -Destination (Join-Path (Split-Path $root -Parent) 'icons.txt') -Force
+    Write-Host "[layout-release] icons.txt -> Data\ and bin\Release\ (upload beside manifest.json)"
+} catch { Write-Host "[layout-release] WARNING: icons.txt not refreshed: $($_.Exception.Message)" }
 
 Set-FolderIcon $data     'data.ico'
 Set-FolderIcon $dataUser '..\Data\user_data.ico'

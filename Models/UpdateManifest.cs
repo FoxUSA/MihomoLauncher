@@ -9,7 +9,7 @@ namespace MihomoLauncher.Models
     //     "geoDate": "20260528", "geoPeriodDays": 180,
     //
     // No engine version: neither the local nor the byfox manifest carries one. The installed
-    // version is read from mihomo-windows-amd64.exe; the latest one comes from GitHub.
+    // version is read from mihomo-windows-amd64.exe; the latest one comes from api.byfox.dev.
     //     "blackmatrix7_version": "10.06.2026", "blackmatrix7_update_interval_days": 7 }
     //
     // geoDate is the installed GeoLite2-City DB date (yyyyMMdd). It lives in the LOCAL

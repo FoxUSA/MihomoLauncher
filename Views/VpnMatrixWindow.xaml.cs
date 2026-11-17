@@ -34,6 +34,7 @@ namespace MihomoLauncher.Views
 
         private readonly List<AppEntry> _rules;      // rules shown, in config order
         private readonly List<VpnSlot> _slots;       // columns: variants switched on in Settings
+        private readonly List<VpnSlot> _slotsAll;    // every variant, for HasTickedVpn
 
         // rule id -> variant ids it uses, best first. Index + 1 is the number in the cell, so
         // removing one entry renumbers everything after it with no extra bookkeeping.
@@ -87,9 +88,10 @@ namespace MihomoLauncher.Views
             Bar.Title = Title = Loc.T("Vpn_Title");
 
             var apps = (config?.Apps ?? new List<AppEntry>()).Where(a => a != null).ToList();
-            // Only rules that asked for a VPN: for anything else there is nothing to assign, and
-            // an empty row would just be noise in a table meant to be read at a glance.
-            _rules = apps.Where(a => a.RequiresVpn).ToList();
+            // Every tile, «без VPN»/«Напрямую» ones too (2026-11-16: «роутинг должен показывать все
+            // плитки») — their row starts empty; a number clicked there makes it a VPN tile.
+            _rules = apps;
+            _slotsAll = config?.VpnSlots;
             _slots = (config?.VpnSlots ?? new List<VpnSlot>())
                 .Where(s => s != null && s.Enabled).ToList();
 
@@ -102,9 +104,13 @@ namespace MihomoLauncher.Views
 
                 // What this rule actually uses: allowed variants, in its own order, with any
                 // allowed variant it never ranked (one added later) falling in behind them.
-                var used = ranked.Where(id => shown.Contains(id) && !disabled.Contains(id)).ToList();
-                foreach (var s in _slots)
-                    if (!disabled.Contains(s.Id) && !used.Contains(s.Id)) used.Add(s.Id);
+                // A direct tile with nothing ticked uses no VPN at all: an empty row, not «all of them».
+                bool direct = !rule.RequiresVpn && !AppConfigStore.HasTickedVpn(rule, _slotsAll);
+                var used = direct ? new List<string>()
+                    : ranked.Where(id => shown.Contains(id) && !disabled.Contains(id)).ToList();
+                if (!direct)
+                    foreach (var s in _slots)
+                        if (!disabled.Contains(s.Id) && !used.Contains(s.Id)) used.Add(s.Id);
 
                 _order[rule.Id] = used;
                 _baseOrder[rule.Id] = string.Join(",", used);
@@ -386,6 +392,15 @@ namespace MihomoLauncher.Views
                 rule.VpnSlotOrder = order.Concat(_hiddenRanked[rule.Id]).ToList();
                 rule.DisabledVpnSlotIds = shown.Where(id => !order.Contains(id))
                                                .Concat(_hiddenDisabled[rule.Id]).ToList();
+
+                // A «без VPN» tile given a VPN here becomes a VPN tile, switched off — the same as
+                // AppConfigStore.NormalizeDirectWithTicks: the plate shows the first VPN in grey
+                // with ▷, traffic keeps going direct until it is pressed.
+                if (!rule.RequiresVpn && !rule.Block && order.Count > 0)
+                {
+                    rule.RequiresVpn = true;
+                    rule.AutoConnect = false;
+                }
             }
             Result = _rules;
             try { DialogResult = true; } catch (InvalidOperationException) { }

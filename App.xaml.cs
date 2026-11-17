@@ -223,6 +223,9 @@ namespace MihomoLauncher
                 if (System.IO.Directory.Exists(stage)) System.IO.Directory.Delete(stage, true);
             }
             catch { }
+            // …and the old Data.old / MihomoLauncher.exe.old an update set aside but could not
+            // remove right away (UpdateApplier.SwapIn).
+            try { UpdateApplier.CleanAside(AppContext.BaseDirectory.TrimEnd('\\')); } catch { }
 
             // If autostart is on, keep it pointed at the current exe (handles a moved/
             // updated launcher) and clean out any old MihomoLauncher autostart entries.

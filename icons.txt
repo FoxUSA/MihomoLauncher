@@ -1512,6 +1512,7 @@ kima
 kimai
 kimi-ai
 kinopub
+kinozal
 kinto
 kirby
 kirby-wordmark
@@ -3556,6 +3557,10 @@ kimi=kimi-ai
 грок=grok
 @grok.com=grok
 @x.ai=grok
+кинозал=kinozal
+@kinozal.tv=kinozal
+@kinozal.guru=kinozal
+@kinozal.me=kinozal
 ютуб=youtube
 youtube music=youtube-music
 @googlevideo.com=youtube

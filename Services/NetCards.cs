@@ -38,6 +38,16 @@ namespace MihomoLauncher.Services
             "teredo", "isatap", "zerotier", "tailscale", "openvpn", "vpn", "pseudo", "wi-fi direct",
         };
 
+        // Show the tiles' card choice? The user's own setting once they made one; until then
+        // «two or more cards» (2026-11-16: with one card there is nothing to pick). `cardCount`
+        // lets a caller that already has the list skip re-reading it.
+        // 2026-11-16: no user override any more (the Settings box went) — two cards or more, always.
+        public static bool ShowPicker(AppConfig cfg, int? cardCount = null)
+        {
+            int n = cardCount ?? List().Count;
+            return n >= 2;
+        }
+
         public static List<NetCard> List()
         {
             var list = new List<NetCard>();
