@@ -450,7 +450,7 @@ namespace MihomoLauncher.Services
                 if (!string.IsNullOrEmpty(p)) return p;
             }
             catch { }
-            return Path.Combine(VersionInfo.InstallRoot, "MihomoLauncher.exe");
+            return VersionInfo.LauncherExeIn(VersionInfo.InstallRoot);
         }
 
         // Does the installed firewall task still point at THIS exe? False also when it isn't
@@ -460,12 +460,12 @@ namespace MihomoLauncher.Services
             if (IsServiceInstalled())
             {
                 var launcher = ImageArg(ServiceImagePath(), "launcher");
-                return launcher.Length == 0 || SamePath(launcher, LauncherExePath());
+                return launcher.Length == 0 || VersionInfo.SameLauncher(launcher, LauncherExePath());
             }
             if (!IsFirewallTaskInstalled()) return false;
             string exe, args;
             if (!TaskCommand(FirewallTaskName, out exe, out args)) return true;   // unreadable → don't nag
-            return SamePath(exe, LauncherExePath());
+            return VersionInfo.SameLauncher(exe, LauncherExePath());
         }
 
         // Kill the engine for certain, whatever state it is in.

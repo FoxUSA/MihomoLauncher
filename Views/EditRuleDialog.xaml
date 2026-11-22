@@ -207,7 +207,32 @@
             <!-- «Использовать VPN» removed 2026-11-14: VPN or «Напрямую» is picked on the tile's
                  plate, like any other exit; the list below is which VPNs, in what order. -->
             <StackPanel Orientation="Horizontal">
-                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch" />
+                <!-- Both switches, when on, are the violet of the tile chips' frame (2026-11-20). -->
+                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch">
+                    <ui:ToggleSwitch.Resources>
+                        <x:Static x:Key="ToggleSwitchFillOn" Member="svc:Theme.GuardSwitchFill" />
+                        <x:Static x:Key="ToggleSwitchFillOnPointerOver" Member="svc:Theme.GuardSwitchFillHover" />
+                        <x:Static x:Key="ToggleSwitchFillOnPressed" Member="svc:Theme.GuardSwitchFill" />
+                        <x:Static x:Key="ToggleSwitchStrokeOn" Member="svc:Theme.GuardSwitchFill" />
+                        <x:Static x:Key="ToggleSwitchStrokeOnPointerOver" Member="svc:Theme.GuardSwitchFillHover" />
+                        <x:Static x:Key="ToggleSwitchStrokeOnPressed" Member="svc:Theme.GuardSwitchFill" />
+                    </ui:ToggleSwitch.Resources>
+                </ui:ToggleSwitch>
+                <!-- 2026-11-19: pin the tile to the card it goes through now; the card's name next to it. -->
+                <ui:ToggleSwitch x:Name="ChkLockNic" Content="{DynamicResource Rule_LockNic}" Margin="28,0,0,0"
+                                 ToolTip="{DynamicResource Rule_LockNicTip}"
+                                 Checked="OnLockNicChecked" Unchecked="OnLockNicUnchecked">
+                    <ui:ToggleSwitch.Resources>
+                        <x:Static x:Key="ToggleSwitchFillOn" Member="svc:Theme.GuardSwitchFill" />
+                        <x:Static x:Key="ToggleSwitchFillOnPointerOver" Member="svc:Theme.GuardSwitchFillHover" />
+                        <x:Static x:Key="ToggleSwitchFillOnPressed" Member="svc:Theme.GuardSwitchFill" />
+                        <x:Static x:Key="ToggleSwitchStrokeOn" Member="svc:Theme.GuardSwitchFill" />
+                        <x:Static x:Key="ToggleSwitchStrokeOnPointerOver" Member="svc:Theme.GuardSwitchFillHover" />
+                        <x:Static x:Key="ToggleSwitchStrokeOnPressed" Member="svc:Theme.GuardSwitchFill" />
+                    </ui:ToggleSwitch.Resources>
+                </ui:ToggleSwitch>
+                <TextBlock x:Name="TxtLockNic" FontSize="12.5" Opacity="0.6" Margin="10,0,0,0"
+                           VerticalAlignment="Center" />
             </StackPanel>
 
             <TextBlock Text="{DynamicResource Rule_AllowedVpn}"

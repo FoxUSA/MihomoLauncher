@@ -21,7 +21,47 @@ namespace MihomoLauncher.Services
 
         private static UpdateManifest _local;
 
-        // Folder the running MihomoLauncher.exe lives in (the install root). The launcher
+        // The launcher's exe (2026-11-19: «Mihomo Launcher.exe», the install folder «Mihomo
+        // Launcher»). Up to 3.1.0 it was MihomoLauncher.exe, and that name stays alive as a tiny
+        // hidden forwarder (build\launchers\legacy.cs) shipped in every update.zip: a 3.1.0
+        // updater looks for MihomoLauncher.exe in the archive and starts root\MihomoLauncher.exe
+        // when done, and old Run values / shortcuts / pins / the service's --launcher point at it.
+        public const string ExeName = "Mihomo Launcher.exe";
+        public const string LegacyExeName = "MihomoLauncher.exe";
+        // Process names (no .exe) a launcher of ours can run under — the new one, and the old
+        // one (a 3.1.0 install mid-update, the Debug build, the forwarder for a moment).
+        public static readonly string[] ProcessNames = { "Mihomo Launcher", "MihomoLauncher" };
+
+        public static bool IsLauncherFileName(string fileName)
+            => string.Equals(fileName, ExeName, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, LegacyExeName, StringComparison.OrdinalIgnoreCase);
+
+        // The launcher in `root`: the new name when it is there, else the old one.
+        public static string LauncherExeIn(string root)
+        {
+            var exe = Path.Combine(root ?? "", ExeName);
+            if (File.Exists(exe)) return exe;
+            var legacy = Path.Combine(root ?? "", LegacyExeName);
+            return File.Exists(legacy) ? legacy : exe;
+        }
+
+        // The same launcher: the same path, or both names in the same folder (the service and the
+        // firewall task of an install from before the rename still name MihomoLauncher.exe — it
+        // forwards to Mihomo Launcher.exe, so they are not «pointing elsewhere» and must not
+        // trigger a re-install with its admin prompt).
+        public static bool SameLauncher(string a, string b)
+        {
+            a = (a ?? "").Trim().TrimEnd('\\'); b = (b ?? "").Trim().TrimEnd('\\');
+            if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase)) return true;
+            try
+            {
+                return IsLauncherFileName(Path.GetFileName(a)) && IsLauncherFileName(Path.GetFileName(b))
+                    && string.Equals(Path.GetDirectoryName(a), Path.GetDirectoryName(b), StringComparison.OrdinalIgnoreCase);
+            }
+            catch { return false; }
+        }
+
+        // Folder the running launcher exe lives in (the install root). The launcher
         // may sit anywhere, so always derive this from the actual exe location.
         public static string InstallRoot
         {
@@ -33,7 +73,7 @@ namespace MihomoLauncher.Services
         }
 
         // Per-user, update-surviving data folder beside the exe. Holds the config, geo DB,
-        // service list and updates.json. An update wipes Data\ + MihomoLauncher.exe but
+        // service list and updates.json. An update wipes Data\ + the launcher exe but
         // never touches DataUser\.
         public static string DataUserDir => Path.Combine(InstallRoot, "DataUser");
 

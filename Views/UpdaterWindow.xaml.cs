@@ -42,7 +42,7 @@ namespace MihomoLauncher.Views
                 SetPercent(-1);
                 try
                 {
-                    var exe = System.IO.Path.Combine(_opt.InstallRoot, "MihomoLauncher.exe");
+                    var exe = VersionInfo.LauncherExeIn(_opt.InstallRoot);
                     System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = exe, UseShellExecute = true, WorkingDirectory = _opt.InstallRoot });
                 }
                 catch (Exception rex) { Log.Error("UpdaterWindow.relaunch-old", rex); }

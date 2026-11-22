@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using Microsoft.Win32;
+using ComboBoxItem = System.Windows.Controls.ComboBoxItem;
 using MihomoLauncher.Models;
 using MihomoLauncher.Services;
 using Wpf.Ui.Controls;
@@ -124,11 +125,82 @@ namespace MihomoLauncher.Views
             }
 
             PnlInterval.Visibility = anySub ? Visibility.Visible : Visibility.Collapsed;
-            PnlSubButtons.Visibility = ShowSubscription != null && _editing != null
-                                       && _editing.Kind == VpnSlotKind.ClashSub
-                                       && lines.Count == 1 && lines[0] == (_editing.Value ?? "").Trim()
-                ? Visibility.Visible : Visibility.Collapsed;
+            bool storedSub = _editing != null && _editing.Kind == VpnSlotKind.ClashSub
+                             && lines.Count == 1 && lines[0] == (_editing.Value ?? "").Trim();
+            PnlSubButtons.Visibility = ShowSubscription != null && storedSub ? Visibility.Visible : Visibility.Collapsed;
+            PnlNode.Visibility = _nodesSet && storedSub ? Visibility.Visible : Visibility.Collapsed;
             RefitHeight();
+        }
+
+        // ---------- «Узел»: which node of the subscription the tile rides ----------
+
+        private bool _nodesSet;
+
+        // Set by Settings from the downloaded copy (null = not downloaded yet), and again after
+        // «Обновить». The pick survives a refill.
+        public SubscriptionPolicy.SubNodeList SubscriptionNodes
+        {
+            set
+            {
+                var keep = CmbNode.SelectedItem is ComboBoxItem cur ? cur.Tag as string
+                         : (_editing?.SubNode ?? "");
+                CmbNode.Items.Clear();
+
+                string def = value?.Default;
+                var defNode = value?.Nodes.FirstOrDefault(n => n.Name == def);
+                CmbNode.Items.Add(new ComboBoxItem
+                {
+                    Tag = "",
+                    Content = defNode != null
+                        ? Loc.T("Slot_NodeDefault", defNode.Name + " · " + NodeTypeLabel(defNode.Type))
+                        : Loc.T("Slot_NodeDefaultUnknown"),
+                });
+                if (value != null)
+                    foreach (var n in value.Nodes)
+                        CmbNode.Items.Add(new ComboBoxItem { Tag = n.Name, Content = n.Name + " · " + NodeTypeLabel(n.Type) });
+                // A pick the subscription no longer has stays visible, marked: the engine is on the
+                // default meanwhile (SubscriptionPolicy.ResolveNode).
+                if (!string.IsNullOrEmpty(keep) && (value == null || !value.Nodes.Any(n => n.Name == keep)))
+                    CmbNode.Items.Add(new ComboBoxItem { Tag = keep, Content = Loc.T("Slot_NodeGone", keep) });
+
+                CmbNode.SelectedItem = CmbNode.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (i.Tag as string) == (keep ?? ""))
+                                       ?? CmbNode.Items[0];
+                HintNode.Text = value == null ? Loc.T("Slot_NodeHintNoCopy") : Loc.T("Slot_NodeHint");
+                _nodesSet = true;
+                Refresh();
+            }
+        }
+
+        private static string NodeTypeLabel(string type)
+        {
+            switch ((type ?? "").ToLowerInvariant())
+            {
+                case "vless": return "VLESS";
+                case "vmess": return "VMess";
+                case "trojan": return "Trojan";
+                case "ss": return "Shadowsocks";
+                case "ssr": return "ShadowsocksR";
+                case "hysteria": return "Hysteria";
+                case "hysteria2": return "Hysteria2";
+                case "tuic": return "TUIC";
+                case "wireguard": return "WireGuard";
+                case "anytls": return "AnyTLS";
+                case "socks5": return "SOCKS5";
+                case "http": return "HTTP";
+                case "": return "?";
+                default: return type;
+            }
+        }
+
+        // What «Узел» says to store: the pick while the panel stands for this very subscription,
+        // the stored pick when the panel wasn't offered, nothing for a new or changed link.
+        private string PickedNode(VpnSlotKind kind, string value)
+        {
+            if (kind != VpnSlotKind.ClashSub || _editing == null || _editing.Kind != VpnSlotKind.ClashSub
+                || (value ?? "").Trim() != (_editing.Value ?? "").Trim()) return "";
+            if (PnlNode.Visibility == Visibility.Visible && CmbNode.SelectedItem is ComboBoxItem it)
+                return it.Tag as string ?? "";
+            return _editing.SubNode ?? "";
         }
 
         // «Обновить» / «Состав» of the stored subscription; set by Settings (it knows the
@@ -215,6 +287,7 @@ namespace MihomoLauncher.Views
                     Value = info.Value,
                     Enabled = enabled,
                     UpdateIntervalHours = hours,
+                    SubNode = PickedNode(info.Kind, info.Value),
                 });
             }
 

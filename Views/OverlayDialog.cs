@@ -38,8 +38,8 @@ namespace MihomoLauncher.Views
         // toggle's final state is returned alongside the button result (regardless of which
         // button closed it).
         public static Task<ToggleConfirm> ConfirmWithToggleAsync(Window owner, string title, string body,
-            string okText, string cancelText, string toggleLabel, bool toggleInitial)
-            => ShowAsync(owner, title, body, okText, cancelText, toggleLabel, toggleInitial);
+            string okText, string cancelText, string toggleLabel, bool toggleInitial, string toggleHint = null)
+            => ShowAsync(owner, title, body, okText, cancelText, toggleLabel, toggleInitial, toggleHint);
 
         public static async Task MessageAsync(Window owner, string title, string body, string okText = "OK")
             => await ShowAsync(owner, title, body, okText, null).ConfigureAwait(true);
@@ -70,11 +70,12 @@ namespace MihomoLauncher.Views
 
             var card = new Border
             {
-                Width = width,
+                MaxWidth = width,   // narrower window: the card gives way (2026-11-21)
+                Margin = new Thickness(12),
                 Background = Services.Theme.OverlayCardBg,
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch,   // = MaxWidth, centred; less if the window is narrower
                 VerticalAlignment = VerticalAlignment.Center,
                 Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
             };
@@ -104,7 +105,7 @@ namespace MihomoLauncher.Views
                     Foreground = Services.Theme.OverlayBody,
                 });
 
-            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var btnRow = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };   // wraps on a narrow window
 
             System.Action unhook = null;
             void Close(bool result)
@@ -175,11 +176,12 @@ namespace MihomoLauncher.Views
 
             var card = new Border
             {
-                Width = 460,
+                MaxWidth = 460,
+                Margin = new Thickness(12),
                 Background = Services.Theme.OverlayCardBg,
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch,   // = MaxWidth, centred; less if the window is narrower
                 VerticalAlignment = VerticalAlignment.Center,
                 Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
             };
@@ -238,7 +240,7 @@ namespace MihomoLauncher.Views
 
         // Variant of ShowAsync with an extra ToggleSwitch between the body and the buttons.
         private static Task<ToggleConfirm> ShowAsync(Window owner, string title, string body,
-            string okText, string cancelText, string toggleLabel, bool toggleInitial)
+            string okText, string cancelText, string toggleLabel, bool toggleInitial, string toggleHint)
         {
             var tcs = new TaskCompletionSource<ToggleConfirm>();
 
@@ -252,11 +254,12 @@ namespace MihomoLauncher.Views
 
             var card = new Border
             {
-                Width = 400,
+                MaxWidth = 400,
+                Margin = new Thickness(12),
                 Background = Services.Theme.OverlayCardBg,
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
-                HorizontalAlignment = HorizontalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Stretch,   // = MaxWidth, centred; less if the window is narrower
                 VerticalAlignment = VerticalAlignment.Center,
                 Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
             };
@@ -284,11 +287,22 @@ namespace MihomoLauncher.Views
             {
                 Content = toggleLabel,
                 IsChecked = toggleInitial,
-                Margin = new Thickness(0, 0, 0, 16),
+                Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(toggleHint) ? 16 : 4),
             };
             sp.Children.Add(toggle);
+            // What the switch is for, in one muted line under it (2026-11-19: «что значит рдп?
+            // вкратце пиши зачем свитч»).
+            if (!string.IsNullOrEmpty(toggleHint))
+                sp.Children.Add(new TextBlock
+                {
+                    Text = toggleHint,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 12.5,
+                    Margin = new Thickness(0, 0, 0, 16),
+                    Foreground = Services.Theme.TextMuted,
+                });
 
-            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var btnRow = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };   // wraps on a narrow window
 
             System.Action unhook = null;
             void Close(bool ok)

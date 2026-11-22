@@ -172,12 +172,13 @@ namespace MihomoLauncherSvc
                 Interlocked.Increment(ref _fwBusy);
                 try
                 {
-                    if (!File.Exists(_launcher)) { Note("launcher not found: " + _launcher); return; }
+                    var launcher = ResolveLauncher(_launcher);
+                    if (!File.Exists(launcher)) { Note("launcher not found: " + _launcher); return; }
                     var psi = new ProcessStartInfo
                     {
-                        FileName = _launcher,
+                        FileName = launcher,
                         Arguments = "--firewall-sync",
-                        WorkingDirectory = Path.GetDirectoryName(_launcher),
+                        WorkingDirectory = Path.GetDirectoryName(launcher),
                         UseShellExecute = false,
                         CreateNoWindow = true,
                     };
@@ -189,6 +190,23 @@ namespace MihomoLauncherSvc
                 catch (Exception ex) { Note("firewall sync: " + ex.Message); }
                 finally { Interlocked.Decrement(ref _fwBusy); ArmIdleStop(); }
             }
+        }
+
+        // The launcher was MihomoLauncher.exe up to 3.1.0 and is «Mihomo Launcher.exe» since
+        // (2026-11-19). A service registered before names the old file — which is now only a
+        // forwarder, or gone — so the new name beside it wins when it is there.
+        private static string ResolveLauncher(string launcher)
+        {
+            try
+            {
+                if (string.Equals(Path.GetFileName(launcher), "MihomoLauncher.exe", StringComparison.OrdinalIgnoreCase))
+                {
+                    var renamed = Path.Combine(Path.GetDirectoryName(launcher), "Mihomo Launcher.exe");
+                    if (File.Exists(renamed)) return renamed;
+                }
+            }
+            catch { }
+            return launcher;
         }
 
         // Nothing running a while after the last event → stop the service (see the header).
@@ -210,7 +228,7 @@ namespace MihomoLauncherSvc
             try { EventLog.WriteEntry(Name, msg, EventLogEntryType.Warning); } catch { }
         }
 
-        // Command line (set at install): --engine "<mihomo.exe>" --workdir "<dir>" --launcher "<MihomoLauncher.exe>"
+        // Command line (set at install): --engine "<mihomo.exe>" --workdir "<dir>" --launcher "<Mihomo Launcher.exe>"
         public static void Main(string[] args)
         {
             string engine = "", workDir = "", launcher = "";

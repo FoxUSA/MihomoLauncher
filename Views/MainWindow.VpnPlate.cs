@@ -30,7 +30,7 @@ namespace MihomoLauncher.Views
         // A transparent-hit-test Border, NOT a ui:Button — a custom button template swallowed
         // Click. MouseLeftButtonUp is handled so it doesn't fall through to the tile's launch.
         private FrameworkElement MakeCornerChip(Wpf.Ui.Controls.SymbolRegular symbol, double iconSize,
-            Thickness margin, HorizontalAlignment side, string tip, bool busy, Action onClick, Brush iconBrush = null)
+            Thickness margin, HorizontalAlignment side, string tip, bool busy, Action onClick, Brush iconBrush = null, bool guard = false)
         {
             var icon = new Wpf.Ui.Controls.SymbolIcon
             {
@@ -39,25 +39,30 @@ namespace MihomoLauncher.Views
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            return MakeCornerChip(icon, b => icon.Foreground = b, margin, side, tip, busy, onClick, iconBrush);
+            return MakeCornerChip(icon, b => icon.Foreground = b, margin, side, tip, busy, onClick, iconBrush, guard);
         }
 
         // The same chip around a drawn icon (the network card's LAN / Wi-Fi glyphs): `paint` colours it.
         private FrameworkElement MakeCornerChip(FrameworkElement icon, Action<Brush> paint,
-            Thickness margin, HorizontalAlignment side, string tip, bool busy, Action onClick, Brush iconBrush = null)
+            Thickness margin, HorizontalAlignment side, string tip, bool busy, Action onClick, Brush iconBrush = null, bool guard = false)
         {
             // iconBrush: a chip that tells a state by colour (the network-card one) — kept on hover too.
             var rest = iconBrush ?? Theme.AccentGrey;
             paint(rest);
             icon.HorizontalAlignment = HorizontalAlignment.Center;
             icon.VerticalAlignment = VerticalAlignment.Center;
+            // guard: a violet frame — the tile is kept from leaking (2026-11-20, mock-up variant A):
+            // kill-switch on the ▷/⏸ chip, «Привязка к сетевой карте» on the card chip. One colour
+            // for both on purpose; the tooltip says which. Kept on hover — only the fill changes.
+            var restBorder = guard ? Theme.GuardBorder : Theme.ChipBorder;
             var chip = new Border
             {
                 Width = 22,
                 Height = 22,
                 CornerRadius = new CornerRadius(6),
                 Background = Theme.ChipBg,
-                BorderBrush = Theme.ChipBorder,
+                BorderBrush = restBorder,
+                // Always 1 px: a thicker frame shrank the inside and moved the icon off centre.
                 BorderThickness = new Thickness(1),
                 HorizontalAlignment = side,
                 VerticalAlignment = VerticalAlignment.Top,
@@ -69,8 +74,8 @@ namespace MihomoLauncher.Views
             };
             if (!busy)
             {
-                chip.MouseEnter += (s, e) => { chip.Background = Theme.ChipBgHover; chip.BorderBrush = Theme.TileBorderHover; if (iconBrush == null) paint(Theme.TextPrimary); };
-                chip.MouseLeave += (s, e) => { chip.Background = Theme.ChipBg; chip.BorderBrush = Theme.ChipBorder; paint(rest); };
+                chip.MouseEnter += (s, e) => { chip.Background = Theme.ChipBgHover; if (!guard) chip.BorderBrush = Theme.TileBorderHover; if (iconBrush == null) paint(Theme.TextPrimary); };
+                chip.MouseLeave += (s, e) => { chip.Background = Theme.ChipBg; chip.BorderBrush = restBorder; paint(rest); };
                 chip.MouseLeftButtonUp += (s, e) => { e.Handled = true; onClick(); };
             }
             else
@@ -127,7 +132,25 @@ namespace MihomoLauncher.Views
             // VPN right now (2026-11-13): say so on the plate, not only on «без VPN» tiles.
             bool killOn = entry.KillSwitch && !entry.IsBlocking && !reconnecting;
 
-            if (entry.IsBlockMode)
+            // The tile's card carries nothing — gone, switched off, no cable, Wi-Fi not connected:
+            // nothing goes out, whatever the VPN plate would say otherwise (2026-11-19: a green
+            // «№1 Turkey» stayed on a tile whose Wi-Fi was not connected). The second line is the
+            // card's real state. «Привязка к сетевой карте» changes nothing here: the first version
+            // wrote a red «заблокировано» for a bound tile, and next to «нет сети» tiles with the
+            // same dead card it only raised the question «что именно?» — there is no network for
+            // either, and that is all the plate has to say. The binding is named in the tooltip.
+            NetCard deadCard = null;
+            string noNetTip = null;
+            bool noNet = !entry.IsBlocking && !reconnecting && TileHasNoNetwork(entry, out deadCard, out noNetTip);
+
+            if (noNet)
+            {
+                line1 = new[] { Loc.T("Main_TileNoNet") };
+                line2 = NoNetWhy(deadCard);
+                fg = Theme.AccentAmber;
+                tint = PlateTint.Amber;
+            }
+            else if (entry.IsBlockMode)
             {
                 // «Блокировать»: on → red «Блокирует», off → plain «Блокировать».
                 line1 = new[] { Loc.T(entry.AutoConnect ? "Main_TileBlocking" : "Main_TileBlock") };
@@ -277,6 +300,7 @@ namespace MihomoLauncher.Views
             // The full, uncut text (the longest variant of each line).
             if (line2 != null && line2.Length > 0 && !string.IsNullOrEmpty(line2[0])) plate.ToolTip = line1[0] + " — " + line2[0];
             else if (line1.Length > 1) plate.ToolTip = line1[0];
+            if (noNetTip != null) plate.ToolTip = noNetTip;   // every card of the tile and its state
 
             if (clickable)
             {
@@ -314,19 +338,66 @@ namespace MihomoLauncher.Views
             return (n > 0 ? "№" + n + " " : "") + slot.Name;
         }
 
-        // Country/city of a variant, if any of its proxies has been located this session.
+        // Country/city of a variant: from its proxy located while connecting, else from its server
+        // address read straight off the variant (ResolveSlotGeosAsync). Before 2026-11-21 only the
+        // first — so a variant this session never connected had no country in the picker: mom's
+        // one VPN showed «Турция, Стамбул», the same VPN on the author's PC (other tiles on other
+        // VPNs) showed nothing.
         private string SlotGeo(string slotId)
         {
             foreach (var kv in _proxySlot)
                 if (kv.Value?.Id == slotId && _proxyGeo.TryGetValue(kv.Key, out var geo) && !string.IsNullOrEmpty(geo))
                     return geo;
-            return "";
+            return _slotGeo.TryGetValue(slotId, out var sg) ? sg.Item2 ?? "" : "";
+        }
+
+        // slot id → (server it was located by, «Страна, Город»).
+        private readonly Dictionary<string, Tuple<string, string>> _slotGeo = new Dictionary<string, Tuple<string, string>>();
+        private bool _slotGeoBusy;
+
+        // Locates every enabled variant's server (a link or a .conf; a subscription has no one
+        // server). Local GeoLite2 + a DNS lookup of the host — no connection needed.
+        private async Task ResolveSlotGeosAsync()
+        {
+            if (_slotGeoBusy) return;
+            _slotGeoBusy = true;
+            bool changed = false;
+            try
+            {
+                var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
+                for (int i = 0; i < slots.Count; i++)
+                {
+                    var slot = slots[i];
+                    string server = null;
+                    try
+                    {
+                        var parsed = ProxyParsers.Parse(slot, (_config.VpnSlots.IndexOf(slot)) + 1);
+                        if (parsed != null && parsed.Ok && !parsed.IsProvider) server = parsed.Server;
+                    }
+                    catch { }
+                    if (string.IsNullOrWhiteSpace(server)) continue;
+                    if (_slotGeo.TryGetValue(slot.Id, out var had) && had.Item1 == server && !string.IsNullOrEmpty(had.Item2)) continue;
+                    string text = "";
+                    try { text = (await GeoIpService.LookupHostAsync(server).ConfigureAwait(true))?.Display ?? ""; }
+                    catch { }
+                    if (string.IsNullOrEmpty(text)) continue;
+                    _slotGeo[slot.Id] = Tuple.Create(server, text);
+                    changed = true;
+                }
+            }
+            catch (Exception ex) { Log.Error("slot-geo", ex); }
+            finally { _slotGeoBusy = false; }
+            if (changed) RebuildTiles();
         }
 
         private void ShowVpnPicker(AppEntry entry, FrameworkElement anchor)
         {
             if (_vpnPicker != null) _vpnPicker.IsOpen = false;
             HookPickerDismiss();
+            // Nothing here may rebuild the tiles (2026-11-21: a geo lookup started here rebuilt them
+            // at once, the plate the menu hangs on was gone, the menu never opened — and its sheet
+            // stayed over the window: nothing in it could be clicked any more).
+            if (PresentationSource.FromVisual(anchor) == null) return;
 
             var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
             // Nothing to pick: no VPN to move to, and the tile is already where «Напрямую» would
@@ -369,27 +440,27 @@ namespace MihomoLauncher.Views
                 if (others.Count > 0 && chosen.Count > 0 && ReferenceEquals(slot, others[0]))
                     list.Children.Add(new Border { Height = 1, Background = Theme.PickerBorder, Margin = new Thickness(6, 4, 6, 4) });
                 bool current = slot.Id == currentSlotId;
+                // The name, and where it exits on a second line under it (2026-11-21: «пиши
+                // турция стамбул второй строчкой под названием впн, чтобы не растягивать меню»).
                 var row = new Grid();
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                row.Children.Add(new TextBlock
+                var lines = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                lines.Children.Add(new TextBlock
                 {
                     Text = SlotLabel(slot),
                     FontSize = 13,
                     FontWeight = current ? FontWeights.SemiBold : FontWeights.Normal,
                     Foreground = Theme.TextPrimary,
-                    VerticalAlignment = VerticalAlignment.Center,
                 });
-                var geo = new TextBlock
-                {
-                    Text = SlotGeo(slot.Id),
-                    FontSize = 12,
-                    Foreground = Theme.TextMuted,
-                    Margin = new Thickness(16, 0, 0, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                Grid.SetColumn(geo, 1);
-                row.Children.Add(geo);
+                var geoText = SlotGeo(slot.Id);
+                if (!string.IsNullOrEmpty(geoText))
+                    lines.Children.Add(new TextBlock
+                    {
+                        Text = geoText,
+                        FontSize = 11.5,
+                        Foreground = Theme.TextMuted,
+                        Margin = new Thickness(0, 1, 0, 0),
+                    });
+                row.Children.Add(lines);
                 if (current)
                     row.Children.Add(new Border
                     {
@@ -402,7 +473,7 @@ namespace MihomoLauncher.Views
 
                 var cell = new Border
                 {
-                    Height = 32,
+                    Height = string.IsNullOrEmpty(geoText) ? 32 : 44,
                     Padding = new Thickness(12, 0, 10, 0),
                     CornerRadius = new CornerRadius(4),
                     Background = current ? Theme.PickerRowCurrent : Brushes.Transparent,
@@ -554,6 +625,15 @@ namespace MihomoLauncher.Views
 
             _vpnPicker = popup;
             popup.IsOpen = true;
+            // Didn't open after all (its plate left the window meanwhile): no Closed will come,
+            // so the sheet goes now — never left over the window.
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (popup.IsOpen && PresentationSource.FromVisual(anchor) != null) return;
+                if (rootGrid != null) rootGrid.Children.Remove(sheet);
+                if (_vpnPicker == popup) { _vpnPicker = null; popup.IsOpen = false; }
+                FlushPickerRebuild();
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         // While the picker is open, ANY press anywhere in the window only closes it: the press is

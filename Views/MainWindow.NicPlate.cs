@@ -21,25 +21,30 @@ namespace MihomoLauncher.Views
         // As tall as the VPN plate above it (asked 2026-11-14: the first 20 px version was too small to read).
         internal const double NicPlateHeight = 32;
 
-        // Settings → «Сеть» → «Показывать плашку сетевой карты»: the room the strip takes at the
-        // bottom of a tile (its height + the gap above it), 0 when hidden.
-        // «The machine has two cards or more» — no setting any more (2026-11-16: the box went).
-        // Asked every stats tick: the card count is cached for 5 s (NetCards.List only — not
-        // CurrentNetCards, which also reads the metrics over WMI).
-        private bool ShowNicPlate
+        // The card chip is always there (2026-11-18: «всегда показываем значок сети, даже если в
+        // системе вообще 1 карта») — it was «two cards or more», and a card switched off and on
+        // again left the tiles without it.
+        private bool ShowNicPlate => true;
+
+        // The chip's colour by the card's state (Theme.Nic*).
+        private static Brush NicStateBrush(NetCard c)
         {
-            get
+            if (c == null) return Theme.NicOff;
+            switch (c.State)
             {
-                if ((DateTime.UtcNow - _nicCountAt).TotalSeconds > 5)
-                {
-                    try { _nicCount = NetCards.List().Count; } catch { }
-                    _nicCountAt = DateTime.UtcNow;
-                }
-                return NetCards.ShowPicker(_config, _nicCount);
+                case NicState.Connected: return c.Wireless ? Theme.NicWifiOk : Theme.NicWiredOk;
+                case NicState.Disabled:
+                case NicState.Absent: return Theme.NicOff;
+                default: return Theme.NicTrouble;
             }
         }
-        private int _nicCount;
-        private DateTime _nicCountAt = DateTime.MinValue;
+
+        // What the card chips show, as one string: a change re-draws the tiles (MaybeRefreshNicIps).
+        private string NicStatesSig()
+        {
+            _netCardsCache = null;
+            return string.Join("|", CurrentNetCards().Select(c => c.Name + "=" + c.State)) + "#" + _defaultCardName + "#" + _otherWayOut;
+        }
         // 2026-11-16, a try-out: the card choice as an icon under the gear (Wi-Fi / cable, coloured
         // like the plate was) instead of the plate. false = the plate again.
         internal const bool NicAsIcon = true;
@@ -53,34 +58,38 @@ namespace MihomoLauncher.Views
         private FrameworkElement MakeNicChip(AppEntry entry, bool reconnecting)
         {
             var cards = NetCards.Chosen(entry, CurrentNetCards());
-            if (IsJustDefaultCard(cards.Select(c => c.Name))) cards = new List<NetCard>();
+            // A pinned card is the tile's own even when Windows uses it too: never shown as «по умолчанию».
+            if (!entry.LockNic && IsJustDefaultCard(cards.Select(c => c.Name))) cards = new List<NetCard>();
             bool clickable = !reconnecting && _reconnectingId == null;
 
             NetCard shown;
             Brush color;
             string tip;
+            // Coloured by the shown card's state (2026-11-18, the user's table): Wi-Fi blue / cable
+            // green when it works, amber with no cable / network / internet, grey switched off.
             if (cards.Count == 0)
             {
-                shown = DefaultCard();
-                // Coloured like a chosen card (2026-11-16: «цвет иконки wi-fi и лан одинаковый»):
-                // green while Windows' card works, red when there is none working.
-                // Later the same day: «верни цвет надписи лан серый» — Windows' card is light grey
-                // again; colour is for a card the tile chose. Red still when nothing works.
-                color = shown != null && shown.Present && shown.Up ? Theme.ChipIconBright : Theme.SpeedRed;
-                tip = (shown != null ? shown.Name + " — " + Loc.T("Main_NicDefaultShort") : Loc.T("Main_NicDefaultShort"))
+                // Windows decides: the card it uses; with none working — the first card there is
+                // (cable first), so the chip still says what is wrong.
+                shown = DefaultCard() ?? CurrentNetCards().FirstOrDefault();
+                tip = (shown != null ? shown.Name + " — " + NetCards.StateText(shown) + " · " + Loc.T("Main_NicDefaultShort")
+                                     : Loc.T("Main_NicNone"))
                     + "\n\n" + Loc.T("Main_TipPickNic") + "\n" + Loc.T("Main_NicDefaultRow");
             }
             else
             {
-                bool firstOk = cards[0].Present && cards[0].Up;
-                bool anyOk = cards.Any(c => c.Present && c.Up);
-                shown = cards[0];
-                color = !anyOk ? Theme.SpeedRed : !firstOk ? Theme.SpeedAmber : Theme.SpeedGreen;
+                bool firstOk = cards[0].State == NicState.Connected;
+                bool anyOk = cards.Any(c => c.State == NicState.Connected);
+                // The card the traffic really leaves through: the first that works.
+                shown = cards.FirstOrDefault(c => c.State == NicState.Connected) ?? cards[0];
                 tip = string.Join("\n", cards.Select((c, i) => (i + 1) + ". " + c.Name + " — " + NicStateText(c)))
                     + "\n\n" + Loc.T("Main_TipPickNic");
                 if (!anyOk) tip += "\n\n" + Loc.T("Main_TipNicDead");
                 else if (!firstOk) tip += "\n\n" + Loc.T("Main_TipNicBackup");
+                if (entry.LockNic) tip = string.Join("\n", cards.Select(c => c.Name + " — " + NicStateText(c)))
+                                         + "\n\n" + Loc.T("Main_NicLockedTip");
             }
+            color = NicStateBrush(shown);
             bool wifi = shown != null && shown.Wireless;
 
             Action<Brush> paint;
@@ -90,11 +99,18 @@ namespace MihomoLauncher.Views
                 new Thickness(5, 31, 0, 0), HorizontalAlignment.Left, tip, !clickable,
                 async () =>
                 {
+                    // Pinned in the rule's settings: the card can't be changed here — said, not ignored.
+                    if (entry.LockNic)
+                    {
+                        await OverlayDialog.MessageAsync(this, Loc.T("Main_NicLockedTitle"),
+                            Loc.T("Main_NicLockedMsg", NetCards.Clean(entry.Interfaces).FirstOrDefault() ?? "")).ConfigureAwait(true);
+                        return;
+                    }
                     // Which card a tile goes out through is a routing change — behind the access password.
                     if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
                     ShowNicPicker(entry, chip);
                 },
-                color);
+                color, entry.LockNic);
             return chip;
         }
 
@@ -106,14 +122,16 @@ namespace MihomoLauncher.Views
             {
                 var arcs = new System.Windows.Shapes.Path
                 {
-                    Data = Geometry.Parse("M2.5,9.5 A14,14 0 0 1 21.5,9.5 M5.5,12.8 A9.5,9.5 0 0 1 18.5,12.8 M8.6,16 A5,5 0 0 1 15.4,16"),
+                    // Half a unit higher than first drawn (2026-11-20): the fan + dot span 4.6…20.5,
+                    // so the ink sat below the 24-box centre; now it is centred in the chip.
+                    Data = Geometry.Parse("M2.5,9 A14,14 0 0 1 21.5,9 M5.5,12.3 A9.5,9.5 0 0 1 18.5,12.3 M8.6,15.5 A5,5 0 0 1 15.4,15.5"),
                     StrokeThickness = 2.3,
                     StrokeStartLineCap = PenLineCap.Round,
                     StrokeEndLineCap = PenLineCap.Round,
                 };
                 var dot = new System.Windows.Shapes.Ellipse { Width = 3, Height = 3 };
                 Canvas.SetLeft(dot, 10.5);
-                Canvas.SetTop(dot, 17.5);
+                Canvas.SetTop(dot, 17);
                 var c = new Canvas { Width = 24, Height = 24 };
                 c.Children.Add(arcs);
                 c.Children.Add(dot);
@@ -128,7 +146,8 @@ namespace MihomoLauncher.Views
                 FontWeight = FontWeights.Bold,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 1),
+                // No nudge (2026-11-20): capitals in Segoe UI already sit at the box centre; the
+                // 1 px bottom margin lifted «LAN» half a pixel above it.
                 IsHitTestVisible = false,
             };
             paint = b => text.Foreground = b;
@@ -158,8 +177,64 @@ namespace MihomoLauncher.Views
                         .Select(c => c.Name).FirstOrDefault();
                 }
                 catch { _defaultCardName = null; }
+                // Asked only when no listed card works: that is the one case it decides.
+                _otherWayOut = !_netCardsCache.Any(NetCards.Usable) && NetCards.OtherWayOut();
             }
             return _netCardsCache;
+        }
+
+        // No Wi-Fi / cable card works, yet Windows has another way out (a modem, PPPoE…).
+        private bool _otherWayOut;
+
+        // The tile's traffic has no card to leave through (2026-11-19): none of its own cards is
+        // there, switched on and connected — the choice is hard, it never moves to another card —
+        // or, with no cards of its own, Windows has no working card at all. «Нет интернета» is not
+        // this: that card works, and the check behind it can be wrong. `why` — the card to name
+        // (null when there are several and none is the tile's own); `tip` — every card's state.
+        private bool TileHasNoNetwork(AppEntry entry, out NetCard why, out string tip)
+        {
+            why = null;
+            tip = null;
+            var all = CurrentNetCards();
+            var own = NetCards.Chosen(entry, all);
+            List<NetCard> shown;
+            if (own.Count > 0)
+            {
+                if (own.Any(NetCards.Usable)) return false;
+                why = own[0];
+                shown = own;
+            }
+            else
+            {
+                if (all.Any(NetCards.Usable) || _otherWayOut) return false;
+                if (all.Count == 1) why = all[0];
+                shown = all;
+            }
+            tip = Loc.T("Main_TileNoNet")
+                + (shown.Count > 0 ? "\n" + string.Join("\n", shown.Select(c => c.Name + " — " + NicStateText(c))) : "\n" + Loc.T("Main_NicNone"))
+                + (entry.LockNic ? "\n\n" + Loc.T("Main_NicLockedTip") : "");
+            return true;
+        }
+
+        // Why that card carries nothing, for the plate's second line — longest variant first.
+        private static string[] NoNetWhy(NetCard c)
+        {
+            if (c == null) return null;
+            switch (c.State)
+            {
+                case NicState.Absent:
+                    return new[] { Loc.T("Main_TileNoCard", c.Name), Loc.T("Main_TileNoCard", ShortCardName(c)), Loc.T("Main_TileNoCardShort") };
+                case NicState.Disabled:
+                    return new[] { Loc.T("Main_TileCardOff", c.Name), Loc.T("Main_TileCardOffShort"), Loc.T("Main_TileCardOffTiny") };
+                case NicState.NoCable:
+                    return new[] { Loc.T("Main_TileNoCable", c.Name), Loc.T("Main_TileNoCableShort") };
+                default:
+                    // A card Windows itself calls «Wi-Fi» would read «нет Wi-Fi Wi-Fi».
+                    bool plain = c.Name.IndexOf("wi-fi", StringComparison.OrdinalIgnoreCase) >= 0
+                              || c.Name.IndexOf("wifi", StringComparison.OrdinalIgnoreCase) >= 0;
+                    return plain ? new[] { Loc.T("Main_TileNoWifiShort") }
+                                 : new[] { Loc.T("Main_TileNoWifi", c.Name), Loc.T("Main_TileNoWifiShort") };
+            }
         }
 
         private bool IsJustDefaultCard(IEnumerable<string> names)
@@ -189,8 +264,7 @@ namespace MihomoLauncher.Views
         {
             if (!c.Present) return Loc.T("Main_NicAbsent");
             var kind = Loc.T(c.Wireless ? "Main_NicWifi" : "Main_NicWired");
-            var state = !c.Up ? Loc.T("Main_NicDown") : !c.HasGateway ? Loc.T("Main_NicNoGw") : Loc.T("Main_NicUp");
-            return kind + " · " + state;
+            return kind + " · " + NetCards.StateText(c);
         }
 
         private FrameworkElement MakeNicPlate(AppEntry entry, bool reconnecting)
@@ -302,6 +376,12 @@ namespace MihomoLauncher.Views
             {
                 e.Handled = true;   // never the tile's launch
                 if (!clickable) return;
+                if (entry.LockNic)
+                {
+                    await OverlayDialog.MessageAsync(this, Loc.T("Main_NicLockedTitle"),
+                        Loc.T("Main_NicLockedMsg", NetCards.Clean(entry.Interfaces).FirstOrDefault() ?? "")).ConfigureAwait(true);
+                    return;
+                }
                 // Which card a tile goes out through is a routing change — behind the access password.
                 if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
                 ShowNicPicker(entry, plate);
@@ -463,12 +543,14 @@ namespace MihomoLauncher.Views
                             },
                         });
                     names.Children.Add(title);
-                    var stateOk = card.Present && card.Up;
+                    // The state in the chip's colours (connected — muted, as before).
+                    var st = card.State;
                     names.Children.Add(new TextBlock
                     {
                         Text = NicStateText(card) + (string.IsNullOrEmpty(card.Description) ? "" : " · " + card.Description),
                         FontSize = 11,
-                        Foreground = stateOk ? Theme.TextMuted : Theme.AccentAmber,
+                        Foreground = st == NicState.Connected ? Theme.TextMuted
+                                   : st == NicState.Disabled || st == NicState.Absent ? Theme.NicOff : Theme.NicTrouble,
                         TextTrimming = TextTrimming.CharacterEllipsis,
                         MaxWidth = 300,
                     });

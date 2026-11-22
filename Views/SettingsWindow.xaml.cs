@@ -44,17 +44,24 @@ namespace MihomoLauncher.Views
             {
                 foreach (var it in Tabs.Items.OfType<System.Windows.Controls.TabItem>())
                     it.Visibility = Visibility.Collapsed;   // headers only: the selected page still shows
-                TabDns.IsSelected = true;
+                // Two tabs of its own (2026-11-17): «Настройки» (the DNS page) and «Статистика».
+                TabDns.Visibility = Visibility.Visible;
+                TabDns.SetResourceReference(System.Windows.Controls.HeaderedContentControl.HeaderProperty, "DnsSt_TabSettings");
+                TabDnsStats.Visibility = Visibility.Visible;
+                TabDnsStats.IsSelected = true;   // «Статистика» first and opened by default
                 Title = "DNS";
                 TitleBarCtl.Title = "DNS";
                 BtnExitAppFooter.Visibility = Visibility.Collapsed;
-                Width = 760; MinWidth = 600;
-                Height = 520; MinHeight = 400;
+                // Wide enough for the statistics' three columns without cutting a name.
+                Width = 1000; MinWidth = 900;
+                Height = 560; MinHeight = 420;
+                InitDnsStats();
             }
             else
             {
                 TabDns.Visibility = Visibility.Collapsed;
-                if (TabDns.IsSelected) Tabs.SelectedIndex = 0;
+                TabDnsStats.Visibility = Visibility.Collapsed;
+                if (TabDns.IsSelected || TabDnsStats.IsSelected) Tabs.SelectedIndex = 0;
             }
 
             // A full copy: the hand-written field-by-field one used to drop FirewallKillSwitch
@@ -65,7 +72,7 @@ namespace MihomoLauncher.Views
             LstRoutes.ItemsSource = _routeRows;
             RefreshLockUi();
 
-            UpdateMihomoStatus();
+            if (!dnsOnly) UpdateMihomoStatus();
             FillUpdatesUi();
 
             VpnStatus.Changed += OnVpnStatusChanged;
@@ -74,7 +81,8 @@ namespace MihomoLauncher.Views
             _saveGuard = SaveGuard.Attach(this, BtnSave, () => SaveGuard.Xml(_editing) + "\u0003" + NicPendingSig());
             Loaded += (s, e) =>
             {
-                RefreshDiagnostics();
+                if (!_dnsOnly) RefreshDiagnostics();
+                if (_dnsOnly) FitDnsWindowToStats();
                 Dispatcher.BeginInvoke(new Action(FitHeightToTab), System.Windows.Threading.DispatcherPriority.Loaded);
             };
             Closed += (s, e) => { _closed = true; try { VpnStatus.Changed -= OnVpnStatusChanged; } catch { } };
@@ -147,13 +155,17 @@ namespace MihomoLauncher.Views
             TxtMihomoWorkDir.Text = AppConfigStore.ResolveMihomoWorkDir(_editing);
             ChkAutostart.IsChecked = Autostart.IsEnabled();
             SwitchFirewall.IsChecked = _editing.FirewallKillSwitch;
-            UpdateFirewallStatus();
+            // The DNS window shows only its own two tabs (2026-11-21: «окно DNS с задержкой
+            // открывается»): the hidden pages' status lines and the card list (WMI) are not read —
+            // ~0,3 s. Their editable fields above are still filled: «Сохранить» reads them back.
+            if (!_dnsOnly) UpdateFirewallStatus();
 
             TxtConfigPath.Text = AppConfigStore.ConfigPath;
             LblConfigPathHint.Text = Loc.T("Set_DefaultPathHint", AppConfigStore.DefaultConfigPath);
 
             FillDnsUi();
-            FillNetUi();
+            // No rows = no card change pending: «Сохранить» leaves the cards alone (NicPending).
+            if (!_dnsOnly) FillNetUi();
         }
 
         // ---------- Network («Сеть», 2026-11-14) ----------
@@ -252,12 +264,13 @@ namespace MihomoLauncher.Views
             _nicRows.Clear();
             var metrics = NicMetrics.Read();
             var rows = new List<KeyValuePair<long, NicRow>>();
-            foreach (var c in NetCards.List())
+            // A card switched off in Windows has no metric to order by — not listed here.
+            foreach (var c in NetCards.List().Where(x => !x.Disabled))
             {
                 NicMetrics.Current m;
                 metrics.TryGetValue(c.Name, out m);
                 var state = Loc.T(c.Wireless ? "Main_NicWifi" : "Main_NicWired") + " · "
-                          + (!c.Up ? Loc.T("Main_NicDown") : !c.HasGateway ? Loc.T("Main_NicNoGw") : Loc.T("Main_NicUp"))
+                          + NetCards.StateText(c)
                           + (string.IsNullOrEmpty(c.Description) ? "" : " · " + c.Description);
                 var label = m == null || !m.Has4 ? "—"
                           : m.Auto4 ? Loc.T("Set_NicAuto", m.Metric4) : Loc.T("Set_NicManual", m.Metric4);
@@ -789,6 +802,23 @@ namespace MihomoLauncher.Views
             Dispatcher.BeginInvoke(new Action(FitHeightToTab), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
+        // DNS window: both tabs share one height — the taller of the two (normally «Статистика»),
+        // fixed from the start, so switching «Настройки» ⇄ «Статистика» never resizes the window.
+        // Runs in Loaded, before the first frame: the stats tab is laid out once, unseen.
+        private void FitDnsWindowToStats()
+        {
+            try
+            {
+                TabDns.IsSelected = true;
+                UpdateLayout();
+                FitHeightToTab();
+                TabDnsStats.IsSelected = true;   // ends on «Статистика», the tab the window opens with
+                UpdateLayout();
+                FitHeightToTab();
+            }
+            catch (Exception ex) { Log.Error("dns-fit-height", ex); }
+        }
+
         private void FitHeightToTab()
         {
             try
@@ -873,7 +903,9 @@ namespace MihomoLauncher.Views
             TxtEnginePeriod.Text = UpdateStateStore.EnginePeriodDays.ToString();
             TxtGeoPeriod.Text = UpdateStateStore.GeoPeriodDays.ToString();
             TxtTplPeriod.Text = UpdateStateStore.TemplatesPeriodDays.ToString();
-            RefreshUpdatesInfo();
+            // The periods above are read back on «Сохранить»; the info lines (the .mmdb date read
+            // from disk) only on the «Обновление» page, which the DNS window does not have.
+            if (!_dnsOnly) RefreshUpdatesInfo();
         }
 
         private void RefreshUpdatesInfo()

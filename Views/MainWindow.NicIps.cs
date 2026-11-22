@@ -23,9 +23,13 @@ namespace MihomoLauncher.Views
     {
         private const int NicIpRefreshMinutes = 10;
         private const int NicIpRetrySeconds = 60;
+        private const int NicIpSoftRetrySeconds = 15;   // after the first failed check of a card
+        private const int NicIpFailsToShow = 2;         // failed checks in a row before «нет интернета»
 
         private readonly Dictionary<string, NicIpLookup.Result> _nicIp =
             new Dictionary<string, NicIpLookup.Result>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> _nicIpFails =
+            new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         private List<NetCard> _nicIpCards = new List<NetCard>();
         private DateTime _nicIpDue = DateTime.MinValue;
         private bool _nicIpBusy;
@@ -70,23 +74,46 @@ namespace MihomoLauncher.Views
                         _nicIpDue = DateTime.MinValue;
                 }
                 catch { }
+                CheckNicStates();
             }
             if (DateTime.UtcNow < _nicIpDue) return;
             RefreshNicIps();
         }
 
         private DateTime _nicIpCardsCheckedAt = DateTime.MinValue;
+        private string _nicStatesSig;
+
+        // A card switched off / on, a cable pulled, Wi-Fi lost, internet gone or back — the tiles'
+        // chips follow (2026-11-18: after «Отключить» + «Включить» the tiles kept the old picture).
+        private void CheckNicStates()
+        {
+            try
+            {
+                var sig = NicStatesSig();
+                if (_nicStatesSig != null && sig != _nicStatesSig)
+                {
+                    Log.Info("Сетевые карты: " + string.Join(", ", CurrentNetCards().Select(c => c.Name + " — " + NetCards.StateText(c))) + ".");
+                    RebuildTiles();
+                }
+                _nicStatesSig = sig;
+            }
+            catch (Exception ex) { Log.Error("nic-states", ex); }
+        }
 
         private async void RefreshNicIps()
         {
             _nicIpBusy = true;
-            bool anyFailed = false;
+            bool anyFailed = false, softFailed = false;
             try
             {
                 var cards = NetCards.List().Where(c => c.Up && NicIpLookup.CardAddress(c.Name) != null).ToList();
                 _nicIpCards = cards;
                 foreach (var gone in _nicIp.Keys.Where(k => !cards.Any(c => string.Equals(c.Name, k, StringComparison.OrdinalIgnoreCase))).ToList())
+                {
                     _nicIp.Remove(gone);
+                    _nicIpFails.Remove(gone);
+                    NetCards.SetInternet(gone, true);   // off / no network now — said by its own state
+                }
                 RenderStats();
                 if (cards.Count == 0) return;
 
@@ -98,8 +125,28 @@ namespace MihomoLauncher.Views
                     var r = t.Result;
                     NicIpLookup.Result old;
                     _nicIp.TryGetValue(r.Card, out old);
+                    if (r.Ok) _nicIpFails.Remove(r.Card);
+                    else
+                    {
+                        // One failed check is not «no internet» (2026-11-19: a single TLS handshake
+                        // to ip.byfox.dev dropped through Ethernet — the line went red and the tiles'
+                        // LAN chips amber for 2.5 min while the card worked fine). Like Windows'
+                        // own check: keep what was shown, ask again soon, say «нет интернета» only
+                        // when that fails too.
+                        int fails;
+                        _nicIpFails.TryGetValue(r.Card, out fails);
+                        _nicIpFails[r.Card] = ++fails;
+                        anyFailed = true;
+                        if (fails < NicIpFailsToShow)
+                        {
+                            softFailed = true;
+                            Log.Info("Сетевая карта «" + r.Card + "» (" + r.LocalIp + "): проверка не прошла, повтор через "
+                                     + NicIpSoftRetrySeconds + " с — " + r.Error);
+                            continue;
+                        }
+                    }
                     _nicIp[r.Card] = r;
-                    if (!r.Ok) anyFailed = true;
+                    NetCards.SetInternet(r.Card, r.Ok);   // the chip: «нет интернета» when it failed
                     if (old == null || old.Ok != r.Ok || old.Ip != r.Ip)
                         Log.Info("Сетевая карта «" + r.Card + "» (" + r.LocalIp + "): "
                                  + (r.Ok ? "внешний адрес " + r.Ip + " · " + PlaceOf(r) + (r.Org.Length > 0 ? " · " + r.Org : "")
@@ -111,10 +158,12 @@ namespace MihomoLauncher.Views
             {
                 _nicIpBusy = false;
                 _nicIpDue = _nicIpChangedWhileBusy ? DateTime.UtcNow.AddSeconds(3)
+                          : softFailed ? DateTime.UtcNow.AddSeconds(NicIpSoftRetrySeconds)
                           : anyFailed ? DateTime.UtcNow.AddSeconds(NicIpRetrySeconds)
                           : DateTime.UtcNow.AddMinutes(NicIpRefreshMinutes);
                 _nicIpChangedWhileBusy = false;
                 RenderStats();
+                CheckNicStates();
             }
         }
 

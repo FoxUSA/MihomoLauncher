@@ -96,6 +96,7 @@ namespace MihomoLauncher.Services
             foreach (var c in checks)
             {
                 if (c[2].Length == 0 || SamePath(c[1], c[2])) continue;
+                if (c[0] == "launcher" && VersionInfo.SameLauncher(c[1], c[2])) continue;   // old exe name, same folder
                 reason = c[0] + " службы=" + c[1] + " ожидается=" + c[2];
                 return false;
             }
@@ -260,7 +261,7 @@ namespace MihomoLauncher.Services
         //
         // An update can't register a service (that needs admin) — but installs from before the
         // service already HAVE something that runs our exe as SYSTEM: the firewall task, which
-        // starts MihomoLauncher.exe --firewall-sync. After the update that is the NEW exe, and in
+        // starts the launcher exe --firewall-sync. After the update that is the NEW exe, and in
         // that mode it registers the service itself (MigrateToServiceAsSystem). No UAC, and the
         // engine keeps running: it is left alone until the launcher next restarts it.
 
@@ -270,7 +271,7 @@ namespace MihomoLauncher.Services
         {
             if (IsServiceInstalled() || !File.Exists(ServiceExePath())) return false;
             string exe, args;
-            return TaskCommand(FirewallTaskName, out exe, out args) && SamePath(exe, LauncherExePath());
+            return TaskCommand(FirewallTaskName, out exe, out args) && VersionInfo.SameLauncher(exe, LauncherExePath());
         }
 
         // Asks the firewall task to run (see above). Its own schtasks call: RunFirewallTask would

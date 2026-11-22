@@ -6,8 +6,8 @@ namespace MihomoLauncher.Services
     // Gives the install folder and its sub-folders custom icons via desktop.ini, using RELATIVE
     // paths so they survive the folder being moved / copied to another PC. Icon files ship in
     // Data\:  Data\fox.ico → main folder + the exe, Data\data.ico → Data\, Data\user_data.ico →
-    // DataUser\. The clickable help / uninstall launchers in the root are tiny EXEs
-    // (help.exe / uninstall.exe) built at Release-layout time with help.ico / trash.ico embedded
+    // DataUser\. The clickable uninstall launcher in the root is a tiny EXE
+    // (uninstall.exe) built at Release-layout time with trash.ico embedded
     // — a .bat can't carry a custom Explorer icon and a .lnk bakes in absolute paths that break
     // on move, so an exe with an embedded icon is the only portable option.
     //
@@ -27,8 +27,9 @@ namespace MihomoLauncher.Services
             TrySetFolderIcon(root, @"Data\fox.ico");
 
             // Drop stale root launchers from older builds (.lnk had absolute paths; .bat had no
-            // icon). The real uninstaller stays at Data\uninstall.bat; never touch it.
-            foreach (var stale in new[] { "help.lnk", "uninstall.lnk", "help.bat", "uninstall.bat" })
+            // icon; help.exe was removed from the project on 2026-11-19). The real uninstaller
+            // stays at Data\uninstall.bat; never touch it.
+            foreach (var stale in new[] { "help.exe", "help.lnk", "uninstall.lnk", "help.bat", "uninstall.bat" })
                 TryDelete(Path.Combine(root, stale));
         }
 

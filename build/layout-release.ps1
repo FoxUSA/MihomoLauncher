@@ -9,12 +9,12 @@ param(
 if (-not $GeoSource) { $GeoSource = $env:MIHOMOLAUNCHER_GEO_SOURCE }
 if (-not $GeoSource) { $GeoSource = Join-Path $PSScriptRoot '..\..\..\maxmind' }
 
-# Release layout: keep ONLY MihomoLauncher.exe in the output root and move every other build
+# Release layout: keep ONLY "Mihomo Launcher.exe" in the output root and move every other build
 # artifact (dependency DLLs, .config, pdb, manifest.json, icons, etc.) into Data\. App.cs
 # resolves those DLLs from Data\ via AssemblyResolve, so no .config is needed next to the exe.
 #
 # User data (config, geo DB, service list, manifest_geo.json) lives in DataUser\ — it SURVIVES
-# an update (which wipes Data\ + MihomoLauncher.exe). help.html / uninstall.bat are shipped into
+# an update (which wipes Data\ + the exe). help.html / uninstall.bat are shipped into
 # Data\ via csproj Links; the launcher creates "help" / "uninstall" shortcuts in the root at
 # runtime (FolderIcons). Idempotent — safe to run after every Release build.
 
@@ -25,9 +25,26 @@ $dataUser = Join-Path $root 'DataUser'
 New-Item -ItemType Directory -Force -Path $data | Out-Null
 New-Item -ItemType Directory -Force -Path $dataUser | Out-Null
 
-$keepInRoot = @('MihomoLauncher.exe')
+# The launcher ships as "Mihomo Launcher.exe" (2026-11-19). The assembly stays MihomoLauncher
+# (namespaces, pack URIs), so MSBuild writes MihomoLauncher.exe and it is renamed here. The old
+# name lives on as a tiny forwarder, built below into bin\Release\legacy\ and added to
+# update.zip only (make-zips.bat) - see build\launchers\legacy.cs.
+$exeName = 'Mihomo Launcher.exe'
+$built = Join-Path $root 'MihomoLauncher.exe'
+if (Test-Path -LiteralPath $built) {
+    for ($try = 1; ; $try++) {
+        try { Move-Item -LiteralPath $built -Destination (Join-Path $root $exeName) -Force; break }
+        catch { if ($try -ge 10) { throw }; Start-Sleep -Milliseconds 500 }
+    }
+}
+# uninstall.exe stays too (rebuilt below): moving last build's copy into Data\ left a stale
+# Data\uninstall.exe in every release. help.exe is gone (2026-11-19) - drop it here as well,
+# or this very loop would carry the old one into Data\.
+$keepInRoot = @($exeName, 'uninstall.exe')
+foreach ($n in 'help.exe') { Remove-Item -LiteralPath (Join-Path $root $n) -Force -ErrorAction SilentlyContinue }
+foreach ($n in 'help.exe','help.ico','uninstall.exe') { Remove-Item -LiteralPath (Join-Path $data $n) -Force -ErrorAction SilentlyContinue }
 
-# Keep ONLY MihomoLauncher.exe in the root; everything else (DLLs, pdb, manifest, icons, Data\
+# Keep ONLY the launcher exe in the root; everything else (DLLs, pdb, manifest, icons, Data\
 # content...) is either already under Data\/DataUser\ or gets moved into Data\. DataUser\ is
 # never touched.
 Get-ChildItem -LiteralPath $root -Force |
@@ -183,8 +200,8 @@ Remove-Item -LiteralPath (Join-Path $data 'logs') -Recurse -Force -ErrorAction S
 # --- Folder icons (desktop.ini, RELATIVE paths so they survive the folder being moved /
 #     copied to another PC) + tiny launcher EXEs in the root with EMBEDDED icons. A .bat/.lnk
 #     can't show a custom Explorer icon (.bat) or breaks on move (.lnk absolute paths), so
-#     help.exe/uninstall.exe carry help.ico/trash.ico embedded and open the real files in
-#     Data\ via their own directory (portable, icon shows with no first launch). ---
+#     uninstall.exe carries trash.ico embedded and starts the uninstaller via its own
+#     directory (portable, icon shows with no first launch). ---
 
 function Set-FolderIcon([string]$folder, [string]$iconRel) {
     if (-not (Test-Path -LiteralPath $folder)) { return }
@@ -197,7 +214,8 @@ function Set-FolderIcon([string]$folder, [string]$iconRel) {
 }
 
 # Remove stale launchers from older builds (.lnk / .bat).
-foreach ($n in 'help.lnk','uninstall.lnk','help.bat','uninstall.bat') {
+# help.exe was dropped on 2026-11-19 (the user asked to remove it from the project).
+foreach ($n in 'help.exe','help.lnk','uninstall.lnk','help.bat','uninstall.bat') {
     Remove-Item -LiteralPath (Join-Path $root $n) -Force -ErrorAction SilentlyContinue
 }
 
@@ -206,9 +224,6 @@ $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 if (-not (Test-Path -LiteralPath $csc)) { $csc = Join-Path $env:WINDIR 'Microsoft.NET\Framework\v4.0.30319\csc.exe' }
 $launchers = Join-Path $PSScriptRoot 'launchers'
 if (Test-Path -LiteralPath $csc) {
-    if (Test-Path -LiteralPath (Join-Path $data 'help.ico')) {
-        & $csc /nologo /target:winexe /win32icon:"$(Join-Path $data 'help.ico')" /out:"$(Join-Path $root 'help.exe')" "$(Join-Path $launchers 'help.cs')" | Out-Null
-    }
     if (Test-Path -LiteralPath (Join-Path $data 'trash.ico')) {
         & $csc /nologo /target:winexe /win32icon:"$(Join-Path $data 'trash.ico')" /out:"$(Join-Path $root 'uninstall.exe')" "$(Join-Path $launchers 'uninstall.cs')" | Out-Null
     }
@@ -216,8 +231,14 @@ if (Test-Path -LiteralPath $csc) {
     # with the rest of the app; the service stops itself when idle, so the file is not locked.
     & $csc /nologo /target:winexe /codepage:65001 /r:System.ServiceProcess.dll /win32icon:"$(Join-Path $data 'fox.ico')" /out:"$(Join-Path $data 'service.exe')" "$(Join-Path $launchers 'service.cs')" | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "[layout-release] WARNING: service.exe not built" }
+    # The old-name forwarder, beside the output folder (never inside: the full archive must not
+    # carry it). make-zips.bat puts it into update.zip as <folder>\MihomoLauncher.exe.
+    $legacyDir = Join-Path (Split-Path $root -Parent) 'legacy'
+    New-Item -ItemType Directory -Force -Path $legacyDir | Out-Null
+    & $csc /nologo /target:winexe /codepage:65001 /win32icon:"$(Join-Path $data 'fox.ico')" /out:"$(Join-Path $legacyDir 'MihomoLauncher.exe')" "$(Join-Path $launchers 'legacy.cs')" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "legacy forwarder (MihomoLauncher.exe) not built - update.zip would break 3.1.0 updates" }
 } else {
-    Write-Host "[layout-release] WARNING: csc.exe not found - help.exe/uninstall.exe not built"
+    Write-Host "[layout-release] WARNING: csc.exe not found - uninstall.exe/service.exe/forwarder not built"
 }
 
 # ---- code signing (optional) --------------------------------------------------
@@ -234,7 +255,7 @@ if ($signThumb -or $signPfx) {
     if ($null -eq $signtool) {
         Write-Host "[layout-release] WARNING: signtool.exe not found - release left UNSIGNED"
     } else {
-        $targets = @((Join-Path $root 'MihomoLauncher.exe'), (Join-Path $root 'help.exe'), (Join-Path $root 'uninstall.exe'), (Join-Path $data 'service.exe')) |
+        $targets = @((Join-Path $root $exeName), (Join-Path $root 'uninstall.exe'), (Join-Path $data 'service.exe'), (Join-Path (Split-Path $root -Parent) 'legacy\MihomoLauncher.exe')) |
                    Where-Object { Test-Path -LiteralPath $_ }
         $signArgs = @('sign','/fd','SHA256','/tr','http://timestamp.digicert.com','/td','SHA256')
         if ($signThumb) { $signArgs += @('/sha1', $signThumb) }
@@ -263,4 +284,4 @@ Set-FolderIcon $data     'data.ico'
 Set-FolderIcon $dataUser '..\Data\user_data.ico'
 Set-FolderIcon $root     'Data\fox.ico'
 
-Write-Host "[layout-release] root = MihomoLauncher.exe + help.exe/uninstall.exe; Data\ = app; DataUser\ = user data"
+Write-Host "[layout-release] root = $exeName + uninstall.exe; Data\ = app; DataUser\ = user data; legacy\MihomoLauncher.exe = forwarder for update.zip"

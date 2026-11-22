@@ -18,8 +18,11 @@ echo ============================================================
 echo.
 
 echo [1/4] Zakryvayu prilozhenie MihomoLauncher...
+set "S_APP=ne bylo zapuscheno"
+taskkill /F /IM "Mihomo Launcher.exe" /T >nul 2>&1
+if !errorlevel! equ 0 set "S_APP=zakryto"
 taskkill /F /IM "MihomoLauncher.exe" /T >nul 2>&1
-if !errorlevel! equ 0 (set "S_APP=zakryto") else (set "S_APP=ne bylo zapuscheno")
+if !errorlevel! equ 0 set "S_APP=zakryto"
 echo        !S_APP!
 
 echo [2/4] Ostanavlivayu dvizhok mihomo (bez prav admina)...

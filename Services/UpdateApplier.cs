@@ -7,10 +7,10 @@ using System.Threading.Tasks;
 
 namespace MihomoLauncher.Services
 {
-    // Runs inside the FRESHLY EXTRACTED MihomoLauncher.exe (launched with --apply-update from the
+    // Runs inside a copy of the launcher exe (launched with --apply-update from the
     // staging folder). It performs the swap the old, still-running launcher couldn't do to
     // itself: wait for the old process to exit, stop every related process, delete the old
-    // Data\ + MihomoLauncher.exe, copy the new files from the staging folder into the install
+    // Data\ + exe, copy the new files from the staging folder into the install
     // root, then relaunch. DataUser\ and anything not present in the archive are left alone.
     //
     // Every step reports progress so the UpdaterWindow can show exactly what is happening.
@@ -115,7 +115,7 @@ namespace MihomoLauncher.Services
             // 7) Relaunch the installed launcher.
             onStatus?.Invoke(Loc.T("Upd_RelaunchingApp"));
             onPercent?.Invoke(100);
-            var newExe = Path.Combine(root, "MihomoLauncher.exe");
+            var newExe = VersionInfo.LauncherExeIn(root);
             try
             {
                 Process.Start(new ProcessStartInfo { FileName = newExe, UseShellExecute = true, WorkingDirectory = root });
@@ -135,7 +135,9 @@ namespace MihomoLauncher.Services
         {
             var root = opt.InstallRoot;
             var data = Path.Combine(root, "Data");
-            var exe = Path.Combine(root, "MihomoLauncher.exe");
+            // The real exe of this install: «Mihomo Launcher.exe», or — an install from before the
+            // rename — MihomoLauncher.exe (the copy then puts the forwarder in its place).
+            var exe = VersionInfo.LauncherExeIn(root);
             var dataOld = FreeAside(data + ".old", dir: true);
             var exeOld = FreeAside(exe + ".old", dir: false);
             bool dataMoved = false, exeMoved = false;
@@ -173,6 +175,11 @@ namespace MihomoLauncher.Services
                 string holder = locked != null ? FileHolders.Describe(locked) : "";
                 try { if (Directory.Exists(data)) ForceDeleteDir(data); } catch { }
                 try { if (File.Exists(exe)) { File.SetAttributes(exe, FileAttributes.Normal); File.Delete(exe); } } catch { }
+                // An install from before the rename: the new-name exe that got copied must go too,
+                // or the next start would pick it up over the old Data\ put back.
+                var renamed = Path.Combine(root, VersionInfo.ExeName);
+                if (!string.Equals(exe, renamed, StringComparison.OrdinalIgnoreCase))
+                    try { if (File.Exists(renamed)) { File.SetAttributes(renamed, FileAttributes.Normal); File.Delete(renamed); } } catch { }
                 bool back = PutBack(data, dataOld, dataMoved, exe, exeOld, exeMoved);
                 UpLog(opt, "4/5 ОТМЕНА: новая версия не скопировалась (" + ex.Message + ")"
                            + (back ? "; прежняя возвращена" : "; ВЕРНУТЬ НЕ УДАЛОСЬ"));
@@ -223,15 +230,16 @@ namespace MihomoLauncher.Services
             return path + "-" + DateTime.Now.Ticks;
         }
 
-        // Remove Data.old* / MihomoLauncher.exe.old* left by an update. Best effort; also run at start.
+        // Remove Data.old* / <exe>.old* left by an update. Best effort; also run at start.
         public static void CleanAside(string root)
         {
             try
             {
                 foreach (var d in Directory.GetDirectories(root, "Data.old*"))
                     try { ForceDeleteDir(d); } catch { }
-                foreach (var f in Directory.GetFiles(root, "MihomoLauncher.exe.old*"))
-                    try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
+                foreach (var name in new[] { VersionInfo.ExeName, VersionInfo.LegacyExeName })
+                    foreach (var f in Directory.GetFiles(root, name + ".old*"))
+                        try { File.SetAttributes(f, FileAttributes.Normal); File.Delete(f); } catch { }
             }
             catch { }
         }
@@ -283,7 +291,7 @@ namespace MihomoLauncher.Services
             }
         }
 
-        // Stop mihomo (its scheduled task + the process) and any leftover MihomoLauncher.exe that
+        // Stop mihomo (its scheduled task + the process) and any leftover launcher exe that
         // isn't us, then verify they're gone. Best-effort but loops a few times.
         private static async Task EnsureProcessesGoneAsync(string root, CancellationToken ct)
         {
@@ -295,14 +303,15 @@ namespace MihomoLauncher.Services
                 ct.ThrowIfCancellationRequested();
                 bool any = false;
 
-                // Other MihomoLauncher.exe instances (skip ourselves — we run from the staging copy).
-                foreach (var p in SafeGetProcesses("MihomoLauncher"))
-                {
-                    if (p.Id == me) { p.Dispose(); continue; }
-                    any = true;
-                    try { p.Kill(); } catch { }
-                    p.Dispose();
-                }
+                // Other launcher instances, old name or new (skip ourselves — we run from the staging copy).
+                foreach (var pn in VersionInfo.ProcessNames)
+                    foreach (var p in SafeGetProcesses(pn))
+                    {
+                        if (p.Id == me) { p.Dispose(); continue; }
+                        any = true;
+                        try { p.Kill(); } catch { }
+                        p.Dispose();
+                    }
 
                 // mihomo engine.
                 foreach (var name in new[] { "mihomo-windows-amd64", "mihomo" })

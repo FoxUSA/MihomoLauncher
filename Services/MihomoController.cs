@@ -155,6 +155,21 @@ namespace MihomoLauncher.Services
             return list;
         }
 
+        // GET /dns/query, the whole answer as the engine gives it (JSON: Status, Answer, Authority,
+        // Additional with EDE). A failure (server silent → HTTP 500 {"message":…}) comes back as
+        // its body too; "" when the API itself is out of reach.
+        public async Task<string> DnsQueryRawAsync(string name, CancellationToken ct = default)
+        {
+            try
+            {
+                using (var http = NewClient(8))
+                using (var resp = await http.GetAsync(ApiBase + "/dns/query?name=" + Uri.EscapeDataString(name) + "&type=A", ct)
+                                            .ConfigureAwait(false))
+                    return await resp.Content.ReadAsStringAsync().ConfigureAwait(false) ?? "";
+            }
+            catch { return ""; }
+        }
+
         // Wait until the API responds, up to timeoutSeconds.
         public async Task<bool> WaitApiReachableAsync(int timeoutSeconds, CancellationToken ct = default)
         {

@@ -49,6 +49,12 @@ namespace MihomoLauncher.Services
         // Providers only: dial every node of this provider through that outbound (a network card,
         // see MihomoConfigBuilder.NicPlan) — written as the provider's `override: dialer-proxy`.
         public string DialerProxy { get; set; } = "";
+
+        // ClashSub only: the node the user picked (VpnSlot.SubNode), "" = the subscription's
+        // default — and the proxy name whose downloaded copy lists the nodes (a network card's
+        // copy reads its source's).
+        public string SubNode { get; set; } = "";
+        public string SubCacheName { get; set; } = "";
     }
 
     // Converts VpnSlot definitions (WireGuard .conf path, vless:// link, Clash sub URL)
@@ -86,6 +92,8 @@ namespace MihomoLauncher.Services
                     {
                         int hours = slot.UpdateIntervalHours > 0 ? slot.UpdateIntervalHours : 48;
                         prov.ProviderIntervalSeconds = hours * 3600;
+                        prov.SubNode = slot.SubNode ?? "";
+                        prov.SubCacheName = prov.ProxyName;
                     }
                     return prov;
                 }

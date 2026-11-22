@@ -127,6 +127,14 @@ namespace MihomoLauncher.Models
         // and when none of the chosen cards works nothing goes out — never through another card.
         public List<string> Interfaces { get; set; } = new List<string>();
 
+        // «Привязка к сетевой карте» (2026-11-19): the tile is pinned to ONE card (Interfaces holds
+        // exactly it) and its traffic never moves to another — a cable pulled or the card switched
+        // off and nothing goes out, instead of Windows carrying on through Wi-Fi with the home IP.
+        // The engine does the blocking itself (`interface-name`: «interface not found»), the card
+        // can't be changed on the tile while this is on, and the tile's programs are walled by the
+        // firewall like a kill-switch's, so a stopped engine doesn't send them out through Windows.
+        public bool LockNic { get; set; } = false;
+
         // The kill-switch as it was when «Напрямую» was picked on the tile's VPN plate (which has
         // to turn it off — direct + kill-switch = no internet). Picking a VPN on the plate again
         // puts back exactly this, never a forced «on» (2026-11-14: RDP got a kill-switch it never

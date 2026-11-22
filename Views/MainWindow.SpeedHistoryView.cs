@@ -1,11 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -15,57 +14,58 @@ using TextBlock = System.Windows.Controls.TextBlock;
 
 namespace MihomoLauncher.Views
 {
-    // A tile's speed over the last 1 / 6 / 24 hours (2026-11-16, from the mock-up): now · peak (with
-    // its time) · average · downloaded · uploaded, and the chart — one bar per 1 / 2 / 5 minutes,
-    // coloured by speed class over faint class bands, upload as a thin line, hover for the exact
-    // figures. Own movable window (SpeedWindow), refreshed every few seconds while open. Data: SpeedHistory.
+    // A tile's speed: «Сейчас» and the last 1 / 6 / 12 / 24 hours. Laid out after the «Здоровье
+    // сервера» page (2026-11-21, .dev\mockups\speed-window-v2.html, the person's pick: plain scale
+    // with headroom, colour by speed, peaks as diamonds): the speed now in big figures, the route,
+    // a mirrored chart (download up, upload down from zero), under it «среднее · пик · объём» with
+    // the shift to the period before, beside it the tile's records. «Кто и куда» below.
+    // Own movable window (SpeedWindow), refreshed while open. Data: SpeedHistory.
     public partial class MainWindow
     {
         private async Task ShowSpeedHistoryAsync(AppEntry entry)
         {
             if (entry == null) return;
-            int hours = 24;
+            // 0 = «Сейчас» (2026-11-20): first and opened by default — live, the chart over the last
+            // hour, the figures and «кто и куда» over the last minute. 1 / 6 / 12 / 24 = the archive
+            // of that period, read once when the tab is clicked and then still.
+            int hours = 0;
+            Action<int> whoSetHours = null;
 
             var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
-            var stats = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 10) };
-            // Its own window now (2026-11-16), no longer squeezed into the main window's height.
-            var chart = new SpeedDayChart { Height = 220 };
-            var chartBox = new Border
-            {
-                Background = Theme.BadgeNeutralBg,
-                BorderBrush = Theme.BadgeNeutralBorder,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(6, 6, 6, 2),
-                Child = chart,
-            };
-            var legend = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-            foreach (var kv in new[]
-            {
-                new KeyValuePair<Brush, string>(Theme.SpeedRed, Loc.T("Main_SpeedLegendRed")),
-                new KeyValuePair<Brush, string>(Theme.SpeedAmber, Loc.T("Main_SpeedLegendAmber")),
-                new KeyValuePair<Brush, string>(Theme.SpeedGreen, Loc.T("Main_SpeedLegendGreen")),
-                new KeyValuePair<Brush, string>(Theme.SpeedBlue, Loc.T("Main_SpeedLegendBlue")),
-            })
-            {
-                var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 14, 2) };
-                item.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(2), Background = kv.Key, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
-                item.Children.Add(new TextBlock { Text = kv.Value, FontSize = 11.5, Foreground = Theme.TextSecondary });
-                legend.Children.Add(item);
-            }
-            {
-                var item = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 14, 2) };
-                item.Children.Add(new Border { Width = 10, Height = 2, Background = Theme.TextSecondary, Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center });
-                item.Children.Add(new TextBlock { Text = Loc.T("Main_SpeedLegendUp"), FontSize = 11.5, Foreground = Theme.TextSecondary });
-                legend.Children.Add(item);
-            }
 
-            // All time + «Очистить историю» (2026-11-16): the period figures are in the cards above.
-            var totalRow = new Grid { Margin = new Thickness(0, 8, 0, 0) };
-            totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var totalText = new TextBlock { FontSize = 12.5, Foreground = Theme.TextSecondary, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-            totalRow.Children.Add(totalText);
+            // The speed now, big: ↓ in its speed colour, ↑ plain.
+            var heroDown = new TextBlock { FontSize = 26, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom };
+            var heroUp = new TextBlock { FontSize = 20, FontWeight = FontWeights.SemiBold, Foreground = Theme.TextSecondary, Margin = new Thickness(18, 0, 0, 1), VerticalAlignment = VerticalAlignment.Bottom };
+            var hero = new StackPanel { Orientation = Orientation.Horizontal };
+            hero.Children.Add(heroDown);
+            hero.Children.Add(heroUp);
+            var sub = new TextBlock { FontSize = 12.5, Foreground = Theme.TextSecondary, Margin = new Thickness(0, 2, 0, 10), TextTrimming = TextTrimming.CharacterEllipsis };
+
+            var chart = new SpeedDayChart { Height = 230 };
+            var table = new Grid { Margin = new Thickness(4, 8, 4, 2) };
+            var chartInner = new StackPanel();
+            chartInner.Children.Add(chart);
+            chartInner.Children.Add(new Border { Height = 1, Background = Theme.BadgeNeutralBorder, Margin = new Thickness(4, 6, 4, 0) });
+            chartInner.Children.Add(table);
+            var chartBox = SpeedPanel(chartInner, new Thickness(6, 8, 6, 6));
+
+            var records = new StackPanel();
+            var recordsBox = SpeedPanel(records, new Thickness(12, 10, 12, 8));
+            recordsBox.Margin = new Thickness(10, 0, 0, 0);
+
+            var middle = new Grid();
+            middle.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            middle.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(300) });
+            middle.Children.Add(chartBox);
+            Grid.SetColumn(recordsBox, 1);
+            middle.Children.Add(recordsBox);
+
+            // The note + «Очистить» + «Закрыть» on one line.
+            var footer = new Grid { Margin = new Thickness(0, 10, 0, 0) };
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var note = new TextBlock { FontSize = 12, Foreground = Theme.TextMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            footer.Children.Add(note);
             // A real button like «Закрыть» (same size), red as a destructive action.
             var clear = new Wpf.Ui.Controls.Button
             {
@@ -76,47 +76,22 @@ namespace MihomoLauncher.Views
                 Margin = new Thickness(0, 0, 8, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            // «Очистить историю» + «Закрыть» on the totals line, not a row of their own (2026-11-16).
-            // Bottom-aligned: the button's lower edge meets the last line («Отдано»).
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom };
             buttons.Children.Add(clear);
             Grid.SetColumn(buttons, 1);
-            totalRow.Children.Add(buttons);
+            footer.Children.Add(buttons);
 
             // «Кто и куда» (MainWindow.SpeedWho): the exit, the programs, their addresses.
             Window whoOwner = null;
             Action whoStop;
-            var whoHolder = new ContentControl();
-            var whoView = whoHolder;
+            var whoHolder = new ContentControl { Margin = new Thickness(0, 10, 0, 0) };
             var body = new StackPanel();
             body.Children.Add(tabs);
-            body.Children.Add(stats);
-            body.Children.Add(chartBox);
-            body.Children.Add(legend);
-            body.Children.Add(whoView);
-            body.Children.Add(totalRow);
-
-            UIElement Stat(string key, string value, string unit, Brush valueBrush = null)
-            {
-                var b = new Border
-                {
-                    Background = Theme.BadgeNeutralBg,
-                    BorderBrush = Theme.BadgeNeutralBorder,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(8),
-                    Padding = new Thickness(9, 6, 9, 7),
-                    Margin = new Thickness(0, 0, 6, 0),
-                };
-                var sp = new StackPanel();
-                sp.Children.Add(new TextBlock { Text = key, FontSize = 11.5, Foreground = Theme.TextMuted });
-                var v = new TextBlock { FontSize = 15, FontWeight = FontWeights.SemiBold, Foreground = valueBrush ?? Theme.TextPrimary, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis, IsHitTestVisible = false };
-                v.Inlines.Add(new System.Windows.Documents.Run(value));
-                if (!string.IsNullOrEmpty(unit))
-                    v.Inlines.Add(new System.Windows.Documents.Run(" " + unit) { FontSize = 10.5, FontWeight = FontWeights.Normal, Foreground = Theme.TextSecondary });
-                sp.Children.Add(v);
-                b.Child = sp;
-                return b;
-            }
+            body.Children.Add(hero);
+            body.Children.Add(sub);
+            body.Children.Add(middle);
+            body.Children.Add(whoHolder);
+            body.Children.Add(footer);
 
             string Volume(double bytes)
             {
@@ -125,33 +100,99 @@ namespace MihomoLauncher.Views
                 return mb.ToString(mb < 10 ? "0.0" : "0", CultureInfo.CurrentCulture) + " " + Loc.T("Main_SpeedMB");
             }
 
+            // Where the tile's traffic goes now: the VPN (and where it exits) / direct / blocked.
+            string Route()
+            {
+                if (entry.IsBlockMode) return Loc.T("Main_SpeedBlocked");
+                string proxy;
+                ProxySlotInfo info;
+                if (_assignment.TryGetValue(entry.Id, out proxy) && _proxySlot.TryGetValue(proxy, out info) && info != null)
+                {
+                    string geo;
+                    return _proxyGeo.TryGetValue(proxy, out geo) && !string.IsNullOrEmpty(geo)
+                        ? Loc.T("Main_SpeedViaGeo", info.Name, geo) : Loc.T("Main_SpeedVia", info.Name);
+                }
+                return Loc.T("Main_SpeedDirect");
+            }
+
+            // The figures this second, on every tab (2026-11-20: «сквозная»).
+            void UpdateNow()
+            {
+                double[] cur;
+                double d = 0, u = 0;
+                if (_speedNow.TryGetValue(entry.Id, out cur)) { d = cur[0]; u = cur.Length > 1 ? cur[1] : 0; }
+                double dm = d * 8 / 1e6;
+                heroDown.Inlines.Clear();
+                heroDown.Inlines.Add(new System.Windows.Documents.Run("↓ " + Mbit(d)));
+                heroDown.Inlines.Add(new System.Windows.Documents.Run(" " + Loc.T("Main_SpeedMbit")) { FontSize = 13, FontWeight = FontWeights.Normal, Foreground = Theme.TextSecondary });
+                heroDown.Foreground = dm >= 0.005 ? SpeedBrush(dm) : Theme.TextPrimary;
+                heroUp.Inlines.Clear();
+                heroUp.Inlines.Add(new System.Windows.Documents.Run("↑ " + Mbit(u)));
+                heroUp.Inlines.Add(new System.Windows.Documents.Run(" " + Loc.T("Main_SpeedMbit")) { FontSize = 13, FontWeight = FontWeights.Normal });
+            }
+
             void Refresh()
             {
-                int minutes = hours * 60;
+                int span = hours == 0 ? 1 : hours;
+                int minutes = span * 60;
                 var data = SpeedHistory.Get(entry.Id, minutes);
-                chart.Set(data, minutes, hours == 24 ? 5 : hours == 6 ? 2 : 1, hours == 24 ? 180 : hours == 6 ? 60 : 10);
+                chart.Set(data, minutes, span == 24 ? 5 : span == 12 ? 3 : span == 6 ? 2 : 1, span == 24 ? 180 : span == 12 ? 120 : span == 6 ? 60 : 10);
+                UpdateNow();
 
-                double[] cur;
-                double nowDown = _speedNow.TryGetValue(entry.Id, out cur) ? cur[0] : 0;
-                var peak = data.OrderByDescending(b => b.PeakDown).FirstOrDefault();
-                double secs = data.Sum(b => b.Secs), down = data.Sum(b => b.Down), up = data.Sum(b => b.Up);
-                stats.Children.Clear();
-                stats.Children.Add(Stat(Loc.T("Main_SpeedNow"), Mbit(nowDown), Loc.T("Main_SpeedMbit"), nowDown * 8 / 1e6 >= 0.005 ? SpeedBrush(nowDown * 8 / 1e6) : null));   // «0» plain, not the track grey
-                stats.Children.Add(Stat(Loc.T("Main_SpeedPeak"), peak == null ? "—" : Mbit(peak.PeakDown),
-                    peak == null ? "" : "· " + SpeedHistory.TimeOf(peak.Minute).ToLocalTime().ToString("HH:mm")));
-                stats.Children.Add(Stat(Loc.T("Main_SpeedAvgLong"), secs > 0 ? Mbit(down / secs) : "—", Loc.T("Main_SpeedMbit")));
-                stats.Children.Add(Stat(Loc.T("Main_SpeedDown"), Volume(down), ""));
-                stats.Children.Add(Stat(Loc.T("Main_SpeedUp"), Volume(up), ""));
+                string period;
+                double avgD, avgU, volD, volU, pkD, pkU;
+                string pkDAt, pkUAt, shiftD = null, shiftU = null;
+                if (hours == 0)
+                {
+                    // «Сейчас»: the figures over the last 60 s, the same minute as «кто и куда».
+                    var sec = SpeedLastMinute(entry.Id);
+                    double ms = sec.Sum(x => x.Secs);
+                    volD = sec.Sum(x => x.Down * x.Secs);
+                    volU = sec.Sum(x => x.Up * x.Secs);
+                    avgD = ms > 0 ? volD / ms : 0;
+                    avgU = ms > 0 ? volU / ms : 0;
+                    var tD = sec.OrderByDescending(x => x.Down).FirstOrDefault();
+                    var tU = sec.OrderByDescending(x => x.Up).FirstOrDefault();
+                    pkD = tD?.Down ?? 0; pkU = tU?.Up ?? 0;
+                    pkDAt = tD == null ? "" : tD.At.ToLocalTime().ToString("HH:mm:ss");
+                    pkUAt = tU == null ? "" : tU.At.ToLocalTime().ToString("HH:mm:ss");
+                    period = Loc.T("Main_SpeedPerMin");
+                    note.Text = Loc.T("Main_SpeedNote");
+                }
+                else
+                {
+                    double secs = data.Sum(b => b.Secs);
+                    volD = data.Sum(b => b.Down);
+                    volU = data.Sum(b => b.Up);
+                    avgD = secs > 0 ? volD / secs : 0;
+                    avgU = secs > 0 ? volU / secs : 0;
+                    var bD = data.OrderByDescending(b => b.PeakDown).FirstOrDefault();
+                    var bU = data.OrderByDescending(b => UpPeak(b)).FirstOrDefault();
+                    string fmt = span >= 12 ? "dd.MM HH:mm" : "HH:mm";
+                    pkD = bD?.PeakDown ?? 0; pkU = bU == null ? 0 : UpPeak(bU);
+                    pkDAt = bD == null ? "" : SpeedHistory.TimeOf(bD.Minute).ToLocalTime().ToString(fmt);
+                    pkUAt = bU == null ? "" : SpeedHistory.TimeOf(bU.Minute).ToLocalTime().ToString(fmt);
+                    // The same span just before: the average's shift, when that span was measured enough.
+                    var prev = SpeedHistory.Get(entry.Id, minutes, minutes);
+                    double ps = prev.Sum(b => b.Secs);
+                    if (ps >= minutes * 60 * 0.1)
+                    {
+                        shiftD = Shift(avgD, prev.Sum(b => b.Down) / ps);
+                        shiftU = Shift(avgU, prev.Sum(b => b.Up) / ps);
+                    }
+                    period = Loc.T(span == 1 ? "Main_SpeedPer1" : span == 6 ? "Main_SpeedPer6" : span == 12 ? "Main_SpeedPer12" : "Main_SpeedPer24");
+                    note.Text = Loc.T("Main_SpeedNote") + " " + Loc.T(span == 1 ? "Main_SpeedShift1" : "Main_SpeedShiftN", span);
+                }
 
-                var total = SpeedHistory.GetTotal(entry.Id);
-                totalText.Text = total == null ? Loc.T("Main_SpeedTotalNone")
-                    // Three lines, built here: a &#10; in the .xaml string collapses to a space.
-                    : Loc.T("Main_SpeedTotal", SpeedHistory.TimeOf(total.Since).ToLocalTime().ToString("dd.MM.yyyy HH:mm"))
-                      + "\n" + Loc.T("Main_SpeedTotalDown", Volume(total.Down))
-                      + "\n" + Loc.T("Main_SpeedTotalUp", Volume(total.Up));
+                sub.Text = Route() + " · " + Loc.T("Main_SpeedSummary", period,
+                    hours == 0 ? WhoVolume(volD) : Volume(volD), hours == 0 ? WhoVolume(volU) : Volume(volU));
+                FillTable(table, Loc.T("Main_SpeedFor", period),
+                    avgD, shiftD, pkD, pkDAt, hours == 0 ? WhoVolume(volD) : Volume(volD),
+                    avgU, shiftU, pkU, pkUAt, hours == 0 ? WhoVolume(volU) : Volume(volU));
+                FillRecords(records, SpeedHistory.GetTotal(entry.Id), Volume);
 
                 tabs.Children.Clear();
-                foreach (var h in new[] { 1, 6, 24 })
+                foreach (var h in new[] { 0, 1, 6, 12, 24 })
                 {
                     bool on = h == hours;
                     var tab = new Border
@@ -165,13 +206,13 @@ namespace MihomoLauncher.Views
                         Cursor = Cursors.Hand,
                         Child = new TextBlock
                         {
-                            Text = Loc.T(h == 1 ? "Main_SpeedTab1" : h == 6 ? "Main_SpeedTab6" : "Main_SpeedTab24"),
+                            Text = Loc.T(h == 0 ? "Main_SpeedTabNow" : h == 1 ? "Main_SpeedTab1" : h == 6 ? "Main_SpeedTab6" : h == 12 ? "Main_SpeedTab12" : "Main_SpeedTab24"),
                             FontSize = 12.5,
                             Foreground = on ? Theme.TextPrimary : Theme.TextSecondary,
                         },
                     };
                     int pick = h;
-                    tab.MouseLeftButtonUp += (s, e) => { e.Handled = true; hours = pick; Refresh(); };
+                    tab.MouseLeftButtonUp += (s, e) => { e.Handled = true; hours = pick; Refresh(); whoSetHours?.Invoke(pick); };
                     tabs.Children.Add(tab);
                 }
             }
@@ -181,7 +222,7 @@ namespace MihomoLauncher.Views
             // Not modal: the tiles stay usable while it is open.
             var win = new SpeedWindow(Loc.T("Main_SpeedTitle", entry.IsAllTraffic ? AllTrafficName() : entry.Name), body) { Owner = this };
             whoOwner = win;
-            whoHolder.Content = BuildSpeedWho(entry, whoOwner, false, null, out whoStop);
+            whoHolder.Content = BuildSpeedWho(entry, whoOwner, false, null, 0, out whoStop, out whoSetHours);
             win.Closed += (s, e) => whoStop();
 
             var close = new Wpf.Ui.Controls.Button
@@ -200,23 +241,130 @@ namespace MihomoLauncher.Views
                 if (!await OverlayDialog.ConfirmAsync(win, Loc.T("Main_SpeedClearTitle"), Loc.T("Main_SpeedClearBody", name),
                         Loc.T("Main_SpeedClearOk"), Loc.T("Set_BtnCancel"), Wpf.Ui.Controls.ControlAppearance.Danger).ConfigureAwait(true)) return;
                 SpeedHistory.Clear(entry.Id);
-                Log.Info("Скорость: история плитки «" + name + "» очищена.");
+                await Task.Run(() => ConnArchive.Clear(entry.Id)).ConfigureAwait(true);
+                Log.Info("Скорость: история плитки «" + name + "» очищена (график, рекорды и соединения).");
                 Refresh();
+                whoSetHours?.Invoke(hours);
             };
 
-            var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(5) };
-            timer.Tick += (s, e) => Refresh();
+            // Every second: the big figures, like the tile's plate; every 5 s the whole «Сейчас»
+            // tab. The archive tabs stay still apart from the big figures.
+            int ticks = 0;
+            var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
+            timer.Tick += (s, e) =>
+            {
+                if (hours == 0 && ++ticks % 5 == 0) { Refresh(); return; }
+                UpdateNow();
+            };
             timer.Start();
             win.Closed += (s, e) => timer.Stop();
             win.Show();
             await Task.CompletedTask.ConfigureAwait(true);
         }
 
-        // The chart itself: log scale 0,01…200 Mbit/s, the four class bands faint behind, grid at
-        // 0,1 / 1 / 10 / 50 / 100, a bar per slot, upload as a line, time ticks along the bottom.
+        // A minute's fastest second up; buckets from before 2026-11-21 have none — their average then.
+        private static double UpPeak(SpeedHistory.Bucket b) => b.PeakUp > 0 ? b.PeakUp : (b.Secs > 0 ? b.Up / b.Secs : 0);
+
+        // «▲ 14%» / «▼ 6%» / «≈» — neutral grey: more or less traffic is neither good nor bad.
+        private static string Shift(double now, double before)
+        {
+            if (before <= 0) return null;
+            double pct = (now - before) / before * 100;
+            if (Math.Abs(pct) < 1) return "≈";
+            return (pct > 0 ? "▲ " : "▼ ") + Math.Round(Math.Abs(pct)).ToString("0", CultureInfo.CurrentCulture) + "%";
+        }
+
+        private static Border SpeedPanel(UIElement child, Thickness padding) => new Border
+        {
+            Background = Theme.BadgeNeutralBg,
+            BorderBrush = Theme.BadgeNeutralBorder,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(8),
+            Padding = padding,
+            Child = child,
+        };
+
+        // «За 24 часа | среднее | ◆ пик | объём», a row each for ↓ and ↑.
+        private static void FillTable(Grid g, string head,
+            double avgD, string shiftD, double pkD, string pkDAt, string volD,
+            double avgU, string shiftU, double pkU, string pkUAt, string volU)
+        {
+            g.Children.Clear();
+            if (g.ColumnDefinitions.Count == 0)
+            {
+                foreach (var w in new[] { 1.1, 1.3, 1.7, 1.0 })
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w, GridUnitType.Star) });
+                for (int i = 0; i < 3; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            }
+            void Cell(int r, int c, string value, string detail, bool head2)
+            {
+                var t = new TextBlock { FontSize = head2 ? 11.5 : 12.5, Foreground = head2 ? Theme.TextMuted : Theme.TextPrimary, Margin = new Thickness(0, 0, 6, 3), TextTrimming = TextTrimming.CharacterEllipsis };
+                t.Inlines.Add(new System.Windows.Documents.Run(value) { FontWeight = !head2 && c > 0 ? FontWeights.SemiBold : FontWeights.Normal });
+                if (!string.IsNullOrEmpty(detail))
+                    t.Inlines.Add(new System.Windows.Documents.Run("  " + detail) { FontSize = 11.5, Foreground = Theme.TextMuted });
+                Grid.SetRow(t, r);
+                Grid.SetColumn(t, c);
+                g.Children.Add(t);
+            }
+            Cell(0, 0, head, null, true);
+            Cell(0, 1, Loc.T("Main_SpeedColAvg"), null, true);
+            Cell(0, 2, Loc.T("Main_SpeedColPeak"), null, true);
+            Cell(0, 3, Loc.T("Main_SpeedColVol"), null, true);
+            Cell(1, 0, Loc.T("Main_SpeedRowDown"), null, false);
+            Cell(1, 1, Mbit(avgD), shiftD, false);
+            Cell(1, 2, pkD > 0 ? Mbit(pkD) : "—", pkD > 0 ? pkDAt : null, false);
+            Cell(1, 3, volD, null, false);
+            Cell(2, 0, Loc.T("Main_SpeedRowUp"), null, false);
+            Cell(2, 1, Mbit(avgU), shiftU, false);
+            Cell(2, 2, pkU > 0 ? Mbit(pkU) : "—", pkU > 0 ? pkUAt : null, false);
+            Cell(2, 3, volU, null, false);
+        }
+
+        // «Рекорды · с 12.11, за всё время»: the fastest second each way, the biggest day, the total.
+        private static void FillRecords(StackPanel p, SpeedHistory.Total t, Func<double, string> volume)
+        {
+            p.Children.Clear();
+            var head = new TextBlock { FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Theme.TextPrimary, Margin = new Thickness(0, 0, 0, 6) };
+            head.Inlines.Add(new System.Windows.Documents.Run(Loc.T("Main_SpeedRecords")));
+            if (t != null)
+                head.Inlines.Add(new System.Windows.Documents.Run(" " + Loc.T("Main_SpeedRecordsSince", SpeedHistory.TimeOf(t.Since).ToLocalTime().ToString("dd.MM")))
+                    { FontSize = 11.5, FontWeight = FontWeights.Normal, Foreground = Theme.TextMuted });
+            p.Children.Add(head);
+            if (t == null)
+            {
+                p.Children.Add(new TextBlock { Text = Loc.T("Main_SpeedRecNone"), FontSize = 12.5, Foreground = Theme.TextSecondary, TextWrapping = TextWrapping.Wrap });
+                return;
+            }
+            void Row(string label, string value, string when)
+            {
+                var g = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(78) });
+                var a = new TextBlock { Text = label, FontSize = 12.5, Foreground = Theme.TextPrimary, TextTrimming = TextTrimming.CharacterEllipsis };
+                var b = new TextBlock { Text = value, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = Theme.TextPrimary, Margin = new Thickness(8, 0, 0, 0) };
+                var c = new TextBlock { Text = when, FontSize = 11.5, Foreground = Theme.TextMuted, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(b, 1);
+                Grid.SetColumn(c, 2);
+                g.Children.Add(a); g.Children.Add(b); g.Children.Add(c);
+                p.Children.Add(new Border { BorderBrush = Theme.BadgeNeutralBorder, BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(0, 6, 0, 6), Child = g });
+            }
+            string At(long minute) => SpeedHistory.TimeOf(minute).ToLocalTime().ToString("dd.MM HH:mm");
+            Row(Loc.T("Main_SpeedRecDown"), t.PeakDown > 0 ? Mbit(t.PeakDown) : "—", t.PeakDown > 0 ? At(t.PeakDownAt) : "");
+            Row(Loc.T("Main_SpeedRecUp"), t.PeakUp > 0 ? Mbit(t.PeakUp) : "—", t.PeakUp > 0 ? At(t.PeakUpAt) : "");
+            Row(Loc.T("Main_SpeedRecDay"), t.BestDayBytes > 0 ? volume(t.BestDayBytes) : "—",
+                t.BestDay > 0 ? SpeedHistory.DateOfDay(t.BestDay).ToString("dd.MM") : "");
+            int days = Math.Max(1, (int)Math.Ceiling((DateTime.UtcNow - SpeedHistory.TimeOf(t.Since)).TotalDays));
+            Row(Loc.T("Main_SpeedRecTotal"), volume(t.Down) + " / " + volume(t.Up), Loc.T("Main_SpeedRecDays", days));
+        }
+
+        // The chart: download up from the zero line, upload down from it (2026-11-21, the «сеть» card
+        // of «Здоровье сервера»), each on a plain scale with headroom over its own highest point. The
+        // download line and fill take the colour of the speed class they reach; the upload is grey.
+        // The fastest second of the period each way is a diamond on the line with its figure and time.
         internal sealed class SpeedDayChart : FrameworkElement
         {
-            private sealed class Slot { public DateTime Start; public double Down, Up, Secs, Peak; }
+            private sealed class Slot { public DateTime Start; public double Down, Up, Secs, PeakDown, PeakUp; public long PeakDownAt, PeakUpAt; }
             private List<Slot> _slots = new List<Slot>();
             private int _per = 5, _tickEvery = 180;
             private double _hoverX = -1;
@@ -245,34 +393,33 @@ namespace MihomoLauncher.Views
                     if (i < 0 || i >= count) continue;
                     var sl = slots[i];
                     sl.Down += b.Down; sl.Up += b.Up; sl.Secs += b.Secs;
-                    if (b.PeakDown > sl.Peak) sl.Peak = b.PeakDown;
+                    if (b.PeakDown > sl.PeakDown) { sl.PeakDown = b.PeakDown; sl.PeakDownAt = b.Minute; }
+                    double pu = UpPeak(b);
+                    if (pu > sl.PeakUp) { sl.PeakUp = pu; sl.PeakUpAt = b.Minute; }
                 }
                 _slots = slots;
                 InvalidateVisual();
             }
 
-            private const double Lo = -2, Hi = 2.30103;   // log10(0.01) … log10(200)
-
-            // Red low → amber → green → blue high, laid on the chart's own pixels (Absolute), the
-            // colours centred inside their bands so the change between them is soft.
-            private static LinearGradientBrush LevelGradient(Func<double, double> y, byte alpha)
+            // A round top a bit above `v`: 1 / 2 / 2,5 / 5 × 10ⁿ.
+            private static double Nice(double v)
             {
-                double top = y(200), bottom = y(0.01), span = bottom - top;
-                double At(double mbit) => Math.Max(0, Math.Min(1, (y(mbit) - top) / span));
-                Color A(SolidColorBrush b) => Color.FromArgb(alpha, b.Color.R, b.Color.G, b.Color.B);
-                var g = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(0, top), EndPoint = new Point(0, bottom) };
-                g.GradientStops.Add(new GradientStop(A(Theme.SpeedBlue), At(100)));
-                g.GradientStops.Add(new GradientStop(A(Theme.SpeedGreen), At(22)));
-                g.GradientStops.Add(new GradientStop(A(Theme.SpeedAmber), At(3.2)));
-                g.GradientStops.Add(new GradientStop(A(Theme.SpeedRed), At(0.3)));
-                return g;
+                v = Math.Max(v * 1.15, 0.1);
+                double p = Math.Pow(10, Math.Floor(Math.Log10(v)));
+                foreach (var m in new[] { 1, 2, 2.5, 5, 10 }) if (m * p >= v) return m * p;
+                return 10 * p;
             }
 
-            // A smooth curve through the points (Catmull-Rom as cubic Béziers), kept inside the
-            // chart vertically; `area` closes it down to the floor for the fill.
+            private static string Num(double mbit) => mbit >= 10 || mbit == Math.Round(mbit)
+                ? Math.Round(mbit).ToString("0", CultureInfo.CurrentCulture)
+                : mbit.ToString(mbit < 1 ? "0.##" : "0.#", CultureInfo.CurrentCulture);
+
+            // A smooth curve through the points (Catmull-Rom as cubic Béziers), kept between `top`
+            // and `floor`; `area` closes it to `baseY` for the fill.
             private static StreamGeometry Smooth(List<Point> p, double top, double floor, bool area, double baseY)
             {
-                double Cy(double v) => Math.Max(top, Math.Min(floor, v));
+                double lo = Math.Min(top, floor), hi = Math.Max(top, floor);
+                double Cy(double v) => Math.Max(lo, Math.Min(hi, v));
                 var g = new StreamGeometry();
                 using (var ctx = g.Open())
                 {
@@ -298,6 +445,19 @@ namespace MihomoLauncher.Views
                 return g;
             }
 
+            // Red low → amber → green → blue high along the download half, pinned to its pixels: the
+            // colours sit inside their classes (< 1, 1–10, 10–50, 50+) so the change is soft.
+            private static LinearGradientBrush ClassGradient(double zeroY, double topY, double top, byte alpha)
+            {
+                Color A(SolidColorBrush b) => Color.FromArgb(alpha, b.Color.R, b.Color.G, b.Color.B);
+                var g = new LinearGradientBrush { MappingMode = BrushMappingMode.Absolute, StartPoint = new Point(0, zeroY), EndPoint = new Point(0, topY) };
+                g.GradientStops.Add(new GradientStop(A(Theme.SpeedRed), 0.3 / top));
+                g.GradientStops.Add(new GradientStop(A(Theme.SpeedAmber), 3.2 / top));
+                g.GradientStops.Add(new GradientStop(A(Theme.SpeedGreen), 22 / top));
+                g.GradientStops.Add(new GradientStop(A(Theme.SpeedBlue), 100 / top));
+                return g;
+            }
+
             protected override void OnRender(DrawingContext dc)
             {
                 double W = ActualWidth, H = ActualHeight;
@@ -306,65 +466,94 @@ namespace MihomoLauncher.Views
                 var tf = new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
                 FormattedText Txt(string s, double size, Brush b) => new FormattedText(s, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, tf, size, b, dpi);
 
-                const double L = 40, R = 6, T = 6, B = 18;
-                double cw = W - L - R, ch = H - T - B;
-                double Y(double mbit) => T + ch - (Math.Log10(Math.Max(0.01, Math.Min(200, mbit))) - Lo) / (Hi - Lo) * ch;
+                const double L = 40, R = 8, T = 6, B = 18;
+                double cw = W - L - R, ch = H - T - B, bottom = T + ch;
+                double mid = T + ch * 0.62;   // download gets the bigger half
                 dc.PushClip(new RectangleGeometry(new Rect(0, 0, W, H)));
 
-                // Grid: faint solid lines, the class boundaries (1 / 10 / 50) a touch stronger.
-                foreach (var v in new[] { 0.1, 1, 10, 50, 100 })
+                int n = _slots.Count;
+                double Mb(double bytes, double secs) => secs > 0 ? bytes / secs * 8 / 1e6 : 0;
+                double maxD = n == 0 ? 0 : _slots.Max(s => Mb(s.Down, s.Secs));
+                double maxU = n == 0 ? 0 : _slots.Max(s => Mb(s.Up, s.Secs));
+                double topD = Nice(maxD), topU = Nice(maxU);
+                double Yd(double v) => mid - Math.Min(1, Math.Max(0, v) / topD) * (mid - T);
+                double Yu(double v) => mid + Math.Min(1, Math.Max(0, v) / topU) * (bottom - mid);
+
+                // Grid + scale: half and full on the download side, full on the upload side, zero.
+                var gridPen = new Pen(new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)), 1);
+                void GridLine(double y, string label)
                 {
-                    double y = Math.Round(Y(v)) + 0.5;
-                    bool edge = v == 1 || v == 10 || v == 50;
-                    dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(edge ? (byte)34 : (byte)18, 255, 255, 255)), 1), new Point(L, y), new Point(W - R, y));
-                    var t = Txt(v.ToString(CultureInfo.CurrentCulture), 10.5, Theme.TextMuted);
+                    y = Math.Round(y) + 0.5;
+                    dc.DrawLine(gridPen, new Point(L, y), new Point(W - R, y));
+                    var t = Txt(label, 10.5, Theme.TextMuted);
                     dc.DrawText(t, new Point(L - 8 - t.Width, y - t.Height / 2));
                 }
+                GridLine(Yd(topD), Num(topD));
+                GridLine(Yd(topD / 2), Num(topD / 2));
+                GridLine(Yu(topU), Num(topU));
+                double zy = Math.Round(mid) + 0.5;
+                dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(56, 255, 255, 255)), 1), new Point(L, zy), new Point(W - R, zy));
+                var z = Txt("0", 10.5, Theme.TextMuted);
+                dc.DrawText(z, new Point(L - 8 - z.Width, zy - z.Height / 2));
+                dc.DrawText(Txt(Loc.T("Main_SpeedAxisDown"), 10.5, Theme.TextSecondary), new Point(L + 6, T + 1));
+                var ua = Txt(Loc.T("Main_SpeedAxisUp"), 10.5, Theme.TextSecondary);
+                dc.DrawText(ua, new Point(L + 6, bottom - ua.Height - 1));
 
-                int n = _slots.Count;
                 if (n == 0) { dc.Pop(); return; }
                 double bw = cw / n;
+                double X(int i) => L + (i + 0.5) * bw;
 
-                // The speed colour by height (2026-11-16 «график посимпатичнее»): one vertical
-                // gradient pinned to the chart — red at the bottom, amber, green, blue at the top —
-                // so the line and its fill take the colour of the level they reach.
-                var stroke = LevelGradient(Y, 255);
-                var fill = LevelGradient(Y, 70);
-                var fade = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
-                fade.GradientStops.Add(new GradientStop(Color.FromArgb(255, 0, 0, 0), 0));
-                fade.GradientStops.Add(new GradientStop(Color.FromArgb(40, 0, 0, 0), 1));
-
-                // Runs of measured slots; a slot nobody measured breaks the line.
-                var runs = new List<List<Point>>();
-                var upRuns = new List<List<Point>>();
-                List<Point> run = null, upRun = null;
+                // One unbroken line each way (2026-11-19 «без прерывания»): a slot nobody measured
+                // counts as zero; the hover still says «нет данных» for it.
+                var down = new List<Point>(n);
+                var up = new List<Point>(n);
                 for (int i = 0; i < n; i++)
                 {
-                    var s = _slots[i];
-                    if (s.Secs <= 0) { run = null; upRun = null; continue; }
-                    if (run == null) { runs.Add(run = new List<Point>()); upRuns.Add(upRun = new List<Point>()); }
-                    double x = L + (i + 0.5) * bw;
-                    run.Add(new Point(x, Y(s.Down / s.Secs * 8 / 1e6)));
-                    upRun.Add(new Point(x, Y(s.Up / s.Secs * 8 / 1e6)));
+                    down.Add(new Point(X(i), Yd(Mb(_slots[i].Down, _slots[i].Secs))));
+                    up.Add(new Point(X(i), Yu(Mb(_slots[i].Up, _slots[i].Secs))));
                 }
-                bool any = runs.Count > 0;
-                double floor = T + ch;
-                foreach (var r in runs)
+                bool any = _slots.Any(s => s.Secs > 0);
+                if (any && n > 1)
                 {
-                    if (r.Count == 1)
+                    dc.DrawGeometry(ClassGradient(mid, T, topD, 60), null, Smooth(down, T, mid, true, mid));
+                    dc.DrawGeometry(null, new Pen(ClassGradient(mid, T, topD, 255), 1.8) { LineJoin = PenLineJoin.Round }, Smooth(down, T, mid, false, mid));
+                    var upColor = Color.FromRgb(0xC9, 0xCB, 0xD6);
+                    dc.DrawGeometry(new SolidColorBrush(Color.FromArgb(30, upColor.R, upColor.G, upColor.B)), null, Smooth(up, mid, bottom, true, mid));
+                    dc.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromArgb(200, upColor.R, upColor.G, upColor.B)), 1.3) { LineJoin = PenLineJoin.Round }, Smooth(up, mid, bottom, false, mid));
+
+                    // The fastest second each way: a diamond on the line, its figure and time beside.
+                    string fmt = _per >= 3 ? "dd.MM HH:mm" : "HH:mm";
+                    void Peak(int i, double bps, long at, bool isDown)
                     {
-                        dc.DrawEllipse(stroke, null, r[0], 2.2, 2.2);
-                        continue;
+                        if (i < 0 || bps <= 0) return;
+                        var p = isDown ? down[i] : up[i];
+                        dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), 1), new Point(p.X, zy), p);
+                        var dia = new StreamGeometry();
+                        using (var c = dia.Open())
+                        {
+                            c.BeginFigure(new Point(p.X, p.Y - 5), true, true);
+                            c.LineTo(new Point(p.X + 5, p.Y), true, false);
+                            c.LineTo(new Point(p.X, p.Y + 5), true, false);
+                            c.LineTo(new Point(p.X - 5, p.Y), true, false);
+                        }
+                        dia.Freeze();
+                        dc.DrawGeometry(Theme.TextPrimary, null, dia);
+                        var t = Txt(Mbit(bps) + " · " + SpeedHistory.TimeOf(at).ToLocalTime().ToString(fmt), 11, Theme.TextPrimary);
+                        bool left = p.X + 10 + t.Width > W - R;
+                        double tx = left ? p.X - 10 - t.Width : p.X + 10;
+                        double ty = isDown ? Math.Max(T, p.Y - t.Height - 2) : Math.Min(bottom - t.Height, p.Y + 2);
+                        dc.DrawText(t, new Point(tx, ty));
                     }
-                    var area = Smooth(r, T, floor, true, floor);
-                    dc.PushOpacityMask(fade);
-                    dc.DrawGeometry(fill, null, area);
-                    dc.Pop();
-                    dc.DrawGeometry(null, new Pen(stroke, 1.8) { LineJoin = PenLineJoin.Round }, Smooth(r, T, floor, false, floor));
+                    int pd = -1, pu = -1;
+                    for (int i = 0; i < n; i++)
+                    {
+                        if (_slots[i].PeakDown > 0 && (pd < 0 || _slots[i].PeakDown > _slots[pd].PeakDown)) pd = i;
+                        if (_slots[i].PeakUp > 0 && (pu < 0 || _slots[i].PeakUp > _slots[pu].PeakUp)) pu = i;
+                    }
+                    if (pd >= 0) Peak(pd, _slots[pd].PeakDown, _slots[pd].PeakDownAt, true);
+                    if (pu >= 0) Peak(pu, _slots[pu].PeakUp, _slots[pu].PeakUpAt, false);
                 }
-                var upPen = new Pen(new SolidColorBrush(Color.FromArgb(150, 0xDA, 0xDA, 0xE0)), 1.1) { DashStyle = new DashStyle(new double[] { 3, 2.5 }, 0) };
-                foreach (var r in upRuns)
-                    if (r.Count > 1) dc.DrawGeometry(null, upPen, Smooth(r, T, floor, false, floor));
+
                 // Time ticks.
                 var tickPen = new Pen(Theme.TextMuted, 1);
                 for (int i = 0; i < n; i++)
@@ -373,10 +562,10 @@ namespace MihomoLauncher.Views
                     int mins = t0.Hour * 60 + t0.Minute;
                     if (mins % _tickEvery >= _per) continue;
                     double x = L + i * bw;
-                    dc.DrawLine(tickPen, new Point(x, T + ch), new Point(x, T + ch + 3));
+                    dc.DrawLine(tickPen, new Point(x, bottom), new Point(x, bottom + 3));
                     var t = Txt(t0.ToString("HH:mm"), 10.5, Theme.TextMuted);
                     double tx = Math.Max(L, Math.Min(W - R - t.Width, x - t.Width / 2));
-                    dc.DrawText(t, new Point(tx, T + ch + 3));
+                    dc.DrawText(t, new Point(tx, bottom + 3));
                 }
                 if (!any)
                 {
@@ -389,22 +578,23 @@ namespace MihomoLauncher.Views
                 {
                     int i = Math.Min(n - 1, (int)((_hoverX - L) / bw));
                     var s = _slots[i];
-                    double x = L + (i + 0.5) * bw;
-                    dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), 1), new Point(x, T), new Point(x, T + ch));
+                    double x = X(i);
+                    dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), 1), new Point(x, T), new Point(x, bottom));
                     if (s.Secs > 0)
                     {
-                        double dm = s.Down / s.Secs * 8 / 1e6;
-                        dc.DrawEllipse(SpeedBrush(Math.Max(0.006, dm)), new Pen(Brushes.White, 1.5), new Point(x, Y(dm)), 3.5, 3.5);
+                        double dm = Mb(s.Down, s.Secs);
+                        dc.DrawEllipse(SpeedBrush(Math.Max(0.006, dm)), new Pen(Brushes.White, 1.5), new Point(x, Yd(dm)), 3.5, 3.5);
                     }
                     string time = s.Start.ToString("HH:mm") + (_per > 1 ? "–" + s.Start.AddMinutes(_per).ToString("HH:mm") : "");
                     string text = s.Secs <= 0 ? time + " · " + Loc.T("Main_SpeedNoDataShort")
                         : time + " · ↓ " + Mbit(s.Down / s.Secs) + " · ↑ " + Mbit(s.Up / s.Secs) + " " + Loc.T("Main_SpeedMbit")
-                          + (_per > 1 ? " · " + Loc.T("Main_SpeedPeak").ToLowerInvariant() + " " + Mbit(s.Peak) : "");
+                          + (_per > 1 ? " · " + Loc.T("Main_SpeedPeak").ToLowerInvariant() + " " + Mbit(s.PeakDown) : "");
                     var t = Txt(text, 11.5, Theme.TextPrimary);
                     double bx = Math.Max(2, Math.Min(W - t.Width - 14, x + 10));
-                    var r = new Rect(bx, T + 2, t.Width + 12, t.Height + 6);
+                    double by = mid + 4;
+                    var r = new Rect(bx, by, t.Width + 12, t.Height + 6);
                     dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(235, 0x15, 0x15, 0x18)), new Pen(Theme.PickerBorder, 1), r, 5, 5);
-                    dc.DrawText(t, new Point(bx + 6, T + 5));
+                    dc.DrawText(t, new Point(bx + 6, by + 3));
                 }
                 dc.Pop();
             }

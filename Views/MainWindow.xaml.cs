@@ -183,6 +183,7 @@ namespace MihomoLauncher.Views
             UpdateLangButton();
             Loc.LanguageChanged += OnLanguageChanged;
             SyncDnsButton();
+            StartDnsStats();
 
             // Title-bar icons tint on hover: language green, website blue, exit red.
             var rest = Theme.TextSecondary;
@@ -220,6 +221,7 @@ namespace MihomoLauncher.Views
             // blocked (REJECT) until mom presses «Подключить». Since the launcher runs at
             // logon, those apps never reach the internet directly, even before connecting.
             SizeChanged += OnWindowSizeChanged;
+            InitWindowSizing();
             InitTileDrag();
 
             // A tile icon is fetched once, when the rule is saved (and at startup). If the network
@@ -253,6 +255,10 @@ namespace MihomoLauncher.Views
                 // check is instant when the engine is absent (File.Exists short-circuits the
                 // schtasks query).
                 RefreshEngineState();
+
+                // Where every VPN exits, right away — it needs neither the engine nor a connection
+                // (2026-11-21: at the end of the start-up it came ~5 min late, after the autoconnect).
+                _ = ResolveSlotGeosAsync();
 
                 try
                 {
@@ -329,6 +335,8 @@ namespace MihomoLauncher.Views
                     try { await AutoConnectAtStartupAsync().ConfigureAwait(true); }
                     catch (Exception ex) { Log.Error("autostart-connect", ex); }
                 }
+                // Where every VPN exits — for the picker and the grey plates, connected or not.
+                _ = ResolveSlotGeosAsync();
             };
 
             Closing += (s, e) =>
@@ -389,6 +397,7 @@ namespace MihomoLauncher.Views
                 // Tile geo (country/city) is language-specific — drop the cached names and
                 // re-resolve in the new language; ResolveProxyGeosAsync refreshes the tiles.
                 _proxyGeo.Clear();
+                _slotGeo.Clear();
                 GeoIpService.ClearCache();
                 _ = ResolveProxyGeosAsync();
             }
@@ -407,8 +416,10 @@ namespace MihomoLauncher.Views
         {
             try
             {
-                var caption = VersionInfo.TitleCaption;
-                TxtCaption.Text = caption;
+                _captionFull = VersionInfo.TitleCaption;
+                TxtCaption.Text = _captionFull;
+                // The width may already be set: pick the variant that fits it now.
+                if (ActualWidth > 0) ApplyChromeFit(ActualWidth);
             }
             catch (Exception ex) { Log.Error("title-caption", ex); }
         }
@@ -1090,7 +1101,7 @@ namespace MihomoLauncher.Views
                 if (KillCountdown.Visibility != cd)
                 {
                     KillCountdown.Visibility = cd;
-                    KillLabel.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+                    KillLabel.Visibility = on || _topIconsOnly ? Visibility.Collapsed : Visibility.Visible;
                     RecalcHeight();   // re-checks that the row fits the window
                 }
             }
@@ -1414,11 +1425,19 @@ namespace MihomoLauncher.Views
             bool empty = count == 0;
             if (empty || count % Math.Max(1, _tileCols) != 0) TilesPanel.Items.Add(AddRuleTile());
             if (empty) TilesPanel.Items.Add(EmptyTabHint());
+            // Other tabs are at least as tall as «Основная» (2026-11-17: «зафиксируем размер окна на
+            // вкладке основная при переходе в другие вкладки») — switching tabs doesn't make the
+            // window jump. Counted from «Основная»'s rows at the current width (all tiles are one
+            // height), so a resize on another tab stays right; a tab with more rows still grows.
+            TilesPanel.MinHeight = tab.Id == TileTabs.MainId ? 0 : MainTabTilesHeight();
             RenderTabs();
             SyncTileGrid();
             UpdateConflictIcon();
             RecalcHeight();
         }
+
+        // How tall «Основная»'s tiles are now, at _tileCols columns (MainWindow.WindowSize).
+        private double MainTabTilesHeight() => TabTileRows(_config.Tabs[0], _tileCols) * TileRowHeight;
 
         // A tile with no picture at all but a site: fetch that site's icon in the background
         // (once per host per run — IconFetcher remembers) and redraw the tiles if one arrived.
@@ -1443,7 +1462,24 @@ namespace MihomoLauncher.Views
         // it was simply cut at the window's edge (the box lost its right rounded corners). Widen
         // the window to the row instead. Children's DesiredSize, not the panel's: a panel's own
         // DesiredSize is clipped to the space it was offered — exactly the width that is too small.
-        private void FitWidthToTopBar()
+        // Since 2026-11-17 the width is the tile grid's: TileColumns whole tiles (MainWindow.WindowSize),
+        // down to a single column. It is the chrome that gives way now (ApplyChromeFit), not the
+        // window: the top row loses its words and wraps, the title bar's buttons move under it.
+        // True when the chrome changed — its height is not measured yet.
+        private bool FitWidthToTopBar()
+        {
+            MinWidth = GridWindowWidth(1);
+            double w = ActualWidth;
+            if (!_inSizeMove)   // the drag sizes it (SnapSizingRect)
+            {
+                w = Math.Min(GridWindowWidth(WantedTileCols()), SystemParameters.WorkArea.Width);
+                if (Math.Abs(Width - w) > 0.5) Width = w;
+            }
+            return ApplyChromeFit(w);
+        }
+
+        // The top row's width with its words, measured while they are shown.
+        private double TopRowWidth()
         {
             double row = 0;
             foreach (UIElement ch in TopButtons.Children)
@@ -1452,28 +1488,8 @@ namespace MihomoLauncher.Views
                 if (fe == null || fe.Visibility == Visibility.Collapsed) continue;
                 row += fe.DesiredSize.Width;   // DesiredSize includes the element's margins
             }
-            if (row <= 0) return;
-            double need = Math.Ceiling(row + 18 + 18 + 16);   // StackPanel margins + window frame
-            // The title bar too: caption + its button group + the window's own «—» and «✕». With
-            // only the row counted, dropping «ON» (2026-11-14) narrowed the window below the title
-            // bar and «✕» went off the edge.
-            need = Math.Max(need, TitleBarNeed());
-            // Five tiles in a row, at least — default and minimum (2026-11-14).
-            need = Math.Max(need, FiveTilesNeed);
-            if (need > SystemParameters.WorkArea.Width) need = SystemParameters.WorkArea.Width;
-            MinWidth = need;
-            // Start at the minimum width (the button row), not wider. Keep following it while the
-            // width is still the one we set ourselves; once the user drags the edge, theirs wins
-            // (only grown when the row no longer fits).
-            bool ours = _autoWidth == 0 || Math.Abs(Width - _autoWidth) < 1;
-            if (ours || Width < need)
-            {
-                Width = need;
-                _autoWidth = need;
-            }
+            return row;
         }
-
-        private double _autoWidth;
 
         private const double CaptionButtonsWidth = 2 * 46 + 8;   // «—» + «✕» (no maximize)
 
@@ -1481,30 +1497,74 @@ namespace MihomoLauncher.Views
         // window's (2026-11-16: «14 дипов слева и справа»): TilesArea margins 10.5 + the tiles'
         // own 3.5. No «frame» — this window has none (measured: the old +16+4 made 27 per side).
         private const double TileOuter = TileSizePx + 7;
-        private const double FiveTilesNeed = 5 * TileOuter + 21;
         private const double TileSizePx = 112;
+        // A tile is this much taller than wide (2026-11-18: the name sat ~2 px under the network
+        // chip — «название плитки почти в упор лежит под иконкой сети»); the name moves down by
+        // TileTitleDrop of it, the plates stay at the bottom.
+        private const double TileExtraH = 4;
+        private const double TileTitleDrop = 3;
+        private double TileHeight => TileSizePx + TileExtraH + NicStrip + SpeedStrip;
 
-        private double TitleBarNeed()
+        // Header: the caption at its full text width (its DesiredSize may already be squeezed by a
+        // too-narrow window) up to its MaxWidth, + its margins 8/12.
+        private double CaptionNeed(string text, bool rightMargin = true)
         {
-            // Header: inset 18 + fox 18 + the caption at its full text width (its DesiredSize may
-            // already be squeezed by a too-narrow window) up to its MaxWidth, + its margins 8/12.
             double caption = Math.Min(TxtCaption.MaxWidth,
-                                      TextWidth(TxtCaption.Text ?? "", TxtCaption.FontSize, TxtCaption.FontWeight));
-            double w = 18 + 18 + 8 + Math.Ceiling(caption) + 12;
-            var trailing = BtnLang.Parent as Panel;
-            if (trailing != null)
-                foreach (UIElement ch in trailing.Children)
+                                      TextWidth(text ?? "", TxtCaption.FontSize, TxtCaption.FontWeight));
+            return 8 + Math.Ceiling(caption) + (rightMargin ? 12 : 0);
+        }
+
+        // The caption as SetTitleCaption made it, and the launcher alone for a narrow window
+        // (2026-11-20: «оставляй только название утилиты с версией, если не входит ещё название и
+        // версия движка») — longest first. Never the name without the version.
+        private string _captionFull = "";
+        private string[] CaptionVariants()
+        {
+            var full = string.IsNullOrEmpty(_captionFull) ? TxtCaption.Text ?? "" : _captionFull;
+            return new[] { full, "Mihomo Launcher " + VersionInfo.AppVersion }
+                .Where(v => !string.IsNullOrEmpty(v)).Distinct().ToArray();
+        }
+
+        // «—» + «✕» as the title bar really lays them out (WPF-UI's own buttons, found by type
+        // name); the estimate when they are not laid out yet.
+        private double CaptionButtonsActual()
+        {
+            double w = 0;
+            try
+            {
+                var stack = new Stack<DependencyObject>();
+                stack.Push(TitleBarMain);
+                while (stack.Count > 0)
                 {
-                    var fe = ch as FrameworkElement;
-                    if (fe != null && fe.Visibility != Visibility.Collapsed) w += fe.DesiredSize.Width;
+                    var d = stack.Pop();
+                    var fe = d as FrameworkElement;
+                    if (fe != null && fe.IsVisible && fe.GetType().Name == "TitleBarButton") { w += fe.ActualWidth; continue; }
+                    int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(d);
+                    for (int i = 0; i < n; i++) stack.Push(System.Windows.Media.VisualTreeHelper.GetChild(d, i));
                 }
-            return Math.Ceiling(w + CaptionButtonsWidth + 16);   // + window frame
+            }
+            catch { w = 0; }
+            return w > 0 ? w : CaptionButtonsWidth;
+        }
+
+        // The title bar's own buttons (RU, site, log, settings, exit).
+        private double TitleToolsNeed()
+        {
+            double w = 0;
+            foreach (UIElement ch in TitleTools.Children)
+            {
+                var fe = ch as FrameworkElement;
+                if (fe != null && fe.Visibility != Visibility.Collapsed) w += fe.DesiredSize.Width;
+            }
+            return w;
         }
 
         // Width change → tiles re-wrap into more/fewer rows → height must follow.
         private void OnWindowSizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (e.WidthChanged) { SyncTileGrid(); RecalcHeight(); }
+            // Resized not by a drag of the edge (Aero Snap, Win+←): back to the grid's height.
+            else if (e.HeightChanged && !_inSizeMove) RecalcHeight();
         }
 
         // FluentWindow + SizeToContent="Height" under-reports when content changes after
@@ -1517,7 +1577,8 @@ namespace MihomoLauncher.Views
                 try
                 {
                     if (ResultRoot.Visibility != Visibility.Visible) return;
-                    FitWidthToTopBar();
+                    // The top row wrapped / the title bar's buttons moved: measure after that layout.
+                    if (FitWidthToTopBar()) { RecalcHeight(); return; }
 
                     // Sum the (correctly-arranged) heights of ResultRoot's rows + the title
                     // bar. ActualHeight is right even when SizeToContent under-reports.
@@ -1535,17 +1596,15 @@ namespace MihomoLauncher.Views
 
                     double maxH = SystemParameters.WorkArea.Height;
                     if (content > maxH) content = maxH;
-                    if (content > 120)
+                    if (content > 120 && !_inSizeMove)
                     {
-                        // Height is pinned to the content (Min = Max): dragging the bottom edge
-                        // can neither leave a blank gap nor cover the tiles. Only the width is
-                        // the user's — tiles re-wrap and OnWindowSizeChanged re-fits the height.
+                        // Height = the content. Not pinned with Min = Max any more (2026-11-17): the
+                        // edges are dragged now, and the drag itself snaps to whole rows
+                        // (MainWindow.WindowSize) — no blank gap, no covered tiles.
                         SizeToContent = SizeToContent.Manual;
                         MinHeight = 0;
                         MaxHeight = double.PositiveInfinity;
-                        Height = content;
-                        MinHeight = content;
-                        MaxHeight = content;
+                        if (Math.Abs(Height - content) > 0.5) Height = content;
                     }
                 }
                 catch { }
@@ -1601,6 +1660,10 @@ namespace MihomoLauncher.Views
             return "";
         }
 
+        // The ▷/⏸ tooltip, plus why its frame is violet when the kill-switch is on.
+        private static string KillTip(AppEntry entry, string key)
+            => Loc.T(key) + (entry.KillSwitch ? "\n\n" + Loc.T("Main_TipKillOn") : "");
+
         private FrameworkElement CreateTile(AppEntry entry)
         {
             bool reconnecting = entry.Id == _reconnectingId;
@@ -1620,7 +1683,7 @@ namespace MihomoLauncher.Views
                 Width = TileSize,
                 // Taller by the network-card strip along the bottom (2026-11-14).
                 // + the one-line speed strip under that (2026-11-16).
-                Height = TileSize + NicStrip + SpeedStrip,
+                Height = TileHeight,
                 Margin = new Thickness(3.5),
                 CornerRadius = new CornerRadius(9),
                 Background = bright ? Theme.TileBg : Theme.TileDisabledBg,
@@ -1701,6 +1764,7 @@ namespace MihomoLauncher.Views
                 MaxWidth = TitleRoom,
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 Foreground = bright ? Theme.TextPrimary : Theme.TextDisabled,
+                Margin = new Thickness(0, TileTitleDrop, 0, 0),   // clear of the network chip
             };
             if (TextWidth(title, titleSize, titleWeight) > TitleRoom) titleBlock.ToolTip = title;
             stack.Children.Add(titleBlock);
@@ -1712,6 +1776,9 @@ namespace MihomoLauncher.Views
             grid.Children.Add(stack);
             grid.Children.Add(plate);
             if (ShowNicPlate && !NicAsIcon) grid.Children.Add(MakeNicPlate(entry, reconnecting));
+            // The rule → tile map is shared with the DNS statistics, which count even with the speed
+            // plates off: any redraw (a rule edited, added, reordered) makes it stale.
+            _speedMapDirty = true;
             if (ShowTileSpeed) grid.Children.Add(MakeSpeedPlate(entry));
             if (launching)
             {
@@ -1753,8 +1820,8 @@ namespace MihomoLauncher.Views
                     // Busy only with ANOTHER rule: on the tile that is connecting ⏸ is how to stop it.
                     bool offBusy = _reconnectingId != null && _reconnectingId != entry.Id;
                     grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Pause24, 13,
-                        new Thickness(0, 31, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDisconnectOne"), offBusy,
-                        () => DisconnectOneRule(entry)));
+                        new Thickness(0, 31, 5, 0), HorizontalAlignment.Right, KillTip(entry, "Main_TipDisconnectOne"), offBusy,
+                        () => DisconnectOneRule(entry), guard: entry.KillSwitch));
                     if (reconnecting)
                     {
                         // Connecting: a ring spins around the ⏸ (ui:ProgressRing spins reliably — a
@@ -1776,8 +1843,9 @@ namespace MihomoLauncher.Views
                     string viaSlot = !entry.IsBlockMode && HasNoAllowedVpnVariant(entry) ? TileOwnSlotId(entry) : null;
                     grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Play24, 14,
                         new Thickness(0, 31, 5, 0), HorizontalAlignment.Right,
-                        Loc.T("Main_TipConnectOne"), _reconnectingId != null,
-                        async () => await ReconnectOneAsync(entry, manual: true, onlySlotId: viaSlot)));   // switches the rule on, see there
+                        KillTip(entry, "Main_TipConnectOne"), _reconnectingId != null,
+                        async () => await ReconnectOneAsync(entry, manual: true, onlySlotId: viaSlot),   // switches the rule on, see there
+                        guard: entry.KillSwitch));
                 }
             }
 
@@ -2259,6 +2327,8 @@ namespace MihomoLauncher.Views
                 if (changed) RebuildTiles();
             }
             catch { }
+            // Every other variant too — the picker and the grey plates show where it exits.
+            await ResolveSlotGeosAsync().ConfigureAwait(true);
         }
 
         // Resolve Store/MSIX apps whose stored WindowsApps path has a version baked in:
@@ -2444,7 +2514,7 @@ namespace MihomoLauncher.Views
                 if (!string.IsNullOrEmpty(name)) return name;
             }
             catch { }
-            return "MihomoLauncher.exe";
+            return VersionInfo.ExeName;
         }
 
         // Write the definitive config: assigned apps on their nodes, every other VPN
@@ -3421,7 +3491,7 @@ namespace MihomoLauncher.Views
                 : Loc.T("Main_EngineNeededBodyInstall");
             var res = await OverlayDialog.ConfirmWithToggleAsync(this, Loc.T("Main_EngineNeededTitle"), body,
                 exeOk ? Loc.T("Main_EngineNeededSetupBtn") : Loc.T("Main_EngineNeededInstallBtn"), Loc.T("Main_Later"),
-                Loc.T("Main_KillTimerLabel"), _config.RemoteDesktopSafeMode).ConfigureAwait(true);
+                Loc.T("Main_KillTimerLabel"), _config.RemoteDesktopSafeMode, Loc.T("Main_EngineNeededRdpHint")).ConfigureAwait(true);
 
             // Apply the switch regardless of which button closed it (you may enable safe mode
             // and press "Later" to keep configuring remotely).
@@ -3699,6 +3769,7 @@ namespace MihomoLauncher.Views
             {
                 var dlg = new ListsWindow(_config, mode, CommitLiveEditAsync) { Owner = this };
                 dlg.ShowDialog();
+                if (mode == ListsWindow.Mode.Vpn) _ = ResolveSlotGeosAsync();   // a VPN added / changed
             }
             catch (Exception ex) { Log.Error("open-lists-" + mode, ex); }
         }
@@ -3726,7 +3797,7 @@ namespace MihomoLauncher.Views
         private async Task OpenSettingsAsync(bool dnsOnly = false)
         {
             var before = TakeConfigSnap();
-            var dlg = new SettingsWindow(_config, dnsOnly) { Owner = this };
+            var dlg = new SettingsWindow(_config, dnsOnly) { Owner = this, TileIcon = TileIconSmall, TileName = TileDisplayName };
             if (dlg.ShowDialog() == true && dlg.Result != null)
             {
                 _config = dlg.Result;
@@ -4144,6 +4215,10 @@ namespace MihomoLauncher.Views
             sb.Append(':');
             foreach (var o in (a.VpnSlotOrder ?? new List<string>()))
                 if (ignoreSlots == null || !ignoreSlots.Contains(o)) sb.Append(o).Append(',');
+            // The cards (2026-11-19): «Привязка к сетевой карте» in the rule editor pins the tile to
+            // one — that has to reach the engine on save like any other routing change.
+            sb.Append(':').Append(a.LockNic).Append(':');
+            foreach (var n in NetCards.Clean(a.Interfaces)) sb.Append(n).Append(',');
         }
 
         // appId -> per-app routing fingerprint, for diffing which rules changed across a Settings

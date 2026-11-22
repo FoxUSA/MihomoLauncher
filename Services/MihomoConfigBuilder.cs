@@ -313,7 +313,7 @@ namespace MihomoLauncher.Services
                     bool sub = target.StartsWith("SUB:", StringComparison.Ordinal);
                     var name = sub ? target.Substring(4) : target;
                     var cards = NicLabelOf(name);
-                    var via = cards != null ? " через карту " + cards : "";
+                    var via = cards != null ? " через карту " + cards + (app.LockNic ? " (привязка)" : "") : "";
                     if (IsNicTarget(name)) return "напрямую" + via;
                     return (sub ? "по правилам подписки «" : "VPN «") + BaseProxyName(name) + "»" + via;
                 }
@@ -377,7 +377,7 @@ namespace MihomoLauncher.Services
                 if (!string.IsNullOrEmpty(name) && name.IndexOfAny(new[] { ',', '(', ')' }) < 0) return name;
             }
             catch { }
-            return "MihomoLauncher.exe";
+            return VersionInfo.ExeName;
         }
 
         public static string HostOf(string url)
@@ -699,6 +699,23 @@ namespace MihomoLauncher.Services
 
         private static string YQ(string s) => "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
 
+        // The REJECT net under subscription groups (see the proxy-providers block).
+        private const string NoNodeProvider = "ml_no_node";
+        private const string NoNodeName = "ML-NO-NODE";
+
+        // A node name as a literal inside a Go (RE2) regexp. Not Regex.Escape: .NET also escapes
+        // spaces and '#', and RE2 refuses escapes of non-punctuation.
+        private static string GoRegexEscape(string s)
+        {
+            var sb = new StringBuilder();
+            foreach (var c in s ?? "")
+            {
+                if (@"\.+*?()|[]{}^$".IndexOf(c) >= 0) sb.Append('\\');
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
         private sealed class NicPlan
         {
             private readonly AppConfig _cfg;
@@ -792,6 +809,7 @@ namespace MihomoLauncher.Services
                         Ok = true, IsProvider = true, ProxyName = clone, SlotId = p.SlotId,
                         ProviderUrl = p.ProviderUrl, ProviderIntervalSeconds = p.ProviderIntervalSeconds,
                         ProviderFileContent = p.ProviderFileContent, DialerProxy = via,
+                        SubNode = p.SubNode, SubCacheName = p.SubCacheName,
                     });
                     Label(clone, NicLabelOf(via));
                     return clone;
@@ -1003,6 +1021,16 @@ namespace MihomoLauncher.Services
             if (providers.Count > 0)
             {
                 sb.AppendLine("proxy-providers:");
+                // The safety net under every subscription group: one REJECT "node", listed after the
+                // subscription's own. A group whose filter matches nothing would otherwise get the
+                // engine's COMPATIBLE — i.e. DIRECT, the tile's traffic out in the open (measured on
+                // the binary 2026-11-22). `proxies: [REJECT]` can't do it: those come FIRST in the
+                // group and would be the default.
+                WriteProviderFile(cfg, NoNodeProvider + ".yaml",
+                    "proxies:\n  - {name: " + YQ(NoNodeName) + ", type: reject}");
+                sb.AppendLine("  " + NoNodeProvider + ":");
+                sb.AppendLine("    type: file");
+                sb.AppendLine("    path: ./providers/" + NoNodeProvider + ".yaml");
                 foreach (var p in providers)
                 {
                     sb.AppendLine("  " + p.ProxyName + "_prov:");
@@ -1020,6 +1048,16 @@ namespace MihomoLauncher.Services
                         sb.AppendLine("    url: \"" + p.ProviderUrl.Replace("\"", "\\\"") + "\"");
                         sb.AppendLine("    path: ./providers/" + p.ProxyName + ".yaml");
                         sb.AppendLine("    interval: " + (p.ProviderIntervalSeconds > 0 ? p.ProviderIntervalSeconds : 48 * 3600));
+                        // Same User-Agent as the launcher's own download (SubscriptionPolicy).
+                        sb.AppendLine("    header:");
+                        sb.AppendLine("      User-Agent:");
+                        sb.AppendLine("        - " + YQ(ByfoxApi.SubscriptionUserAgent));
+                        // Exactly one node: the user's pick, else the author's default. No copy on
+                        // disk yet = no filter; the engine then starts on the first node.
+                        var node = SubscriptionPolicy.ResolveNode(cfg,
+                            string.IsNullOrEmpty(p.SubCacheName) ? p.ProxyName : p.SubCacheName, p.SubNode);
+                        if (node != null && node.IndexOf('`') < 0)   // ` splits mihomo filters
+                            sb.AppendLine("    filter: " + YQ("^" + GoRegexEscape(node) + "$"));
                     }
                     sb.AppendLine("    health-check:");
                     sb.AppendLine("      enable: true");
@@ -1035,8 +1073,11 @@ namespace MihomoLauncher.Services
                 sb.AppendLine();
             }
 
-            // proxy-groups: providers need a group (url-test over the sub); several network cards
-            // of one tile are a fallback group — the first card in the tile's order that answers.
+            // proxy-groups: providers need a group — a plain select over the one node the provider
+            // lets through, then the REJECT net (nothing measured, nothing switches by itself;
+            // url-test used to move a VLESS-first subscription onto Hysteria by ping); several
+            // network cards of one tile are a fallback group — the first card in the tile's order
+            // that answers.
             // Direct proxies are referenced by name in rules, no group needed.
             if (providers.Count > 0 || nic.Groups.Count > 0)
             {
@@ -1054,11 +1095,10 @@ namespace MihomoLauncher.Services
                 foreach (var p in providers)
                 {
                     sb.AppendLine("  - name: " + p.ProxyName);
-                    sb.AppendLine("    type: url-test");
-                    sb.AppendLine("    url: " + HealthCheckUrl);
-                    sb.AppendLine("    interval: 300");
+                    sb.AppendLine("    type: select");
                     sb.AppendLine("    use:");
                     sb.AppendLine("      - " + p.ProxyName + "_prov");
+                    sb.AppendLine("      - " + NoNodeProvider);
                 }
                 sb.AppendLine();
             }

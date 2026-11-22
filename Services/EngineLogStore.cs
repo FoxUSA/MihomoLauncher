@@ -45,6 +45,10 @@ namespace MihomoLauncher.Services
         public event Action<string> Status;
         public string LastStatus { get; private set; } = "";
 
+        // On the UI thread: every parsed verdict, and every resolver answer (host, IPv4).
+        public event Action<EngineLogEntry> EntrySeen;
+        public event Action<string, string> DnsAnswerSeen;
+
         public bool IsRunning { get { return _log != null && _log.IsRunning; } }
 
         // Start (or restart) the feed for this config. Safe to call again after a settings
@@ -57,6 +61,10 @@ namespace MihomoLauncher.Services
             if (_log != null) { _log.Stop(); _log = null; }
             var log = new EngineLog(cfg);
             log.Entry += OnEntry;
+            log.DnsAnswer += (host, ip) => OnUi(() =>
+            {
+                try { DnsAnswerSeen?.Invoke(host, ip); } catch (Exception ex) { Log.Error("dns-stats-answer", ex); }
+            });
             log.Status += s =>
             {
                 LastStatus = s ?? "";
@@ -118,6 +126,9 @@ namespace MihomoLauncher.Services
             OnUi(() =>
             {
                 RememberOrRecallProcess(e);
+                // Every engine verdict, one per connection (a line is either «match … using» or
+                // «dial … error», never both) — the DNS statistics count them (MainWindow.DnsStats).
+                try { EntrySeen?.Invoke(e); } catch (Exception ex) { Log.Error("dns-stats-entry", ex); }
                 var owner = EngineLog.FindOwner(_owners, e.RulePayload, e.Host);
                 var row = new LogRow(e, owner);
                 PersistProblem(row);

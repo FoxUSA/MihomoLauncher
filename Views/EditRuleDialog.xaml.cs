@@ -52,6 +52,14 @@ namespace MihomoLauncher.Views
                 TxtCheckUrl.Text = existing.CheckUrl ?? "";
                 TxtIcon.Text = existing.IconPath ?? "";
                 ChkKillSwitch.IsChecked = existing.KillSwitch;
+                if (existing.LockNic)
+                {
+                    _lockCard = NetCards.Clean(existing.Interfaces).FirstOrDefault();
+                    _lockQuiet = true;
+                    ChkLockNic.IsChecked = true;
+                    _lockQuiet = false;
+                    TxtLockNic.Text = _lockCard ?? "";
+                }
                 ChkSkipCheck.IsChecked = existing.SkipCheck;
                 ChkAutoIcon.IsChecked = existing.AutoIcon;
 
@@ -107,6 +115,41 @@ namespace MihomoLauncher.Views
                 MinHeight = 300;
                 Height = 440;
             }
+        }
+
+        // «Привязка к сетевой карте»: the card the tile goes through at the moment it is switched on.
+        private string _lockCard;
+        private bool _lockQuiet;
+
+        private async void OnLockNicChecked(object sender, RoutedEventArgs e)
+        {
+            if (_lockQuiet) return;
+            // The rule's cards as they are now (a new rule has none: Windows' card).
+            var card = NetCards.CurrentOf(_editing ?? new AppEntry());
+            if (card == null)
+            {
+                _lockQuiet = true;
+                ChkLockNic.IsChecked = false;
+                _lockQuiet = false;
+                await OverlayDialog.MessageAsync(this, Loc.T("Rule_LockNicNoneTitle"), Loc.T("Rule_LockNicNone")).ConfigureAwait(true);
+                return;
+            }
+            _lockCard = card;
+            TxtLockNic.Text = card;
+        }
+
+        private void OnLockNicUnchecked(object sender, RoutedEventArgs e)
+        {
+            if (_lockQuiet) return;
+            _lockCard = null;
+            TxtLockNic.Text = "";
+        }
+
+        // The tile's cards as saved: pinned → just that one card; otherwise as they were.
+        private List<string> SavedInterfaces()
+        {
+            if (ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard)) return new List<string> { _lockCard };
+            return new List<string>(_editing?.Interfaces ?? new List<string>());
         }
 
         // Launch is single-select (radio): ticking one row clears every other. Called from the
@@ -704,7 +747,8 @@ namespace MihomoLauncher.Views
                         Block = _editing.Block,
                         IconPath = _editing.IconPath,
                         KillSwitch = ChkKillSwitch.IsChecked == true,
-                        Interfaces = new List<string>(_editing.Interfaces ?? new List<string>()),
+                        LockNic = ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard),
+                        Interfaces = SavedInterfaces(),
                         DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id)
                             .Concat(_hiddenDisabledIds).ToList(),
                         VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
@@ -784,8 +828,10 @@ namespace MihomoLauncher.Views
                 // VPN or «Напрямую» is chosen on the tile's plate now (the switch is gone): an
                 // edited rule keeps what it had, a new one starts on VPN, as the switch defaulted.
                 entry.RequiresVpn = _editing == null || _editing.RequiresVpn;
-                // The network cards are chosen on the tile's lower plate — carried over as they are.
-                entry.Interfaces = new List<string>(_editing?.Interfaces ?? new List<string>());
+                // The network cards are chosen on the tile's card chip — carried over as they are,
+                // unless «Привязка к сетевой карте» pins the tile to the one it goes through now.
+                entry.LockNic = ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard);
+                entry.Interfaces = SavedInterfaces();
                 entry.KillSwitchBeforeDirect = _editing != null && _editing.KillSwitchBeforeDirect;
                 entry.KillSwitch = ChkKillSwitch.IsChecked == true;
                 entry.SkipCheck = ChkSkipCheck.IsChecked == true;

@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,7 +11,7 @@ namespace MihomoLauncher.Services
     // (UninstallWindow). Replaces the old translit cmd console (Data\uninstall.bat).
     public static class UninstallService
     {
-        // Close every other running MihomoLauncher.exe (NOT this uninstaller instance).
+        // Close every other running launcher, old name or new (NOT this uninstaller instance).
         public static async Task<string> CloseLauncherAsync(CancellationToken ct)
         {
             int me = Process.GetCurrentProcess().Id;
@@ -18,7 +19,7 @@ namespace MihomoLauncher.Services
             for (int attempt = 0; attempt < 10; attempt++)
             {
                 bool alive = false;
-                foreach (var p in Safe("MihomoLauncher"))
+                foreach (var p in System.Linq.Enumerable.SelectMany(VersionInfo.ProcessNames, n => Safe(n)))
                 {
                     if (p.Id == me) { p.Dispose(); continue; }
                     any = true; alive = true;
@@ -65,11 +66,57 @@ namespace MihomoLauncher.Services
             return any ? Loc.T("Uni_ResStopped") : Loc.T("Uni_ResNotRunning");
         }
 
-        // The product's name before 2026-06-26. Its installs were never cleaned up: on mom's PC
-        // the old engine (%LocalAppData%\MomLauncher) kept coming up on :9090 (2026-11-11).
-        // Uninstall takes those leftovers too.
-        private const string LegacyName = "MomLauncher";
-        private static readonly string[] LegacyTasks = { "MomLauncher_mihomo", "MomLauncher_stop" };
+        // (The pre-2026-06-26 «MomLauncher» leftovers — %LocalAppData%\MomLauncher, its Run value
+        // and MomLauncher_* tasks — are no longer looked for: no install uses that name any more,
+        // 2026-11-19.)
+
+        // What is there to remove, looked up before anything is touched (2026-11-19: «пиши что
+        // уже есть в системе, а то не понятно что мы удалять будем»). Read-only, no admin.
+        public sealed class Inventory
+        {
+            public bool AppRunning, EngineRunning, Autostart, Service;
+            public int Tasks, FirewallRules;
+            public System.Collections.Generic.List<string> DataDirs = new System.Collections.Generic.List<string>();
+        }
+
+        public static Inventory Scan()
+        {
+            var inv = new Inventory();
+            int me = Process.GetCurrentProcess().Id;
+            try
+            {
+                foreach (var n in VersionInfo.ProcessNames)
+                    foreach (var p in Safe(n)) { if (p.Id != me) inv.AppRunning = true; p.Dispose(); }
+                foreach (var n in new[] { "mihomo-windows-amd64", "mihomo" })
+                    foreach (var p in Safe(n)) { inv.EngineRunning = true; p.Dispose(); }
+            }
+            catch { }
+            try
+            {
+                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"))
+                    inv.Autostart = k != null && k.GetValue("MihomoLauncher") != null;
+            }
+            catch { }
+            try { inv.Service = MihomoSetup.IsServiceInstalled(); } catch { }
+            foreach (var t in new[] { MihomoSetup.TaskName, MihomoSetup.StopTaskName, MihomoSetup.FirewallTaskName })
+            {
+                string exe, args;
+                try { if (MihomoSetup.TaskCommand(t, out exe, out args)) inv.Tasks++; } catch { }
+            }
+            try { inv.FirewallRules = FirewallGuard.AppliedRuleCount(); } catch { }
+            foreach (var d in DataDirs())
+                try { if (Directory.Exists(d.Item1)) inv.DataDirs.Add(d.Item2); } catch { }
+            return inv;
+        }
+
+        // The out-of-folder leftovers CleanServiceData wipes: path + how the window names it.
+        private static System.Collections.Generic.IEnumerable<Tuple<string, string>> DataDirs()
+        {
+            var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            yield return Tuple.Create(Path.Combine(local, "MihomoLauncher"), @"%LocalAppData%\MihomoLauncher");
+            yield return Tuple.Create(AppConfigStore.DefaultMihomoWorkDir, @"DataUser\mihomo");
+            yield return Tuple.Create(Path.Combine(Path.GetTempPath(), "MihomoLauncherUpdate"), "Temp");
+        }
 
         // Remove the HKCU\Run autostart entry + any startup-folder shortcuts.
         public static string RemoveAutostart()
@@ -77,26 +124,14 @@ namespace MihomoLauncher.Services
             try
             {
                 Autostart.Disable();
-                using (var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                    @"Software\Microsoft\Windows\CurrentVersion\Run", writable: true))
-                    if (k != null && k.GetValue(LegacyName) != null) k.DeleteValue(LegacyName, false);
                 return Loc.T("Uni_ResRemovedM");
             }
             catch (Exception ex) { Log.Error("uninstall.autostart", ex); return Loc.T("Uni_ResError", ex.Message); }
         }
 
-        private static bool AnythingToDelete()
-        {
-            if (MihomoSetup.IsTaskInstalled()) return true;
-            foreach (var t in LegacyTasks)
-            {
-                string exe, args;
-                if (MihomoSetup.TaskCommand(t, out exe, out args)) return true;
-            }
-            return false;
-        }
+        private static bool AnythingToDelete() => MihomoSetup.IsTaskInstalled();
 
-        // Delete the engine service + scheduled tasks (ours and the pre-rename ones). Non-admin
+        // Delete the engine service + scheduled tasks. Non-admin
         // /Delete usually fails (they are SYSTEM), so retry once elevated (single UAC).
         public static async Task<string> DeleteTaskAsync(CancellationToken ct)
         {
@@ -123,14 +158,8 @@ namespace MihomoLauncher.Services
             var removed = new System.Collections.Generic.List<string>();
             var failed = new System.Collections.Generic.List<string>();
 
-            TryWipe(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MihomoLauncher"),
-                "AppData", removed, failed);
-            TryWipe(AppConfigStore.DefaultMihomoWorkDir, "mihomo", removed, failed);
-            TryWipe(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), LegacyName),
-                LegacyName, removed, failed);
-            TryWipe(Path.Combine(Path.GetTempPath(), "MihomoLauncherUpdate"), "Temp", removed, failed);
+            foreach (var d in DataDirs())
+                TryWipe(d.Item1, d.Item2, removed, failed);
 
             if (failed.Count > 0) return Loc.T("Uni_ResError", string.Join(", ", failed));
             if (removed.Count == 0) return Loc.T("Uni_ResNothing");
@@ -168,8 +197,6 @@ namespace MihomoLauncher.Services
                          + " & schtasks /Delete /TN \"" + MihomoSetup.FirewallTaskName + "\" /F"
                          + " & sc stop " + MihomoSetup.ServiceName
                          + " & sc delete " + MihomoSetup.ServiceName;
-                foreach (var t in LegacyTasks)
-                    args += " & schtasks /End /TN \"" + t + "\" & schtasks /Delete /TN \"" + t + "\" /F";
                 // The engine runs as SYSTEM: the user-level kill in StopMihomoAsync can't touch
                 // it, and the service only kills its own path. Here we have the rights.
                 args += " & taskkill /F /IM mihomo-windows-amd64.exe";

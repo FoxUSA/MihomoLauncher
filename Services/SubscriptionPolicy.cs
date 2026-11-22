@@ -107,9 +107,10 @@ namespace MihomoLauncher.Services
 
     public static class SubscriptionPolicy
     {
-        // What mihomo sends when it fetches a provider. The issuer may answer differently per
-        // client, and the cached file has to be the same text the engine would have stored.
-        private const string ClashUserAgent = "clash.meta";
+        // The same User-Agent the engine's provider sends (MihomoConfigBuilder). The issuer may
+        // answer differently per client, and the cached file has to be the same text the engine
+        // would have stored.
+        private static string ClashUserAgent => ByfoxApi.SubscriptionUserAgent;
 
         static SubscriptionPolicy()
         {
@@ -767,6 +768,121 @@ namespace MihomoLauncher.Services
 
             policy.Signature = Sha(string.Join("\n", policy.ProviderLines) + "\n--\n" + string.Join("\n", policy.RuleLines));
             return policy;
+        }
+
+        // ---------- the subscription's nodes: which one the tile rides ----------
+        //
+        // The user picks the node (VPN variant → «Узел»); nothing is measured and nothing
+        // switches by itself. Unpicked = the node the subscription's author put first — what
+        // Loon or any Clash client shows selected on import (2026-11-22: our url-test put a
+        // VLESS-first subscription on Hysteria because its ping was lower).
+
+        public sealed class SubNode
+        {
+            public string Name { get; set; }
+            public string Type { get; set; }   // as the subscription writes it: vless, hysteria2, …
+        }
+
+        public sealed class SubNodeList
+        {
+            public List<SubNode> Nodes { get; } = new List<SubNode>();
+            public string Default { get; set; }   // null when the subscription lists no nodes
+        }
+
+        // The nodes of the downloaded copy, null when there is no copy yet.
+        public static SubNodeList ReadNodes(AppConfig cfg, string proxyName)
+        {
+            try
+            {
+                var path = CachePath(cfg, proxyName);
+                return File.Exists(path) ? ParseNodes(File.ReadAllText(path)) : null;
+            }
+            catch (Exception ex) { Log.Error("sub-nodes", ex); return null; }
+        }
+
+        internal static SubNodeList ParseNodes(string text)
+        {
+            var list = new SubNodeList();
+            var sections = TopLevelSections(text);
+            List<string> body;
+            if (sections.TryGetValue("proxies", out body))
+                foreach (var block in ItemBlocks(body))
+                {
+                    string name = null, type = null;
+                    var first = block[0].TrimStart().Substring(1).Trim();
+                    if (first.StartsWith("{"))
+                    {
+                        var map = FlowMap(first);
+                        string v;
+                        if (map.TryGetValue("name", out v)) name = Unquote(v);
+                        if (map.TryGetValue("type", out v)) type = Unquote(v);
+                    }
+                    else
+                    {
+                        var lines = new List<string> { new string(' ', Indent(block[0]) + 2) + first };
+                        lines.AddRange(block.Skip(1));
+                        int keyIndent = Indent(lines[0]);
+                        foreach (var l in lines)
+                        {
+                            if (Indent(l) != keyIndent) continue;
+                            var m = Regex.Match(l.Trim(), @"^([A-Za-z0-9_-]+)\s*:\s*(.*)$");
+                            if (!m.Success) continue;
+                            var key = m.Groups[1].Value.ToLowerInvariant();
+                            if (key == "name") name = Unquote(StripComment(m.Groups[2].Value));
+                            else if (key == "type") type = Unquote(StripComment(m.Groups[2].Value));
+                        }
+                    }
+                    if (!string.IsNullOrEmpty(name) && !list.Nodes.Any(n => n.Name == name))
+                        list.Nodes.Add(new SubNode { Name = name, Type = (type ?? "").ToLowerInvariant() });
+                }
+            if (list.Nodes.Count == 0) return list;
+
+            // The author's choice: the first group that leads to a node, followed the way a client
+            // starts it — a select group on its first member, any other on its first node.
+            var nodes = new HashSet<string>(list.Nodes.Select(n => n.Name), StringComparer.Ordinal);
+            var groups = new List<GroupInfo>();
+            if (sections.TryGetValue("proxy-groups", out body)) groups.AddRange(ReadGroups(body));
+            var byName = new Dictionary<string, GroupInfo>(StringComparer.Ordinal);
+            foreach (var g in groups) if (!string.IsNullOrEmpty(g.Name) && !byName.ContainsKey(g.Name)) byName[g.Name] = g;
+
+            string Lead(string member, int depth)
+            {
+                if (nodes.Contains(member)) return member;
+                GroupInfo g;
+                if (depth > 8 || !byName.TryGetValue(member, out g)) return null;
+                foreach (var m in g.Members)
+                {
+                    var r = Lead(m, depth + 1);
+                    if (r != null) return r;
+                }
+                return null;
+            }
+            foreach (var g in groups)
+            {
+                var r = Lead(g.Name ?? "", 0);
+                if (r != null) { list.Default = r; break; }
+            }
+            if (list.Default == null) list.Default = list.Nodes[0].Name;
+            return list;
+        }
+
+        private static readonly HashSet<string> _missingNoted = new HashSet<string>(StringComparer.Ordinal);
+
+        // The node a subscription's tile rides: the user's pick if the subscription still has it,
+        // else the author's default. Null = no copy on disk to read (the engine then starts on the
+        // first node it downloads). Logged once per session when the pick has gone.
+        public static string ResolveNode(AppConfig cfg, string cacheName, string wanted)
+        {
+            var list = ReadNodes(cfg, cacheName);
+            if (list == null || list.Nodes.Count == 0) return null;
+            if (!string.IsNullOrEmpty(wanted))
+            {
+                if (list.Nodes.Any(n => n.Name == wanted)) return wanted;
+                lock (_missingNoted)
+                    if (_missingNoted.Add(cacheName + "\n" + wanted))
+                        Log.Info("Подписка «" + cacheName + "»: узла «" + wanted + "» в ней больше нет — беру узел по умолчанию «" + list.Default + "».");
+            }
+            return list.Default;
         }
 
         // ---------- the small YAML reader ----------

@@ -140,8 +140,7 @@ namespace MihomoLauncher.Services
                         var data = k.GetValue(name) as string;
                         if (string.IsNullOrEmpty(data)) continue;
                         var path = StripQuotes(data);
-                        bool isMom = path.IndexOf("MihomoLauncher", StringComparison.OrdinalIgnoreCase) >= 0 &&
-                                     path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
+                        bool isMom = IsOurs(path) && path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase);
                         if (!isMom) continue;
                         // Keep only our exact current entry.
                         if (string.Equals(name, ValueName, StringComparison.OrdinalIgnoreCase) &&
@@ -166,11 +165,9 @@ namespace MihomoLauncher.Services
                 {
                     var target = ResolveShortcutTarget(lnk);
                     bool isMom =
-                        (!string.IsNullOrEmpty(target) &&
-                         target.IndexOf("MihomoLauncher", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                        (!string.IsNullOrEmpty(target) && IsOurs(target) &&
                          target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) ||
-                        Path.GetFileNameWithoutExtension(lnk)
-                            .IndexOf("MihomoLauncher", StringComparison.OrdinalIgnoreCase) >= 0;
+                        IsOurs(Path.GetFileNameWithoutExtension(lnk));
                     if (isMom) { try { File.Delete(lnk); } catch { } }
                 }
             }
@@ -198,6 +195,11 @@ namespace MihomoLauncher.Services
                 try { if (shell != null) Marshal.FinalReleaseComObject(shell); } catch { }
             }
         }
+
+        // Names the launcher by either of its names (MihomoLauncher up to 3.1.0, «Mihomo Launcher» since).
+        private static bool IsOurs(string s)
+            => (s ?? "").IndexOf("MihomoLauncher", StringComparison.OrdinalIgnoreCase) >= 0
+            || (s ?? "").IndexOf("Mihomo Launcher", StringComparison.OrdinalIgnoreCase) >= 0;
 
         private static string StripQuotes(string s)
         {

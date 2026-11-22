@@ -38,6 +38,31 @@ namespace MihomoLauncher.Views
             public double Down, Up;    // bytes/s at the last poll; 0 once closed
             public DateTime Seen;      // last poll it was open at
             public bool Closed;        // gone from the engine — listed, dimmed, for WhoKeepClosed
+            // Bytes already written to ConnArchive: a connection that «closed» on an API blip and
+            // came back is written again only with what it carried since (no double count).
+            public long ArchDown, ArchUp;
+        }
+
+        // Into the 24-hour archive (ConnArchive): what it carried since it was last written.
+        private static void WhoArchive(string tile, WhoConn w)
+        {
+            long dd = w.C.Down - w.ArchDown, du = w.C.Up - w.ArchUp;
+            if (dd <= 0 && du <= 0 && (w.ArchDown > 0 || w.ArchUp > 0)) return;
+            ConnArchive.Add(ConnArchive.From(tile, w.C, dd, du, w.Seen));
+            w.ArchDown = w.C.Down; w.ArchUp = w.C.Up;
+        }
+
+        // On exit: what is still open goes to the archive too, then the buffer to disk.
+        private void WhoArchiveOpenAndFlush()
+        {
+            try
+            {
+                foreach (var kv in _whoRecent)
+                    foreach (var w in kv.Value.Values)
+                        if (!w.Closed) WhoArchive(kv.Key, w);
+            }
+            catch (Exception ex) { Log.Error("conn-archive-exit", ex); }
+            ConnArchive.Flush();
         }
         private sealed class WhoSeen { public DateTime At; public string Process; }
 
@@ -70,6 +95,7 @@ namespace MihomoLauncher.Views
                 {
                     var w = map[id];
                     if (w.Seen >= now) continue;
+                    if (!w.Closed) WhoArchive(tile, w);   // just ended: one line in the archive
                     if (now - w.Seen > WhoKeepClosed) { map.Remove(id); continue; }
                     w.Closed = true; w.Down = 0; w.Up = 0;
                 }
@@ -97,8 +123,60 @@ namespace MihomoLauncher.Views
             public string Key, Name, Path;
             public List<WhoConn> Conns;
             public int Open;           // of Conns, still open
-            public double Down, Up;
+            public double Down, Up;    // live: bytes/s; archive: bytes
             public long Bytes;
+            public int Count;          // archive: connections in the period
+            public List<WhoAddr> Addrs; // archive: already added up
+        }
+
+        private static string RecProgKey(ConnArchive.Rec r) => r.Path.Length > 0 ? r.Path : r.Process.Length > 0 ? r.Process : "?";
+        private static string RecAddrKey(ConnArchive.Rec r) => r.Host.Length > 0 ? r.Host : r.Sniff.Length > 0 ? r.Sniff : r.Ip;
+
+        // The archive of a period, added up by program → address as the lines stream in (off the UI
+        // thread): only the groups stay in memory, never the lines.
+        // unknownName: Loc.T("Main_WhoUnknownProc"), looked up on the UI thread by the caller.
+        private static List<WhoProg> WhoAggregate(IEnumerable<ConnArchive.Rec> recs, string unknownName)
+        {
+            var progs = new Dictionary<string, WhoProg>(StringComparer.OrdinalIgnoreCase);
+            var addrs = new Dictionary<string, Dictionary<string, WhoAddr>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in recs)
+            {
+                var pk = RecProgKey(r);
+                WhoProg p;
+                if (!progs.TryGetValue(pk, out p))
+                {
+                    progs[pk] = p = new WhoProg { Key = pk, Name = r.Process.Length > 0 ? r.Process : unknownName, Path = r.Path };
+                    addrs[pk] = new Dictionary<string, WhoAddr>(StringComparer.OrdinalIgnoreCase);
+                }
+                p.Count++; p.Down += r.Down; p.Up += r.Up; p.Bytes += r.Down + r.Up;
+                if (p.Path.Length == 0 && r.Path.Length > 0) p.Path = r.Path;
+                var map = addrs[pk];
+                var ak = RecAddrKey(r);
+                WhoAddr a;
+                if (!map.TryGetValue(ak, out a))
+                    map[ak] = a = new WhoAddr { Host = r.Host.Length > 0 ? r.Host : r.Sniff, Ip = r.Ip, Port = r.Port, Network = r.Network };
+                if (a.Ip.Length == 0 && r.Ip.Length > 0) a.Ip = r.Ip;
+                a.Count++; a.Down += r.Down; a.Up += r.Up; a.Bytes += r.Down + r.Up;
+            }
+            foreach (var p in progs.Values)
+                p.Addrs = addrs[p.Key].Values.OrderByDescending(a => a.Bytes).ThenBy(a => a.Host, StringComparer.OrdinalIgnoreCase).ToList();
+            return progs.Values.OrderByDescending(p => p.Bytes).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+
+        // «12 КБ» / «3,4 МБ» / «123 МБ» / «1,23 ГБ» — a table cell's volume.
+        internal static string WhoVolume(double bytes)
+        {
+            double kb = Math.Max(0, bytes) / 1024, mb = kb / 1024;
+            if (mb >= 1024) return (mb / 1024).ToString(mb / 1024 < 10 ? "0.00" : "0.0", CultureInfo.CurrentCulture) + " " + Loc.T("Main_SpeedGB");
+            if (mb >= 1) return mb.ToString(mb < 10 ? "0.0" : "0", CultureInfo.CurrentCulture) + " " + Loc.T("Main_SpeedMB");
+            return Math.Round(kb).ToString(CultureInfo.CurrentCulture) + " " + Loc.T("Main_SpeedKB");
+        }
+
+        private static void SetVolume(TextBlock t, double? bytes)
+        {
+            if (bytes == null) { t.Text = ""; return; }
+            t.Text = WhoVolume(bytes.Value);
+            t.Opacity = bytes.Value < 1024 ? 0.45 : 1;
         }
 
         private sealed class WhoAddr
@@ -113,11 +191,20 @@ namespace MihomoLauncher.Views
         // calls the returned Action on close.
         // detached: the same view in a window of its own the user sizes (the ⧉ in the corner of the
         // addresses, 2026-11-16) — the tables then fill whatever height and width it is given.
-        private UIElement BuildSpeedWho(AppEntry entry, Window win, bool detached, string initialSelected, out Action stop)
+        //
+        // hours: 0 = «Сейчас» (live, the last minute, refreshed every 2 s); 1 / 6 / 12 / 24 = the
+        // archive of that period (ConnArchive + what is open right now), read once when chosen and
+        // then left still — no rows jumping while it is looked at. setHours switches it.
+        private UIElement BuildSpeedWho(AppEntry entry, Window win, bool detached, string initialSelected, int initialHours,
+                                        out Action stop, out Action<int> setHours)
         {
             string selected = initialSelected;
             List<WhoProg> progs = new List<WhoProg>();
             Action refresh = null;   // the row clicks are wired before Refresh exists
+            int hours = initialHours;
+            List<WhoProg> archive = null;   // the period's snapshot; null while it loads
+            DateTime archiveAt = DateTime.Now;
+            int loadGen = 0;
 
             // ---- exit line ----
             var exitText = new TextBlock { FontSize = 12.5, Foreground = Theme.TextSecondary, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
@@ -196,7 +283,7 @@ namespace MihomoLauncher.Views
                 };
                 detach.MouseEnter += (s, e) => { detach.Background = Theme.ChipBgHover; icon.Foreground = Theme.TextPrimary; };
                 detach.MouseLeave += (s, e) => { detach.Background = Brushes.Transparent; icon.Foreground = Theme.TextSecondary; };
-                detach.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenSpeedWhoWindow(entry, selected); };
+                detach.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenSpeedWhoWindow(entry, selected, hours); };
                 DockPanel.SetDock(detach, Dock.Right);
                 rightHeadRow.Children.Add(detach);
             }
@@ -307,10 +394,15 @@ namespace MihomoLauncher.Views
             void Refresh()
             {
                 RenderExit(entry, exitText);
+                bool live = hours == 0;
+
+                // Column titles: speed now, or the volume over the period.
+                ((TextBlock)((Grid)progHeader.Child).Children[1]).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
+                ((TextBlock)((Grid)addrHeader.Child).Children[4]).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
 
                 List<WhoConn> conns;
-                if (!_whoNow.TryGetValue(entry.Id, out conns) || conns == null) conns = new List<WhoConn>();
-                progs = conns.GroupBy(w => ProgKey(w.C), StringComparer.OrdinalIgnoreCase)
+                if (!live || !_whoNow.TryGetValue(entry.Id, out conns) || conns == null) conns = new List<WhoConn>();
+                progs = !live ? (archive ?? new List<WhoProg>()) : conns.GroupBy(w => ProgKey(w.C), StringComparer.OrdinalIgnoreCase)
                     .Select(g => new WhoProg
                     {
                         Key = g.Key,
@@ -326,7 +418,8 @@ namespace MihomoLauncher.Views
                     .OrderByDescending(p => p.Bytes).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
                 if (selected == null || !progs.Any(p => p.Key == selected)) selected = progs.Count > 0 ? progs[0].Key : null;
 
-                leftHead.Text = Loc.T("Main_WhoPrograms") + (progs.Count > 0 ? " · " + progs.Count : "");
+                leftHead.Text = Loc.T("Main_WhoPrograms") + (progs.Count > 0 ? " · " + progs.Count : "")
+                              + (live || archive == null ? "" : " · " + Loc.T("Main_WhoSnapshot", archiveAt.ToString("HH:mm")));
                 int progShow = Math.Max(WhoRows, progs.Count);
                 progStripes?.Invoke(progShow);
                 while (progRows.Count < progShow) AddProgRow();
@@ -337,17 +430,18 @@ namespace MihomoLauncher.Views
                     progRows[i].Visibility = i < progShow ? Visibility.Visible : Visibility.Collapsed;
                     var p = i < progs.Count ? progs[i] : null;
                     progName[i].Text = p?.Name ?? "";
-                    progSub[i].Text = p == null ? "" : p.Open > 0 ? Loc.T("Main_WhoConns", p.Open) : Loc.T("Main_WhoClosed");
+                    progSub[i].Text = p == null ? "" : !live ? Loc.T("Main_WhoConns", p.Count) : p.Open > 0 ? Loc.T("Main_WhoConns", p.Open) : Loc.T("Main_WhoClosed");
                     // Only closed ones left (within the last minute): dimmed, still there to see.
-                    progRows[i].Opacity = p != null && p.Open == 0 ? 0.5 : 1;
-                    SetSpeed(progDown[i], p == null ? (double?)null : p.Down);
+                    progRows[i].Opacity = live && p != null && p.Open == 0 ? 0.5 : 1;
+                    if (live) SetSpeed(progDown[i], p == null ? (double?)null : p.Down);
+                    else SetVolume(progDown[i], p == null ? (double?)null : p.Down);
                     progRows[i].Background = p != null && p.Key == selected ? Theme.SelectionBg : (i % 2 == 1 ? WhoStripe : Brushes.Transparent);
                     progRows[i].ToolTip = p == null ? null : (p.Path.Length > 0 ? p.Path + "\n\n" : "") + Loc.T("Main_WhoTipOpen");
                     progRows[i].Cursor = p == null ? null : Cursors.Hand;
                 }
 
                 var sel = progs.FirstOrDefault(p => p.Key == selected);
-                var addrs = sel == null ? new List<WhoAddr>() : sel.Conns
+                var addrs = sel == null ? new List<WhoAddr>() : sel.Addrs ?? sel.Conns
                     .GroupBy(w => AddrKey(w.C), StringComparer.OrdinalIgnoreCase)
                     .Select(g =>
                     {
@@ -371,7 +465,9 @@ namespace MihomoLauncher.Views
                 if (sel != null)
                 {
                     rightHead.Inlines.Add(new Run(sel.Name) { Foreground = Theme.TextPrimary });
-                    rightHead.Inlines.Add(new Run("  ·  " + (sel.Open > 0 ? Loc.T("Main_WhoConns", sel.Open) : Loc.T("Main_WhoClosed")) + "  ·  ↓ " + Mbit(sel.Down) + "  ↑ " + Mbit(sel.Up) + " " + Loc.T("Main_SpeedMbit"))
+                    rightHead.Inlines.Add(new Run(live
+                        ? "  ·  " + (sel.Open > 0 ? Loc.T("Main_WhoConns", sel.Open) : Loc.T("Main_WhoClosed")) + "  ·  ↓ " + Mbit(sel.Down) + "  ↑ " + Mbit(sel.Up) + " " + Loc.T("Main_SpeedMbit")
+                        : "  ·  " + Loc.T("Main_WhoConns", sel.Count) + "  ·  ↓ " + WhoVolume(sel.Down) + "  ↑ " + WhoVolume(sel.Up))
                     { Foreground = Theme.TextSecondary, FontWeight = FontWeights.Normal });   // was Muted — too faint
                 }
                 else rightHead.Inlines.Add(new Run(Loc.T("Main_WhoWhere")) { Foreground = Theme.TextPrimary });
@@ -395,8 +491,8 @@ namespace MihomoLauncher.Views
                     }
                     bool named = !string.IsNullOrEmpty(a.Host);
                     aHost[i].Text = (named ? a.Host : (a.Ip.Length > 0 ? a.Ip : "—")) + (a.Count > 1 ? "  ×" + a.Count : "");
-                    aHost[i].ToolTip = (named ? a.Host : Loc.T("Main_WhoNoName")) + (a.Open == 0 ? "\n" + Loc.T("Main_WhoClosedTip") : "");
-                    aRows[i].Opacity = a.Open == 0 ? 0.5 : 1;
+                    aHost[i].ToolTip = (named ? a.Host : Loc.T("Main_WhoNoName")) + (live && a.Open == 0 ? "\n" + Loc.T("Main_WhoClosedTip") : "");
+                    aRows[i].Opacity = live && a.Open == 0 ? 0.5 : 1;
                     // Named: «173.194.182.8:443». A bare address is already the top line, so below it
                     // only «порт 59453 · UDP» (was a dangling «:59453»).
                     bool udp = string.Equals(a.Network, "udp", StringComparison.OrdinalIgnoreCase);
@@ -416,8 +512,8 @@ namespace MihomoLauncher.Views
                     var org = a.Ip.Length > 0 ? GeoIpService.OrgOf(a.Ip, asn) : "";
                     aIsp[i].Text = org.Length > 0 ? org : "—";
                     aIsp[i].ToolTip = org.Length > 0 ? org : null;
-                    SetSpeed(aDown[i], a.Down);
-                    SetSpeed(aUp[i], a.Up);
+                    if (live) { SetSpeed(aDown[i], a.Down); SetSpeed(aUp[i], a.Up); }
+                    else { SetVolume(aDown[i], a.Down); SetVolume(aUp[i], a.Up); }
                 }
 
                 // What each text column needs: its header, then its longest line among the rows.
@@ -436,6 +532,7 @@ namespace MihomoLauncher.Views
                 LayoutAddr();
 
                 if (sel != null) empty.Text = "";
+                else if (!live) empty.Text = Loc.T(archive == null ? "Main_WhoLoading" : "Main_WhoNonePeriod");
                 else if (_mihomo == null) empty.Text = Loc.T("Main_WhoNone");
                 else if (!_whoMeasured) empty.Text = Loc.T("Main_WhoWait");
                 else
@@ -447,12 +544,46 @@ namespace MihomoLauncher.Views
                 empty.Visibility = empty.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             }
 
+            // The period's snapshot: the archive files + what is open right now (its bytes since
+            // last written), added up off the UI thread; a newer click wins over an older load.
+            async void LoadArchive()
+            {
+                int gen = ++loadGen;
+                int h = hours;
+                archive = null;
+                Refresh();
+                var now = DateTime.UtcNow;
+                var open = new List<ConnArchive.Rec>();
+                Dictionary<string, WhoConn> map;
+                if (_whoRecent.TryGetValue(entry.Id, out map))
+                    foreach (var w in map.Values)
+                        if (!w.Closed) open.Add(ConnArchive.From(entry.Id, w.C, w.C.Down - w.ArchDown, w.C.Up - w.ArchUp, now));
+                List<WhoProg> result;
+                var unknown = Loc.T("Main_WhoUnknownProc");
+                try
+                {
+                    result = await System.Threading.Tasks.Task.Run(() =>
+                        WhoAggregate(ConnArchive.Read(entry.Id, now.AddHours(-h)).Concat(open), unknown)).ConfigureAwait(true);
+                }
+                catch (Exception ex) { Log.Error("conn-archive-load", ex); result = new List<WhoProg>(); }
+                if (gen != loadGen) return;
+                archive = result;
+                archiveAt = DateTime.Now;
+                Refresh();
+            }
+
             refresh = Refresh;
-            Refresh();
+            if (hours == 0) Refresh(); else LoadArchive();
             var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(2) };
-            timer.Tick += (s, e) => Refresh();
+            timer.Tick += (s, e) => { if (hours == 0) Refresh(); };
             timer.Start();
-            stop = () => timer.Stop();
+            stop = () => { timer.Stop(); loadGen++; };
+            setHours = h =>
+            {
+                hours = h;
+                if (h == 0) { archive = null; loadGen++; Refresh(); }
+                else LoadArchive();
+            };
             return root;
         }
 
@@ -721,12 +852,13 @@ namespace MihomoLauncher.Views
         }
 
         // The ⧉ in the addresses' corner: the same view in a window of its own, sized by the user.
-        private void OpenSpeedWhoWindow(AppEntry entry, string selected)
+        private void OpenSpeedWhoWindow(AppEntry entry, string selected, int hours)
         {
             var holder = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
             var win = new SpeedWindow(Loc.T("Main_WhoWinTitle", entry.IsAllTraffic ? AllTrafficName() : entry.Name), holder, resizable: true) { Owner = this };
             Action stop;
-            holder.Content = BuildSpeedWho(entry, win, true, selected, out stop);
+            Action<int> setHours;   // the detached window keeps the period it was opened with
+            holder.Content = BuildSpeedWho(entry, win, true, selected, hours, out stop, out setHours);
             win.Closed += (s, e) => stop();
             win.Show();
         }

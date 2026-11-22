@@ -65,6 +65,15 @@
                                FontSize="11" Opacity="0.6" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
 
+                <!-- Which node of the subscription the tile rides — only for a saved subscription
+                     whose link is unchanged (the list comes from its downloaded copy). -->
+                <StackPanel x:Name="PnlNode" Visibility="Collapsed">
+                    <TextBlock Text="{DynamicResource Slot_Node}" FontSize="13" FontWeight="SemiBold" Margin="0,16,0,4" />
+                    <ComboBox x:Name="CmbNode" FontSize="13" HorizontalAlignment="Stretch" />
+                    <TextBlock x:Name="HintNode" Text="{DynamicResource Slot_NodeHint}"
+                               FontSize="11" Opacity="0.6" Margin="0,4,0,0" TextWrapping="Wrap" />
+                </StackPanel>
+
                 <CheckBox x:Name="ChkEnabled"
                           Content="{DynamicResource Slot_UseInRotation}"
                           FontSize="13"

@@ -78,6 +78,10 @@ namespace MihomoLauncher.Services
         public List<TileTab> Tabs { get; set; } = new List<TileTab>();
         // The tab last open — reopened at start, and where a rule added in «Правила» lands.
         public string CurrentTabId { get; set; } = "";
+        // Tiles per row on the main window (2026-11-17): the user drags the window's edge and it
+        // snaps to whole columns and rows; 5 until then (2026-11-18: 6 → 5 — the mode buttons span
+        // the grid edge to edge, fits 1366 px at 125%). Narrowed to what the top bar needs.
+        public int TileColumns { get; set; } = 5;
 
         // Access password (see AccessLock): salted PBKDF2 hash, its salt, and the hashed place
         // (PC + Windows user + launcher copy) the data was locked in. All empty = no password.
@@ -201,6 +205,63 @@ namespace MihomoLauncher.Services
                 || string.Equals(d, LegacyStdMihomoWorkDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase);
         }
 
+        // The install folder was moved or renamed (2026-11-19: Work\MihomoLauncher → Work\Mihomo
+        // Launcher): config.xml keeps ABSOLUTE paths into the old folder's DataUser\ / Data\ —
+        // the engine, its work dir, tile icons — and they point at nothing. The engine looked
+        // «не установлен» and the app offered to download it although it sat in DataUser\.
+        // Such a path is moved onto this install when the same file / folder exists here.
+        private static bool RebaseMovedInstall(AppConfig cfg)
+        {
+            // Whatever the folder is called now and wherever it sits («хоть в папке Вася»): what
+            // decides is that a path leads into ANOTHER install's Data\ / DataUser\ — gone (moved,
+            // renamed) or still there (a copy: it must use its own files, not the original's).
+            bool changed = false;
+            var exe = RebaseToThisInstall(cfg.MihomoExePath, mustExist: true);
+            // The engine path leads nowhere at all (another PC's %LocalAppData%, a deleted
+            // folder), but this install has one in DataUser\ (the full archive ships it).
+            if ((string.IsNullOrWhiteSpace(exe) || !File.Exists(exe)) && File.Exists(DefaultMihomoExeTarget))
+                exe = DefaultMihomoExeTarget;
+            if (!string.Equals(exe, cfg.MihomoExePath, StringComparison.Ordinal)) { cfg.MihomoExePath = exe; changed = true; }
+
+            // The work dir is created on demand, so it is moved here whether it exists yet or not.
+            var wd = RebaseToThisInstall(cfg.MihomoWorkDir, mustExist: false);
+            if (!string.Equals(wd, cfg.MihomoWorkDir, StringComparison.Ordinal))
+            {
+                // The default one is kept empty (= DefaultMihomoWorkDir), as on a fresh install.
+                cfg.MihomoWorkDir = string.Equals(wd.TrimEnd('\\'), DefaultMihomoWorkDir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase) ? "" : wd;
+                changed = true;
+            }
+
+            foreach (var a in cfg.Apps ?? new List<AppEntry>())
+            {
+                var icon = RebaseToThisInstall(a.IconPath, mustExist: true);
+                if (!string.Equals(icon, a.IconPath, StringComparison.Ordinal)) { a.IconPath = icon; changed = true; }
+            }
+            if (changed) try { Log.Info("Папка программы перенесена: пути движка и иконок переведены на " + VersionInfo.InstallRoot); } catch { }
+            return changed;
+        }
+
+        // <another folder>\DataUser\x or \Data\x → <this install>\DataUser\x (when it exists here,
+        // if mustExist).
+        private static string RebaseToThisInstall(string path, bool mustExist)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return path;
+            try
+            {
+                var root = VersionInfo.InstallRoot.TrimEnd('\\');
+                foreach (var seg in new[] { "\\DataUser\\", "\\Data\\" })
+                {
+                    int i = path.LastIndexOf(seg, StringComparison.OrdinalIgnoreCase);
+                    if (i <= 0) continue;
+                    if (string.Equals(path.Substring(0, i).TrimEnd('\\'), root, StringComparison.OrdinalIgnoreCase)) return path;
+                    var here = root + path.Substring(i);
+                    return !mustExist || File.Exists(here) || Directory.Exists(here) ? here : path;
+                }
+            }
+            catch { }
+            return path;
+        }
+
         // A full, independent copy — through the same serializer that writes config.xml, so it
         // carries every field that is saved (a field-by-field copy silently lost new ones).
         public static AppConfig Clone(AppConfig c)
@@ -253,6 +314,7 @@ namespace MihomoLauncher.Services
                     loaded.MihomoWorkDir = "";
                     dirty = true;
                 }
+                if (RebaseMovedInstall(loaded)) dirty = true;
                 if (NormalizeRules(loaded.Apps)) dirty = true;
                 if (EnsureAllTraffic(loaded.Apps)) dirty = true;
                 if (NormalizeDirectWithTicks(loaded)) dirty = true;

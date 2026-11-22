@@ -46,8 +46,9 @@ namespace MihomoLauncher.Services
     {
         private const string BaseUrl = "https://byfox.dev/data/mihomolauncher/";
         private const string ManifestUrl = BaseUrl + "manifest.json";
-        // The launcher self-update archive. It contains MihomoLauncher.exe + Data\ (and optionally
-        // help/uninstall shortcuts) but NOT DataUser\ — everything in it is applied as-is.
+        // The launcher self-update archive. It contains Mihomo Launcher.exe + Data\ (+ the old-name
+        // MihomoLauncher.exe forwarder that 3.1.0 updaters look for; see VersionInfo.ExeName) and
+        // help/uninstall launchers, but NOT DataUser\ — everything in it is applied as-is.
         // (The site's clean-install archive is the separate, full mihomolauncher.zip.)
         private const string ZipUrl = BaseUrl + "update.zip";
 
@@ -62,7 +63,7 @@ namespace MihomoLauncher.Services
         private const string ZipName = "update.zip";
 
         // Staging folder the update archive is extracted into; the freshly extracted
-        // MihomoLauncher.exe runs from here (in --apply-update mode) to swap files into the
+        // launcher exe runs from here (in --apply-update mode) to swap files into the
         // install root. Kept stable so a normal startup can clean up a stale copy.
         public static string StageDir => Path.Combine(Path.GetTempPath(), "MihomoLauncherUpdate");
 
@@ -524,9 +525,9 @@ namespace MihomoLauncher.Services
 
         // ---- launcher self-update ----
         // Downloads update.zip, extracts it to a staging folder, then launches the freshly
-        // extracted MihomoLauncher.exe in "--apply-update" mode. That staged instance shows its
+        // extracted launcher exe in "--apply-update" mode. That staged instance shows its
         // own progress window and does the actual swap (wait for us to exit → stop processes →
-        // delete Data\ + MihomoLauncher.exe → copy the archive in → relaunch). DataUser\ and any
+        // delete Data\ + the exe → copy the archive in → relaunch). DataUser\ and any
         // root files NOT present in the archive are left untouched. Returns true once the
         // updater has been launched — the caller must then shut down so the swap can proceed.
         //
@@ -554,9 +555,12 @@ namespace MihomoLauncher.Services
             ExtractZipWithProgress(zip, newDir, onPercent, ct);
             try { File.Delete(zip); } catch { }
 
-            // The archive may be flat (MihomoLauncher.exe + Data\ at the root) or nested in a
-            // parent folder — locate the exe and treat its directory as the source root.
-            var newExe = Directory.GetFiles(newDir, "MihomoLauncher.exe", SearchOption.AllDirectories).FirstOrDefault();
+            // The archive may be flat (the exe + Data\ at the root) or nested in a parent folder —
+            // locate the exe and treat its directory as the source root. «Mihomo Launcher.exe»
+            // since 2026-11-19; the archive also carries the old-name forwarder (for 3.1.0
+            // updaters), and an older archive only the old name.
+            var newExe = Directory.GetFiles(newDir, VersionInfo.ExeName, SearchOption.AllDirectories).FirstOrDefault()
+                      ?? Directory.GetFiles(newDir, VersionInfo.LegacyExeName, SearchOption.AllDirectories).FirstOrDefault();
             if (newExe == null)
                 throw new IOException(Loc.T("Upd_ErrLauncherNotInZip"));
             var srcRoot = Path.GetDirectoryName(newExe);
@@ -571,9 +575,11 @@ namespace MihomoLauncher.Services
             onStatus?.Invoke(Loc.T("Upd_PreparingInstaller"));
             onPercent?.Invoke(-1);
             Directory.CreateDirectory(runnerDir);
-            CopyFileSafe(Path.Combine(root, "MihomoLauncher.exe"), Path.Combine(runnerDir, "MihomoLauncher.exe"));
+            // The exe that is running now, under its own name (the forwarder is no runner).
+            var curExe = MihomoSetup.LauncherExePath();
+            var runnerExe = Path.Combine(runnerDir, Path.GetFileName(curExe));
+            CopyFileSafe(curExe, runnerExe);
             CopyDir(Path.Combine(root, "Data"), Path.Combine(runnerDir, "Data"));
-            var runnerExe = Path.Combine(runnerDir, "MihomoLauncher.exe");
             if (!File.Exists(runnerExe))   // fallback: run the downloaded exe directly
             {
                 runnerExe = newExe;

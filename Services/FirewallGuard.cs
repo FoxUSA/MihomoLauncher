@@ -129,7 +129,10 @@ namespace MihomoLauncher.Services
             // fails open (kill-switch off) keeps failing open here too.
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var app in (cfg.Apps ?? new List<AppEntry>())
-                         .Where(a => a != null && a.KillSwitch))   // «без VPN» too: the kill-switch works always
+                         // «без VPN» too: the kill-switch works always. «Привязка к сетевой карте» too
+                         // (2026-11-19): the pin lives in the engine — with the engine down Windows would
+                         // send the tile's programs out through any card, Wi-Fi with the home IP included.
+                         .Where(a => a != null && (a.KillSwitch || a.LockNic)))
             {
                 foreach (var prog in app.Programs ?? new List<RuleProgram>())
                 {
@@ -196,7 +199,7 @@ namespace MihomoLauncher.Services
             try
             {
                 var file = Path.GetFileName(path);
-                if (string.Equals(file, "MihomoLauncher.exe", StringComparison.OrdinalIgnoreCase)) return true;
+                if (VersionInfo.IsLauncherFileName(file)) return true;
                 var engine = (cfg?.MihomoExePath ?? "").Trim();
                 if (engine.Length > 0 &&
                     string.Equals(Path.GetFileName(engine), file, StringComparison.OrdinalIgnoreCase)) return true;

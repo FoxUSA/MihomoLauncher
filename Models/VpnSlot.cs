@@ -28,5 +28,9 @@ namespace MihomoLauncher.Models
         // ClashSub only: how often (hours) mihomo re-downloads the subscription
         // (the proxy-provider `interval`). Default 48h; ignored for other kinds.
         public int UpdateIntervalHours { get; set; } = 48;
+
+        // ClashSub only: the subscription node to ride, chosen by the user; "" = the one the
+        // subscription's author put first. Nothing measures or switches it (2026-11-22).
+        public string SubNode { get; set; } = "";
     }
 }

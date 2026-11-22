@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net48</TargetFramework>
@@ -17,16 +17,18 @@
     <Company>byFox</Company>
     <Authors>byFox</Authors>
     <Copyright>Copyright (c) 2026 byFox</Copyright>
-    <Version>3.1.0</Version>
+    <Version>3.1.3</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>fox.ico</ApplicationIcon>
   </PropertyGroup>
 
-  <!-- Release ships from bin\Release\MihomoLauncher\ (no net481 leaf folder), so the
-       distributable folder is literally "MihomoLauncher". Debug stays bin\Debug\net481. -->
+  <!-- Release ships from "bin\Release\Mihomo Launcher\" (no net481 leaf folder), so the
+       distributable folder is literally "Mihomo Launcher" (2026-11-19; "MihomoLauncher" before).
+       layout-release.ps1 renames the built MihomoLauncher.exe to "Mihomo Launcher.exe".
+       Debug stays bin\Debug\net481. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <OutputPath>bin\Release\MihomoLauncher\</OutputPath>
+    <OutputPath>bin\Release\Mihomo Launcher\</OutputPath>
   </PropertyGroup>
   <!-- The standalone launcher sources under build\launchers\ are compiled separately into
        help.exe/uninstall.exe by layout-release.ps1 вЂ” keep them OUT of the main app build. -->
@@ -61,15 +63,11 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- Folder / shortcut icons, all shipped INTO Data\ (so an update brings fresh copies):
-         data.ico в†’ Data\ folder, user_data.ico в†’ DataUser\ folder, help.ico в†’ the "help"
-         shortcut, trash.ico в†’ the "uninstall" shortcut. Applied at runtime by FolderIcons. -->
+         data.ico в†’ Data\ folder, user_data.ico в†’ DataUser\ folder, trash.ico в†’ the "uninstall" shortcut. Applied at runtime by FolderIcons. -->
     <Content Include="data.ico" Link="Data\data.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="user_data.ico" Link="Data\user_data.ico">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="help.ico" Link="Data\help.ico">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="trash.ico" Link="Data\trash.ico">
@@ -107,7 +105,7 @@
     </Content>
   </ItemGroup>
 
-  <!-- Release-only: reshape the output to MihomoLauncher.exe in root + Data\ for the rest. -->
+  <!-- Release-only: reshape the output to "Mihomo Launcher.exe" in root + Data\ for the rest. -->
   <Target Name="LayoutReleaseDataFolder" AfterTargets="Build" Condition="'$(Configuration)' == 'Release'">
     <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\build\layout-release.ps1&quot; -OutDir &quot;$(OutDir.TrimEnd('\'))&quot;" />
   </Target>

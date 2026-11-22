@@ -59,6 +59,10 @@ namespace MihomoLauncher.Services
 
         public event Action<EngineLogEntry> Entry;
         public event Action<string> Status;
+        // (host, first IPv4) from the engine's own resolver answers — the real address of a site
+        // reached DIRECT, for the DNS statistics' country / company. Arrives BEFORE the
+        // connection's own line (the dial needs the address), checked live 2026-11-17.
+        public event Action<string, string> DnsAnswer;
 
         public EngineLog(AppConfig cfg)
         {
@@ -169,6 +173,11 @@ namespace MihomoLauncher.Services
                                 RememberSystemLine(line);
                                 var entry = Parse(line);
                                 if (entry != null) Entry?.Invoke(entry);
+                                else
+                                {
+                                    var ans = ParseDnsAnswer(line);
+                                    if (ans != null) DnsAnswer?.Invoke(ans[0], ans[1]);
+                                }
                             }
                         }
                     }
@@ -305,6 +314,29 @@ namespace MihomoLauncher.Services
                 };
             }
 
+            return null;
+        }
+
+        //   debug [DNS] example.com --> [104.20.23.154 172.66.147.243] A from udp://192.168.104.1:53
+        //   debug [DNS] cache hit ya.ru --> [5.255.255.242 77.88.44.242] A, expire at …
+        private static readonly Regex DnsAnswerLine =
+            new Regex(@"^\[DNS\]\s+(?:cache hit\s+)?(?<host>\S+)\s+-->\s+\[(?<ips>[^\]]+)\]\s+A\b",
+                RegexOptions.Compiled);
+
+        // {host, first IPv4} or null.
+        public static string[] ParseDnsAnswer(string line)
+        {
+            if (string.IsNullOrEmpty(line) || line.IndexOf("[DNS]", StringComparison.Ordinal) < 0) return null;
+            var m = JsonLine.Match(line);
+            var payload = (m.Success ? Unescape(m.Groups["payload"].Value) : line).Trim();
+            var hit = DnsAnswerLine.Match(payload);
+            if (!hit.Success) return null;
+            foreach (var ip in hit.Groups["ips"].Value.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                System.Net.IPAddress a;
+                if (System.Net.IPAddress.TryParse(ip, out a) && a.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                    return new[] { hit.Groups["host"].Value.TrimEnd('.').ToLowerInvariant(), ip };
+            }
             return null;
         }
 

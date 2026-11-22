@@ -8,7 +8,7 @@ namespace MihomoLauncher
 {
     public partial class App : Application
     {
-        // Release keeps ONLY MihomoLauncher.exe in the root and puts every dependency DLL
+        // Release keeps ONLY the launcher exe («Mihomo Launcher.exe») in the root and puts every dependency DLL
         // in Data\. The CLR won't probe there on its own and there's no .config, so we
         // resolve app assemblies from Data\ ourselves. Registered in the static ctor so
         // it's wired up before InitializeComponent loads WPF-UI / MaxMind. (Debug runs
@@ -176,7 +176,7 @@ namespace MihomoLauncher
                 try
                 {
                     MessageBox.Show(Loc.T("Svc_ErrorButContinue", args.Exception.Message),
-                        "MihomoLauncher", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        "Mihomo Launcher", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
                 catch { }
                 args.Handled = true;
@@ -223,9 +223,10 @@ namespace MihomoLauncher
                 if (System.IO.Directory.Exists(stage)) System.IO.Directory.Delete(stage, true);
             }
             catch { }
-            // …and the old Data.old / MihomoLauncher.exe.old an update set aside but could not
+            // …and the old Data.old / <exe>.old an update set aside but could not
             // remove right away (UpdateApplier.SwapIn).
             try { UpdateApplier.CleanAside(AppContext.BaseDirectory.TrimEnd('\\')); } catch { }
+            HideLegacyForwarder();
 
             // If autostart is on, keep it pointed at the current exe (handles a moved/
             // updated launcher) and clean out any old MihomoLauncher autostart entries.
@@ -274,6 +275,25 @@ namespace MihomoLauncher
                 Log.Crash("MainWindow", ex);
                 Shutdown();
             }
+        }
+
+        // MihomoLauncher.exe beside «Mihomo Launcher.exe» is the old-name forwarder an update
+        // brings (VersionInfo.ExeName). It stays — old shortcuts, pins and the service's
+        // --launcher still name it — but hidden, so the folder shows one exe to start.
+        private static void HideLegacyForwarder()
+        {
+            try
+            {
+                var root = AppContext.BaseDirectory.TrimEnd('\\');
+                var me = MihomoSetup.LauncherExePath();
+                if (!string.Equals(System.IO.Path.GetFileName(me), VersionInfo.ExeName, StringComparison.OrdinalIgnoreCase)) return;
+                var legacy = System.IO.Path.Combine(root, VersionInfo.LegacyExeName);
+                if (!System.IO.File.Exists(legacy)) return;
+                var attrs = System.IO.File.GetAttributes(legacy);
+                if ((attrs & System.IO.FileAttributes.Hidden) == 0)
+                    System.IO.File.SetAttributes(legacy, attrs | System.IO.FileAttributes.Hidden);
+            }
+            catch { }
         }
 
         private bool UnlockMovedData()

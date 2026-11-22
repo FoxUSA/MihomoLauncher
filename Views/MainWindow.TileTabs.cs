@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -37,10 +37,29 @@ namespace MihomoLauncher.Views
         {
             double avail = ResultRoot.ActualWidth - TilesArea.Margin.Left - TilesArea.Margin.Right;
             if (double.IsNaN(avail) || avail <= 0) return;
-            int cols = Math.Max(1, (int)Math.Floor((avail + 0.5) / TileOuter));
+            // The window is always sized to whole columns (GridWindowWidth), so the nearest count
+            // is the one meant — never a pixel-exact fit (2026-11-21, mom's ZenBook at 250%: the
+            // floor lost a column whenever the content came out a pixel narrower than the window).
+            int cols = Math.Max(1, (int)Math.Round(avail / TileOuter));
             double w = cols * TileOuter;
-            if (Math.Abs(TilesPanel.Width - w) > 0.5 || double.IsNaN(TilesPanel.Width)) TilesPanel.Width = w;
-            if (Math.Abs(TabsPanel.Width - w) > 0.5 || double.IsNaN(TabsPanel.Width)) TabsPanel.Width = w;
+            int meant = (int)Math.Round((ActualWidth - GridSides - FrameW) / TileOuter);
+            if (cols != meant && !_inSizeMove && _gridMismatchLogged++ < 3)
+            {
+                var src = PresentationSource.FromVisual(this);
+                double dpi = src?.CompositionTarget?.TransformToDevice.M11 ?? 1;
+                Log.Info("Окно: ширина " + ActualWidth.ToString("0.##") + " (на " + meant + " столбц.), содержимое "
+                         + ResultRoot.ActualWidth.ToString("0.##") + ", сетка " + cols + " столбц., масштаб "
+                         + (dpi * 100).ToString("0") + "%.");
+            }
+            // The panels wrap by pixels, and at a fractional scale the tiles' margins round up
+            // (3.5 → 3.6 at 250%): seven tiles came out 1.4 wider than seven columns and the
+            // seventh went to the next row, a blank column beside. So each panel is GridSlack wider
+            // inside than its place (the negative right margin keeps its place exactly w): any
+            // rounding fits, one more tile never does. The row count is the column count's, not
+            // the screen's.
+            _gridW = w;
+            SetGridPanelWidth(TilesPanel, w, 0);
+            SetGridPanelWidth(TabsPanel, w, 4);
             foreach (var fe in TilesPanel.Items.OfType<FrameworkElement>())
                 if (fe.Tag == null && fe.Name == "EmptyTab") fe.Width = EmptyHintWidth(w);
             if (cols != _tileCols && _tabRenaming == null)
@@ -52,7 +71,17 @@ namespace MihomoLauncher.Views
             }
         }
 
-        private int _tileCols = 5;
+        private int _tileCols = 6;
+        private int _gridMismatchLogged;
+        private double _gridW = double.NaN;
+        private const double GridSlack = TileOuter / 2 - 1;
+
+        private static void SetGridPanelWidth(FrameworkElement panel, double w, double top)
+        {
+            if (double.IsNaN(panel.Width) || Math.Abs(panel.Width - (w + GridSlack)) > 0.5) panel.Width = w + GridSlack;
+            var m = new Thickness(0, top, -GridSlack, 0);
+            if (panel.Margin != m) panel.Margin = m;
+        }
 
         // Beside the «new rule» tile on the same row; on a one-column window — under it.
         private static double EmptyHintWidth(double grid) =>
@@ -60,14 +89,14 @@ namespace MihomoLauncher.Views
 
         private FrameworkElement EmptyTabHint()
         {
-            var grid = new Grid { Name = "EmptyTab", Height = TileSizePx + NicStrip + SpeedStrip, Margin = new Thickness(3.5) };
+            var grid = new Grid { Name = "EmptyTab", Height = TileHeight, Margin = new Thickness(3.5) };
             grid.Children.Add(new TextBlock
             {
                 Text = Loc.T("Main_TabEmpty"), FontSize = 12.5, Foreground = Theme.TextMuted, TextWrapping = TextWrapping.Wrap,
                 TextAlignment = TextAlignment.Left, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(10, 0, 20, 0), MaxWidth = 320,
             });
-            if (!double.IsNaN(TilesPanel.Width)) grid.Width = EmptyHintWidth(TilesPanel.Width);
+            if (!double.IsNaN(_gridW)) grid.Width = EmptyHintWidth(_gridW);
             return grid;
         }
 
@@ -80,7 +109,7 @@ namespace MihomoLauncher.Views
 
         private FrameworkElement AddRuleTile()
         {
-            double h = TileSizePx + NicStrip + SpeedStrip;
+            double h = TileHeight;
             var frame = new Rectangle
             {
                 Stroke = Theme.TileBorder, StrokeThickness = 1.2, StrokeDashArray = new DoubleCollection { 5, 4 },

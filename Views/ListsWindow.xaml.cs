@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -56,6 +56,15 @@ namespace MihomoLauncher.Views
             Title = Loc.T(vpn ? "Set_VpnVariants" : "Set_Rules");
             // The variants are a handful of rows; the rules are the long list.
             if (!vpn) Height = 640;
+            // The variants: as wide as the main window and as tall as their rows (2026-11-21, mom's
+            // ZenBook at 250%: a fixed 950 × 460 stood wider than the main window, one row and a
+            // blank half under it — «окно настроек впн длинное»).
+            if (vpn)
+            {
+                MinWidth = 520;
+                MinHeight = 220;
+                Loaded += (s, e) => FitVpnWindow(true);
+            }
 
             GridApps.ItemsSource = _appRows;
             GridSlots.ItemsSource = _slotRows;
@@ -293,6 +302,39 @@ namespace MihomoLauncher.Views
             if (_slotRows.Count > 0)
                 GridSlots.SelectedIndex = sel >= 0 && sel < _slotRows.Count ? sel : 0;
             RecomputeSlotsAll();
+            if (_mode == Mode.Vpn && IsLoaded) FitVpnWindow(false);
+        }
+
+        // Width = the owner's; height = the window around the table + the table's full height
+        // (header + every row), no more than the screen. `center` the first time — the window was
+        // centred at its XAML size.
+        private void FitVpnWindow(bool center)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    var wa = SystemParameters.WorkArea;
+                    if (center && Owner != null && Owner.ActualWidth > 0)
+                        Width = Math.Min(wa.Width, Math.Max(MinWidth, Owner.ActualWidth));
+                    if (GridSlots.IsVisible && GridSlots.ActualHeight > 0)
+                    {
+                        double chrome = ActualHeight - GridSlots.ActualHeight;
+                        GridSlots.Measure(new Size(GridSlots.ActualWidth, double.PositiveInfinity));
+                        double need = GridSlots.DesiredSize.Height;
+                        GridSlots.InvalidateMeasure();   // back to its real constraint next pass
+                        double h = Math.Max(MinHeight, Math.Min(wa.Height, Math.Ceiling(chrome + need + 2)));
+                        if (Math.Abs(Height - h) > 0.5) Height = h;
+                    }
+                    if (center && Owner != null)
+                    {
+                        Left = Owner.Left + (Owner.ActualWidth - Width) / 2;
+                        Top = Owner.Top + (Owner.ActualHeight - Height) / 2;
+                    }
+                    UiHelpers.KeepOnScreen(this);
+                }
+                catch (Exception ex) { Log.Error("vpn-window-fit", ex); }
+            }), System.Windows.Threading.DispatcherPriority.Loaded);
         }
 
         // «Обновить» (refresh: download at once, with progress) / «Состав» (what the subscription
@@ -357,7 +399,18 @@ namespace MihomoLauncher.Views
             var slot = _cfg.VpnSlots[idx];
             var dlg = new EditSlotDialog(slot,
                 _cfg.VpnSlots.Where((s, i) => i != idx).Select(s => s.Name)) { Owner = this };
-            dlg.ShowSubscription = refresh => ShowSubscription(slot, refresh, dlg);
+            if (slot.Kind == VpnSlotKind.ClashSub)
+            {
+                var proxyName = ProxyParsers.ProxyNameFor(slot, idx + 1);
+                dlg.SubscriptionNodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName);
+                // «Обновить» may bring other nodes: the list follows.
+                dlg.ShowSubscription = refresh =>
+                {
+                    ShowSubscription(slot, refresh, dlg);
+                    dlg.SubscriptionNodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName);
+                };
+            }
+            else dlg.ShowSubscription = refresh => ShowSubscription(slot, refresh, dlg);
             if (dlg.ShowDialog() != true || dlg.Result == null) return;
             var edited = dlg.Result;
             await CommitAsync(() =>
@@ -369,15 +422,41 @@ namespace MihomoLauncher.Views
             GridSlots.SelectedIndex = idx;
         }
 
-        private async void OnDeleteSlot(object sender, RoutedEventArgs e)
+        // What a toolbar button acts on: the ticked rows, else the selected one.
+        private List<VpnSlot> SlotTargets()
         {
-            if (!await RequireVpnListAsync()) return;
             var targets = _slotRows.Where(r => r.IsChecked).Select(r => r.Slot).ToList();
             if (targets.Count == 0)
             {
                 var sel = (GridSlots.SelectedItem as SlotRow)?.Slot;
                 if (sel != null) targets.Add(sel);
             }
+            return targets;
+        }
+
+        // «Обновить» is live only when the targets hold something to download — a subscription.
+        private void UpdateSlotButtons()
+        {
+            if (BtnRefreshSlot == null) return;
+            BtnRefreshSlot.IsEnabled = SlotTargets().Any(s => s.Kind == VpnSlotKind.ClashSub);
+        }
+
+        private void OnSlotSelectionChanged(object sender, SelectionChangedEventArgs e) => UpdateSlotButtons();
+
+        // Downloads every targeted subscription again, one window after another — the same
+        // window as «Обновить» inside the variant's own dialog.
+        private async void OnRefreshSlot(object sender, RoutedEventArgs e)
+        {
+            var subs = SlotTargets().Where(s => s.Kind == VpnSlotKind.ClashSub).ToList();
+            if (subs.Count == 0) return;
+            if (!await RequireVpnListAsync()) return;
+            foreach (var slot in subs) ShowSubscription(slot, true, this);
+        }
+
+        private async void OnDeleteSlot(object sender, RoutedEventArgs e)
+        {
+            if (!await RequireVpnListAsync()) return;
+            var targets = SlotTargets();
             if (targets.Count == 0) return;
             string body = targets.Count == 1
                 ? Loc.T("Set_DeleteOneFromList", targets[0].Name)
@@ -410,7 +489,11 @@ namespace MihomoLauncher.Views
         }
 
         private void RecomputeAppsAll() => AllAppsChecked = TriState(_appRows);
-        private void RecomputeSlotsAll() => AllSlotsChecked = TriState(_slotRows);
+        private void RecomputeSlotsAll()
+        {
+            AllSlotsChecked = TriState(_slotRows);
+            UpdateSlotButtons();
+        }
 
         private static bool? TriState<T>(ObservableCollection<T> rows) where T : CheckRow
         {

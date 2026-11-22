@@ -221,6 +221,15 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- ============ DNS → «Статистика» (2026-11-17) ============
+                 Only in the DNS window, the FIRST tab, before «Настройки». Built in code: SettingsWindow.DnsStats.cs;
+                 counted by MainWindow.DnsStats into Services/DnsStats. -->
+            <TabItem x:Name="TabDnsStats" Header="{DynamicResource DnsSt_Tab}" Style="{StaticResource CardTabItemStyle}" Visibility="Collapsed">
+                <ScrollViewer x:Name="DnsStatsScroll" Margin="4,10,0,4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False">
+                    <ContentControl x:Name="DnsStatsHost" Margin="0,0,16,0" Tag="nosave" />
+                </ScrollViewer>
+            </TabItem>
+
             <!-- ============ DNS — for DIRECT traffic only ============
                  Not a Settings tab any more (2026-11-13): the «DNS» button on the main screen
                  opens this window in DNS-only mode (SettingsWindow(..., dnsOnly: true)) — the
@@ -310,7 +319,7 @@
                         </StackPanel>
                     </ui:Card>
 
-                    <ui:Card Grid.Row="1" Padding="14" Margin="0,0,0,8" VerticalAlignment="Stretch"
+                    <ui:Card Grid.Row="1" Padding="14" Margin="0,0,0,8" VerticalAlignment="Top"
                              VerticalContentAlignment="Top">
                         <StackPanel>
                             <TextBlock Text="{DynamicResource Set_DnsDirectNow}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4" />
@@ -548,6 +557,57 @@
             </TabItem>
 
         </TabControl>
+
+        <!-- DNS → «Статистика»: the mask over the date switch, in the free right end of the tab row
+             (2026-11-18: «над переключением дат, не увеличивая высоту окна»). Shown on that tab only
+             (SettingsWindow.DnsStats → SyncStatsTimer). Right 32 = the tab control's 16 + the stats' 16. -->
+        <!-- Drawn like the tab pills beside it (2026-11-18: «в таком дизайне как кнопка»): the same
+             fill, frame, corners, height and 14 px text; lighter under the pointer, a blue frame while
+             typing. A plain TextBox with no chrome of its own inside. -->
+        <Border x:Name="DnsMaskBox" Grid.Row="1" Width="300" Height="34" Margin="0,8,32,0"
+                HorizontalAlignment="Right" VerticalAlignment="Top" Visibility="Collapsed" Panel.ZIndex="2"
+                CornerRadius="6" BorderThickness="1" SnapsToDevicePixels="True" Cursor="IBeam" Tag="nosave"
+                ToolTip="{DynamicResource DnsSt_MaskTip}" MouseLeftButtonDown="OnDnsMaskBoxDown">
+            <Border.Style>
+                <Style TargetType="Border">
+                    <Setter Property="Background" Value="{x:Static svc:Theme.BadgeNeutralBg}" />
+                    <Setter Property="BorderBrush" Value="{x:Static svc:Theme.CardBorder}" />
+                    <Style.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Background" Value="{x:Static svc:Theme.CardBgHover}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                            <Setter Property="BorderBrush" Value="{x:Static svc:Theme.TileBorderHover}" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Border.Style>
+            <Grid>
+            <TextBlock x:Name="LblDnsMaskHint" Text="{DynamicResource DnsSt_MaskHint}" FontSize="14"
+                       Foreground="{x:Static svc:Theme.TextMuted}" Margin="16,0,32,0" VerticalAlignment="Center"
+                       TextTrimming="CharacterEllipsis" IsHitTestVisible="False" />
+            <TextBox x:Name="TxtDnsMask" FontSize="14" Margin="14,0,32,0" Padding="0"
+                     VerticalAlignment="Stretch" VerticalContentAlignment="Center"
+                     Background="Transparent" BorderThickness="0"
+                     Foreground="{x:Static svc:Theme.TextPrimary}" CaretBrush="{x:Static svc:Theme.TextPrimary}"
+                     TextChanged="OnDnsMaskChanged" PreviewKeyDown="OnDnsMaskKeyDown">
+                <TextBox.Template>
+                    <ControlTemplate TargetType="TextBox">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False" VerticalAlignment="Center"
+                                      HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Hidden" />
+                    </ControlTemplate>
+                </TextBox.Template>
+            </TextBox>
+            <!-- ✕ — reset what was typed; only while there is something. -->
+            <Border x:Name="BtnDnsMaskClear" Width="22" Height="22" CornerRadius="4" Margin="0,0,6,0"
+                    HorizontalAlignment="Right" VerticalAlignment="Center" Background="Transparent"
+                    Cursor="Hand" Visibility="Collapsed" ToolTip="{DynamicResource DnsSt_MaskClear}"
+                    MouseLeftButtonUp="OnDnsMaskClear">
+                <TextBlock Text="✕" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+            </Border>
+            </Grid>
+        </Border>
 
         <!-- Footer buttons -->
         <Border Grid.Row="2" Padding="20,8">

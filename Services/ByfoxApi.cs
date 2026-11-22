@@ -46,6 +46,12 @@ namespace MihomoLauncher.Services
         // The API counts its consumers by this.
         public static string UserAgent => "MihomoLauncher/" + VersionInfo.AppVersion;
 
+        // What subscription panels see: our name first (panels show it as the client), then the
+        // Clash Meta token — panels that pick their reply by User-Agent still send Clash YAML,
+        // not a base64 link list. Sent by the launcher AND the engine's provider, so both
+        // download the same text.
+        public static string SubscriptionUserAgent => UserAgent + " clash.meta";
+
         public static bool IsOurs(string url)
         {
             try { return new Uri(url).Host.EndsWith("byfox.dev", StringComparison.OrdinalIgnoreCase); }

@@ -44,6 +44,17 @@ namespace MihomoLauncher.Views
         private readonly Dictionary<string, SpeedView> _speedViews = new Dictionary<string, SpeedView>(StringComparer.Ordinal);
         // Tile Id → smoothed {down, up} bytes per second right now.
         private readonly Dictionary<string, double[]> _speedNow = new Dictionary<string, double[]>(StringComparer.Ordinal);
+        // Tile Id → its measured polls of the last 60 s, unsmoothed (2026-11-20): the «Сейчас» tab's
+        // cards — peak / average / down / up over the same minute as «кто и куда».
+        internal sealed class SpeedSec { public DateTime At; public double Down, Up, Secs; }   // bytes/s, seconds measured
+        private readonly Dictionary<string, Queue<SpeedSec>> _speedLastMin = new Dictionary<string, Queue<SpeedSec>>(StringComparer.Ordinal);
+
+        private List<SpeedSec> SpeedLastMinute(string tileId)
+        {
+            Queue<SpeedSec> q;
+            var cut = DateTime.UtcNow.AddSeconds(-60);
+            return tileId != null && _speedLastMin.TryGetValue(tileId, out q) ? q.Where(s => s.At > cut).ToList() : new List<SpeedSec>();
+        }
         private Dictionary<string, long[]> _connPrev;   // connection id → {up, down} at the last poll
         private DateTime _connPrevAt;
         private DispatcherTimer _speedTimer;
@@ -108,7 +119,7 @@ namespace MihomoLauncher.Views
         private void EnsureSpeedTimer()
         {
             if (_speedTimer != null) return;
-            try { Application.Current.Exit += (s, e) => SpeedHistory.Save(); } catch { }
+            try { Application.Current.Exit += (s, e) => { SpeedHistory.Save(); WhoArchiveOpenAndFlush(); }; } catch { }
             _speedTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
             _speedTimer.Tick += async (s, e) =>
             {
@@ -167,6 +178,7 @@ namespace MihomoLauncher.Views
             _connPrevAt = now;
             if (!measure) return;
             WhoSweep(now);
+            ConnArchive.FlushIfDue();
 
             // Every tile of the config, shown or not: the day's history is per tile.
             foreach (var app in (_config?.Apps ?? new List<AppEntry>()).Where(a => a != null))
@@ -175,6 +187,10 @@ namespace MihomoLauncher.Views
                 moved.TryGetValue(app.Id, out m);
                 double down = m == null ? 0 : m[0] / secs, up = m == null ? 0 : m[1] / secs;
                 SpeedHistory.Add(app.Id, now, down, up, secs);
+                Queue<SpeedSec> q;
+                if (!_speedLastMin.TryGetValue(app.Id, out q)) _speedLastMin[app.Id] = q = new Queue<SpeedSec>();
+                q.Enqueue(new SpeedSec { At = now, Down = down, Up = up, Secs = secs });
+                while (q.Count > 0 && (now - q.Peek().At).TotalSeconds > 60) q.Dequeue();
                 // Light smoothing for the plate: one burst does not make the number jump around.
                 double[] old;
                 if (_speedNow.TryGetValue(app.Id, out old)) { down = old[0] * 0.35 + down * 0.65; up = old[1] * 0.35 + up * 0.65; }

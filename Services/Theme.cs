@@ -87,6 +87,19 @@ namespace MihomoLauncher.Services
         public static readonly SolidColorBrush SpeedTrack = B("#FF45454A");   // the empty part of the level bar
         // The network-card chip's icon when Windows decides: light, not the dim chip grey.
         public static readonly SolidColorBrush ChipIconBright = B("#FFD6D6DA");
+        // The card chip by the card's state (2026-11-18, the user's table): connected — Wi-Fi blue,
+        // cable green; no cable / no network / no internet — amber; switched off — grey.
+        public static readonly SolidColorBrush NicWifiOk = B("#FF5B86E5");
+        public static readonly SolidColorBrush NicWiredOk = B("#FF7FD39B");
+        public static readonly SolidColorBrush NicTrouble = B("#FFEC8A4B");
+        public static readonly SolidColorBrush NicOff = B("#FFCFC8E3");
+        // The frame of a tile chip whose protection is on (2026-11-20, mock-up A): kill-switch on
+        // ▷/⏸, binding to a card on the card chip. Violet — no other state uses it. 1 px at 60 %
+        // (the first 1.5 px solid one was too loud: «уже толщину рамки и тусклее»).
+        public static readonly SolidColorBrush GuardBorder = B("#99A78BFA");
+        // The same violet inside the rule editor's Kill-switch / «Привязка» switches when on.
+        public static readonly SolidColorBrush GuardSwitchFill = B("#99A78BFA");
+        public static readonly SolidColorBrush GuardSwitchFillHover = B("#BFA78BFA");
 
         // ----- Banner: info (idle) — calm slate-blue -----
         public static readonly SolidColorBrush BannerInfoBg = B("#FF20242E");

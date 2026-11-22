@@ -45,6 +45,9 @@
                                        Foreground="{x:Static svc:Theme.AccentGreen}" />
                             <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditSlot" />
                             <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteSlot" />
+                            <ui:Button x:Name="BtnRefreshSlot" Content="{DynamicResource Set_BtnRefresh}" Margin="0,0,8,0" MinWidth="92"
+                                       Click="OnRefreshSlot" IsEnabled="False"
+                                       ToolTip="{DynamicResource Set_SlotRefreshTip}" ToolTipService.ShowOnDisabled="True" />
                         </StackPanel>
                         <TextBlock Grid.Column="1" Text="{DynamicResource Set_VpnVariants}" FontSize="17" FontWeight="SemiBold"
                                    VerticalAlignment="Center" Margin="12,0,2,0" />
@@ -56,7 +59,8 @@
                               CellStyle="{StaticResource AppDataGridCellStyle}"
                               ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
                               CanUserSortColumns="False"
-                              MouseDoubleClick="OnEditSlot">
+                              MouseDoubleClick="OnEditSlot"
+                              SelectionChanged="OnSlotSelectionChanged">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Width="32" CanUserSort="False" CanUserResize="False"
                                                     CellStyle="{StaticResource CheckboxCellStyle}"

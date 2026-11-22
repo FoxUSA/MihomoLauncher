@@ -7,10 +7,9 @@
                  xmlns:svc="clr-namespace:MihomoLauncher.Services"
                  mc:Ignorable="d"
                  Title="{DynamicResource Main_WindowTitle}"
-                 Width="680"
-                 MinWidth="640"
+                 Width="735"
                  SizeToContent="Height"
-                 ResizeMode="CanMinimize"
+                 ResizeMode="CanResize"
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="Mica">
@@ -111,7 +110,9 @@
                 </StackPanel>
             </ui:TitleBar.Header>
             <ui:TitleBar.TrailingContent>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <!-- On a narrow window these move under the title bar, above the button row
+                     (MainWindow.WindowSize → ApplyChromeFit) and wrap there. -->
+                <WrapPanel x:Name="TitleTools" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                     <ui:Button x:Name="BtnLang"
                                VerticalAlignment="Center"
                                Height="28"
@@ -184,7 +185,7 @@
                         <ui:SymbolIcon x:Name="IcoExit" Symbol="Power24" FontSize="15"
                                        Foreground="{x:Static svc:Theme.TextSecondary}" />
                     </ui:Button>
-                </StackPanel>
+                </WrapPanel>
             </ui:TitleBar.TrailingContent>
         </ui:TitleBar>
 
@@ -202,9 +203,11 @@
 
                 <!-- Top action bar: three text-width buttons + update notice -->
                 <StackPanel Grid.Row="0" Margin="18,12,18,0">
-                    <!-- The window is never narrower than this row (FitWidthToTopBar): when it
-                         was, the Remote-session box was cut at the right edge — square corners. -->
-                    <StackPanel x:Name="TopButtons" Orientation="Horizontal" HorizontalAlignment="Center">
+                    <!-- The title bar's buttons, when the window is too narrow for them up there. -->
+                    <ContentControl x:Name="BodyTools" HorizontalAlignment="Center" Margin="0,0,0,8" Visibility="Collapsed" />
+                    <!-- Narrower than this row the buttons lose their words, then wrap
+                         (ApplyChromeFit) — the window goes down to one tile column. -->
+                    <WrapPanel x:Name="TopButtons" Orientation="Horizontal" HorizontalAlignment="Center">
                         <!-- «ON» removed 2026-11-14: every start restores what was on when the
                              launcher closed (MainWindow.AutoConnectAtStartupAsync); a tile is
                              switched on by its own ▷. «OFF» stays: switch everything off. -->
@@ -316,7 +319,7 @@
                                 </Border>
                             </StackPanel>
                         </Border>
-                    </StackPanel>
+                    </WrapPanel>
 
                     <!-- Shown only when the VPN engine (mihomo) isn't installed/set up yet,
                          e.g. mom skipped the first-run prompt. One tap re-runs the download +

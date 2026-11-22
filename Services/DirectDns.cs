@@ -509,6 +509,7 @@ namespace MihomoLauncher.Services
             public bool Stub;               // 0.0.0.0 / :: — the server blocks this name
             public bool NxDomain;
             public string Error = "";
+            public string Raw = "";         // the engine's JSON as is (DnsVerdict reads SOA / EDE from it)
         }
 
         // The probe copy could not reach the server at all because the tunnel's strict-route
@@ -677,6 +678,7 @@ namespace MihomoLauncher.Services
                             {
                                 var body = await r.Content.ReadAsStringAsync().ConfigureAwait(false);
                                 a.Ms = sw.ElapsedMilliseconds;
+                                a.Raw = body ?? "";
                                 ParseAnswer(body, a);
                                 if (!a.Ok && a.Error.Length == 0) a.Error = "HTTP " + (int)r.StatusCode;
                             }
