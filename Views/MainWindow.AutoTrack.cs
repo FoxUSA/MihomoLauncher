@@ -35,6 +35,9 @@ namespace MihomoLauncher.Views
         private sealed class AutoPending { public AutoPrograms.Decision D; public DateTime FoundAt; }
         private readonly List<AutoPending> _autoPending = new List<AutoPending>();
         private readonly HashSet<string> _autoLogged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        // Exe paths seen with an application window of their own this session (AppWindows) —
+        // sticky: a window hidden to the tray later is still that program's.
+        private readonly HashSet<string> _autoWindowed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private DateTime _autoLastReloadUtc = DateTime.MinValue;
 
         private static readonly TimeSpan AutoCollect = TimeSpan.FromSeconds(5);
@@ -173,6 +176,13 @@ namespace MihomoLauncher.Views
                 foreach (var k in _autoNetPaths.Where(kv => now - kv.Value > TimeSpan.FromMinutes(10)).Select(kv => kv.Key).ToList())
                     _autoNetPaths.Remove(k);
 
+                // Who has a window of their own right now (pid → path from the tracker's picture).
+                var snapshot = _procTracker.Snapshot();
+                var windowPids = AppWindows.Pids();
+                if (windowPids.Count > 0)
+                    foreach (var p in snapshot)
+                        if (p.Alive && !string.IsNullOrEmpty(p.Path) && windowPids.Contains(p.Pid)) _autoWindowed.Add(p.Path);
+
                 // The standalone-app list is built in the background on first use; until it is there
                 // nothing is decided (it is what keeps Word, opened from a messenger, out of its tile).
                 if (StandaloneApps.Ready)
@@ -191,9 +201,11 @@ namespace MihomoLauncher.Views
                         NetPaths = new HashSet<string>(_autoNetPaths.Keys, StringComparer.OrdinalIgnoreCase),
                         PendingPaths = new HashSet<string>(_autoPending.Select(p => p.D.Path), StringComparer.OrdinalIgnoreCase),
                         OwnNames = own,
+                        WindowedPaths = new HashSet<string>(_autoWindowed, StringComparer.OrdinalIgnoreCase),
+                        NowUtc = now,
                     };
                     // Nothing from the launcher's own folder (its engine, service, probes) — ever.
-                    var procs = _procTracker.Snapshot()
+                    var procs = snapshot
                         .Where(p => string.IsNullOrEmpty(p.Path) || installRoot.Length == 0
                                     || !p.Path.StartsWith(installRoot + "\\", StringComparison.OrdinalIgnoreCase))
                         .ToList();
@@ -244,6 +256,13 @@ namespace MihomoLauncher.Views
                 // Taken meanwhile? A manual entry claims its NAME, an auto entry only its own FILE.
                 if (AutoPrograms.ClaimedBy(_config, d.Path) != null) continue;
                 if (AutoPrograms.IsBanned(tile, d.Path)) continue;   // banned meanwhile (the editor's third section)
+                // Its own window may have shown up while the batch was collected.
+                if (!d.OwnDir && _autoWindowed.Contains(d.Path))
+                {
+                    if (_autoLogged.Add("skip|" + d.Path + "|window"))
+                        Log.Info("Авто: пропущена " + d.Name + " — самостоятельная программа со своим окном, запущена из «" + tile.Name + "» (" + d.Why + "). " + d.Path);
+                    continue;
+                }
                 if ((tile.Programs ?? new List<RuleProgram>()).Count(x => x != null && x.Auto) >= AutoPrograms.MaxAutoPerRule)
                 {
                     if (_autoLogged.Add("cap|" + tile.Id))

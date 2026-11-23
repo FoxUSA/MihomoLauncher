@@ -17,7 +17,7 @@
     <Company>byFox</Company>
     <Authors>byFox</Authors>
     <Copyright>Copyright (c) 2026 byFox</Copyright>
-    <Version>3.1.4</Version>
+    <Version>3.1.5</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>fox.ico</ApplicationIcon>
   </PropertyGroup>

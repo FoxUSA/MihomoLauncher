@@ -14,24 +14,39 @@ namespace MihomoLauncher.Services
     // tile by itself. A pure function over a process picture (ProcessTracker) and the config, so
     // a probe can feed it synthetic trees; MainWindow.AutoTrack applies what it returns.
     //
-    // "Roots" of a tile (AutoTrack on, not «Всё остальное»): its programs, by exe FILE NAME
-    // (routing is by name, so is this), and any process running from one of its folders.
+    // "Roots" of a tile (AutoTrack on, not «Всё остальное»): its programs (manual entries by exe
+    // FILE NAME — routing is by name, so is this; auto entries by their own FILE), and any
+    // process running from one of its folders.
     // A process P belongs to tile T when
-    //   · tree:        one of P's ancestors is a root of T, or
-    //   · install dir: P lies under the directory of one of T's programs, whoever its parent is —
-    //                  a launcher stub that starts the real app and quits, an updater started by
-    //                  the Task Scheduler. Not when that directory is a shared place (a drive
-    //                  root, Windows, the Program Files roots themselves, the profile, Desktop…).
+    //   · tree:        one of P's ancestors is a root of T and NO process between them is a
+    //                  "runs-anything" launcher — a shell, a runtime, a terminal, a debugger, a
+    //                  tree barrier, anything from the Windows folder. A real helper is started by
+    //                  its program directly (codex.exe <- Code.exe); what a shell inside the
+    //                  program started (tool.exe <- powershell.exe <- cmd.exe <- claude.exe)
+    //                  is the person's own tool, not the program's helper. Checked in this order:
+    //                  "is it a root?" first, then "is it a launcher?".
+    //   · install dir: P lies under the directory of one of T's MANUAL programs, whoever its
+    //                  parent is — a launcher stub that starts the real app and quits, an updater
+    //                  started by the Task Scheduler. Not when that directory is a shared place (a
+    //                  drive root, Windows, the Program Files roots themselves, the profile,
+    //                  Desktop…). An auto entry never makes its folder a program folder: one wrong
+    //                  addition must not pull its whole folder in after it.
     // and P has actually used the network (the engine saw it, or it had a TCP connection to a
     // non-loopback address): helpers that never go online — ripgrep, language servers, consoles —
-    // must not litter the list.
+    // must not litter the list; and the evidence is fresh: one of P's processes is alive or
+    // exited at most 60 s ago (the tracker remembers exited processes for 10 minutes — enough to
+    // tie a child to a parent that is gone, too long to re-add what the person just removed).
     //
     // Skipped, with the reason in the log (once per exe per session — how problems on other
     // people's PCs get diagnosed): a name already in ANY tile or a path under any tile's folder,
-    // a name the person removed from T, anything under Windows, the deny-list of shared binaries
-    // below, a standalone installed application outside T's own folder (a Start-menu shortcut, an
-    // App Paths entry, the default browser — an app opening a link starts the browser as its
-    // child), and an exe that runs right now outside T's tree (a shared helper).
+    // a name the person removed from T, anything under Windows, anything under %TEMP% (a rule on
+    // such a path is useless), the deny-list of shared binaries below, a standalone installed
+    // application outside T's own folder (a Start-menu shortcut, an App Paths entry, the default
+    // browser — an app opening a link starts the browser as its child), a program outside T's own
+    // folder that has (or had this session) an application window of its own (Env.WindowedPaths —
+    // a helper has none; inside T's own folder a window is fine), an exe that runs right now
+    // outside T's tree (a shared helper), and — one line — a program whose only way to T was cut
+    // by a launcher in between.
     //
     // Several tiles qualify → the one whose NAME fits the program best; tie → the tile owning the
     // nearest ancestor; still tie → the leftmost tile. An entry never moves once it is in a tile.
@@ -66,6 +81,17 @@ namespace MihomoLauncher.Services
             "wininit.exe", "winlogon.exe", "userinit.exe", "RuntimeBroker.exe",
         };
 
+        // Terminals, debuggers and task runners: like the shells of the deny-list, they start
+        // whatever the person asks — what runs under them is not the program's helper.
+        private static readonly HashSet<string> Launchers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "WindowsTerminal.exe", "wt.exe", "vsdbg.exe", "vsdbg-ui.exe", "msvsmon.exe", "gdb.exe", "lldb.exe",
+            "dlv.exe", "cargo.exe", "npm.exe", "npx.exe", "mintty.exe", "tmux.exe",
+        };
+
+        // How long after its last process exited a program can still be added.
+        public static readonly TimeSpan FreshFor = TimeSpan.FromSeconds(60);
+
         public sealed class Env
         {
             // Full path → a standalone installed application (StandaloneApps.Contains).
@@ -81,12 +107,20 @@ namespace MihomoLauncher.Services
             public string WinDir;
             // The launcher's and the engine's own exe names: never added anywhere.
             public ICollection<string> OwnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Exe paths that have (or had this session) an application window (AppWindows).
+            public ICollection<string> WindowedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Temp folders (null = this machine's: Path.GetTempPath() and %LocalAppData%\Temp).
+            public List<string> TempDirs;
+            // "Now" for the freshness test (a probe sets its own).
+            public DateTime NowUtc = DateTime.UtcNow;
         }
 
         public sealed class Decision
         {
             public AppEntry Tile;
             public string Path = "", Name = "", AutoFrom = "", Why = "";
+            // It lies in the folder of one of the tile's manual programs (a window does not matter there).
+            public bool OwnDir;
         }
 
         public sealed class Skip
@@ -194,7 +228,20 @@ namespace MihomoLauncher.Services
             public int AutoCount;
         }
 
-        private sealed class Hit { public int Depth; public string From = ""; public bool Tree; }
+        private sealed class Hit { public int Depth; public string From = "", Chain = ""; public bool Tree; }
+
+        public static List<string> DefaultTempDirs()
+        {
+            var list = new List<string>();
+            try { list.Add(System.IO.Path.GetTempPath()); } catch { }
+            try
+            {
+                var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                if (local.Length > 0) list.Add(System.IO.Path.Combine(local, "Temp"));
+            }
+            catch { }
+            return list;
+        }
 
         public static Result Decide(AppConfig cfg, IList<ProcessTracker.Proc> procs, Env env)
         {
@@ -212,6 +259,9 @@ namespace MihomoLauncher.Services
                 if (winDir.Length > 0 && (string.Equals(dir, winDir, StringComparison.OrdinalIgnoreCase) || Under(dir, winDir))) return true;
                 return shared.Contains(dir);
             }
+            var tempDirs = (env.TempDirs ?? DefaultTempDirs()).Select(MihomoConfigBuilder.NormalizeFolder)
+                                                              .Where(s => s.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var now = env.NowUtc;
 
             var tiles = cfg.Apps.Where(a => a != null && !a.IsAllTraffic).ToList();
 
@@ -241,6 +291,9 @@ namespace MihomoLauncher.Services
                     // An auto entry is a root by its own file only, like it is routed.
                     if (MihomoConfigBuilder.AutoFileRegex(p).Length > 0) r.Files.Add(p.Path);
                     else r.Names.Add(n);
+                    // Only a manual entry makes its folder a program folder: an auto entry that got
+                    // in by mistake must not bring everything next to it along.
+                    if (p.Auto) continue;
                     var d = DirOf(p.Path);
                     if (d.Length > 0 && !IsShared(d) && !r.DirExe.ContainsKey(d)) { r.Dirs.Add(d); r.DirExe[d] = n; }
                 }
@@ -285,18 +338,40 @@ namespace MihomoLauncher.Services
                 }
                 return false;
             }
-            // Nearest ancestor of `p` that is a root of `r`: (depth, its name), or null.
-            Hit TreeHit(Root r, ProcessTracker.Proc p)
+            // A process that starts whatever it is asked to: a shell, a runtime, a terminal, a
+            // debugger, a tree barrier, anything from the Windows folder (path may be unknown).
+            bool IsLauncher(ProcessTracker.Proc a)
             {
+                var n = a.Name ?? "";
+                if (TreeBarriers.Contains(n) || DenyList.Contains(n) || Launchers.Contains(n)) return true;
+                return winDir.Length > 0 && !string.IsNullOrEmpty(a.Path) && Under(a.Path, winDir);
+            }
+            // Nearest ancestor of `p` that is a root of `r` with no launcher in between: (depth, its
+            // name, the chain), or null. `cutBy`: the launcher that cut the way to a root of `r`
+            // further up (not past a tree barrier), for the log; null when there was none.
+            Hit TreeHit(Root r, ProcessTracker.Proc p, out string cutBy)
+            {
+                cutBy = null;
+                string launcher = null;
+                var chain = new List<string> { p.Name ?? "" };
                 var a = ParentOf(p);
                 for (int depth = 1; a != null && depth <= 32; depth++)
                 {
-                    if (IsRootOf(r, a)) return new Hit { Depth = depth, From = a.Name ?? "", Tree = true };
+                    if (IsRootOf(r, a))
+                    {
+                        if (launcher != null) { cutBy = launcher; return null; }
+                        chain.Add(a.Name ?? "");
+                        chain.Reverse();
+                        return new Hit { Depth = depth, From = a.Name ?? "", Chain = string.Join(" → ", chain), Tree = true };
+                    }
                     if (TreeBarriers.Contains(a.Name ?? "")) return null;
+                    if (launcher == null && IsLauncher(a)) launcher = a.Name ?? "";
+                    chain.Add(a.Name ?? "");
                     a = ParentOf(a);
                 }
                 return null;
             }
+            Hit TreeHitOf(Root r, ProcessTracker.Proc p) { string cut; return TreeHit(r, p, out cut); }
 
             // Files decided earlier (being applied) or in this pass: each claims its own file, as an
             // auto entry does once it is in the config.
@@ -310,25 +385,41 @@ namespace MihomoLauncher.Services
                 if (name.Length == 0) continue;
                 if (env.OwnNames != null && env.OwnNames.Contains(name)) continue;
                 if (!group.Any(p => p.Net) && (env.NetPaths == null || !env.NetPaths.Contains(path))) continue;   // never went online
+                // Fresh evidence only: alive, or gone at most a minute ago.
+                if (!group.Any(p => p.Alive || now - p.ExitedAt <= FreshFor)) continue;
 
                 // Which tiles it could belong to at all.
                 var hits = new Dictionary<Root, Hit>();
+                string cutBy = null; Root cutTile = null;
                 foreach (var r in roots)
                 {
                     Hit best = null;
                     foreach (var p in group)
                     {
-                        var h = TreeHit(r, p);
+                        string cut;
+                        var h = TreeHit(r, p, out cut);
                         if (h != null && (best == null || h.Depth < best.Depth)) best = h;
+                        if (h == null && cut != null && cutBy == null) { cutBy = cut; cutTile = r; }
                     }
                     if (best == null)
                         foreach (var d in r.Dirs)
                             if (Under(path, d)) { best = new Hit { Depth = 1000, From = "folder:" + r.DirExe[d] }; break; }
                     if (best != null) hits[r] = best;
                 }
-                if (hits.Count == 0) continue;   // nobody's helper: not even worth a log line
+                if (hits.Count == 0)
+                {
+                    // Nobody's helper: not even worth a log line — unless a launcher cut its way to a
+                    // tile (otherwise «не добавилась» on someone else's PC can't be told apart).
+                    if (cutBy != null)
+                        res.Skipped.Add(new Skip
+                        {
+                            Path = path, Name = name,
+                            Reason = "запущена через " + cutBy + " (оболочка, среда выполнения, отладчик) — не помощник «" + cutTile.Tile.Name + "»",
+                        });
+                    continue;
+                }
 
-                string Via(Hit h) => h.Tree ? "потомок " + h.From : "из папки программы " + h.From.Substring(7);
+                string Via(Hit h) => h.Tree ? "потомок " + h.From + " (" + h.Chain + ")" : "из папки программы " + h.From.Substring(7);
                 var firstHit = hits.OrderBy(kv => kv.Value.Depth).First();
                 Skip SkipOf(string reason) => new Skip { Path = path, Name = name, Reason = reason + " (" + Via(firstHit.Value) + ", «" + firstHit.Key.Tile.Name + "»)" };
 
@@ -339,6 +430,7 @@ namespace MihomoLauncher.Services
                 var inFolder = allFolders.FirstOrDefault(f => MihomoConfigBuilder.InFolder(path, f.Key));
                 if (inFolder.Value != null) { res.Skipped.Add(SkipOf("лежит в папке плитки «" + inFolder.Value.Name + "»")); continue; }
                 if (winDir.Length > 0 && Under(path, winDir)) { res.Skipped.Add(SkipOf("программа Windows")); continue; }
+                if (tempDirs.Any(t => Under(path, t))) { res.Skipped.Add(SkipOf("временный файл — правило по такому пути бесполезно")); continue; }
                 if (DenyList.Contains(name))
                 {
                     res.Skipped.Add(SkipOf("общая программа (оболочка, среда выполнения, браузер…) — по имени в правило ушли бы все её копии на компьютере"));
@@ -348,6 +440,7 @@ namespace MihomoLauncher.Services
                 // ---- per tile
                 var why = new List<string>();
                 var left = new List<KeyValuePair<Root, Hit>>();
+                var ownDirOf = new Dictionary<Root, bool>();
                 foreach (var kv in hits)
                 {
                     var r = kv.Key;
@@ -357,9 +450,12 @@ namespace MihomoLauncher.Services
                     if (r.AutoCount >= MaxAutoPerRule)
                     { why.Add("в «" + r.Tile.Name + "» уже " + MaxAutoPerRule + " авто-программ (предел)"); continue; }
                     bool ownDir = r.Dirs.Any(d => Under(path, d));
+                    ownDirOf[r] = ownDir;
                     if (!ownDir && env.IsStandalone != null && env.IsStandalone(path))
                     { why.Add("отдельное приложение (ярлык в «Пуске», App Paths или браузер по умолчанию), не из папки «" + r.Tile.Name + "»"); continue; }
-                    if (!ownDir && group.Any(p => p.Alive && TreeHit(r, p) == null))
+                    if (!ownDir && env.WindowedPaths != null && env.WindowedPaths.Contains(path))
+                    { why.Add("самостоятельная программа со своим окном, запущена из «" + r.Tile.Name + "»"); continue; }
+                    if (!ownDir && group.Any(p => p.Alive && TreeHitOf(r, p) == null))
                     { why.Add("эта же программа работает и вне «" + r.Tile.Name + "» — общая"); continue; }
                     left.Add(kv);
                 }
@@ -375,6 +471,7 @@ namespace MihomoLauncher.Services
                 {
                     Tile = pick.Key.Tile, Path = path, Name = name,
                     AutoFrom = pick.Value.From, Why = Via(pick.Value),
+                    OwnDir = ownDirOf[pick.Key],
                 });
                 decidedPaths.Add(path);
                 pick.Key.AutoCount++;
