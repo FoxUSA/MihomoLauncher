@@ -9,7 +9,8 @@
                  WindowStartupLocation="CenterOwner"
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <ui:FluentWindow.Resources>
         <!-- Same pill-tab chrome as Settings: the TabControl here holds NO content, it is a
              filter switch above the one shared table. -->
@@ -61,6 +62,31 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- The table looks like the rules list (ListsWindow.GridApps, 2026-11-22): the shared header,
+             row and cell styles; only what a wrapping «Почему» needs differs. Rows have no fixed
+             height (they grow with that text) but never go below the model's 26. -->
+        <Style x:Key="LogRowStyle" TargetType="DataGridRow" BasedOn="{StaticResource AppDataGridRowStyle}">
+            <Setter Property="MinHeight" Value="26" />
+        </Style>
+        <!-- Every cell top-aligned with the same padding: a long «Почему» grows its row without the
+             other cells floating mid-way. 8 px sides as in the model; 4 px top/bottom so a
+             two-line cell does not touch the hairlines. -->
+        <Style x:Key="LogCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource AppDataGridCellStyle}">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <!-- Pinned here, or the stock cell style paints a selected row in the system's
+                 inactive-selection text colour (black) the moment the grid loses focus — e.g.
+                 after «Копировать». -->
+            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+        </Style>
+        <!-- The first column also draws the table's left edge (the model gets it from its
+             checkbox column). -->
+        <Style x:Key="LogFirstCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource FirstColumnCellStyle}">
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
         </Style>
     </ui:FluentWindow.Resources>
 
@@ -140,9 +166,10 @@
             </Border>
         </StackPanel>
 
+        <!-- The table's well (2026-11-22 colour standard); the conflict cards sit on it raised. -->
         <Border Grid.Row="2" Margin="20,0,20,0"
                 CornerRadius="8"
-                Background="{x:Static svc:Theme.CardBg}"
+                Background="{x:Static svc:Theme.ListBg}"
                 BorderBrush="{x:Static svc:Theme.CardBorder}"
                 BorderThickness="1"
                 ClipToBounds="True">
@@ -152,85 +179,26 @@
                           HorizontalScrollBarVisibility="Disabled">
                 <StackPanel x:Name="ConflictsList" Margin="0,0,0,10" />
             </ScrollViewer>
-            <DataGrid x:Name="Grid"
-                      AutoGenerateColumns="False"
-                      IsReadOnly="True"
-                      SelectionMode="Single"
-                      HeadersVisibility="Column"
-                      GridLinesVisibility="None"
-                      Background="Transparent"
-                      BorderThickness="0"
-                      RowHeaderWidth="0"
-                      CanUserResizeRows="False"
+            <!-- RowHeight NaN: the shared grid style fixes rows at 26, this one lets them grow. -->
+            <DataGrid x:Name="Grid" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
+                      Style="{StaticResource AppDataGridStyle}"
+                      RowStyle="{StaticResource LogRowStyle}"
+                      CellStyle="{StaticResource LogCellStyle}"
+                      ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
+                      RowHeight="NaN"
                       EnableRowVirtualization="True"
-                      VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
                       PreviewMouseRightButtonDown="OnGridRightDown">
                 <DataGrid.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="{DynamicResource Log_CopyRow}" Click="OnCopyRow" />
                     </ContextMenu>
                 </DataGrid.ContextMenu>
-                <DataGrid.ColumnHeaderStyle>
-                    <Style TargetType="DataGridColumnHeader">
-                        <Setter Property="Height" Value="34" />
-                        <Setter Property="Padding" Value="12,0" />
-                        <Setter Property="FontSize" Value="12" />
-                        <Setter Property="FontWeight" Value="SemiBold" />
-                        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextSecondary}" />
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="DataGridColumnHeader">
-                                    <Border Background="{x:Static svc:Theme.BadgeNeutralBg}"
-                                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="0,0,0,1"
-                                            Padding="{TemplateBinding Padding}">
-                                        <ContentPresenter VerticalAlignment="Center" />
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </DataGrid.ColumnHeaderStyle>
-                <DataGrid.RowStyle>
-                    <Style TargetType="DataGridRow">
-                        <Setter Property="Background" Value="Transparent" />
-                        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{x:Static svc:Theme.CardBgHover}" />
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter Property="Background" Value="{x:Static svc:Theme.SelectionBg}" />
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </DataGrid.RowStyle>
-                <DataGrid.CellStyle>
-                    <!-- Every cell top-aligned with the same padding, a hairline between rows:
-                         a long «Почему» grows its row without the other cells floating mid-way. -->
-                    <Style TargetType="DataGridCell">
-                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-                        <!-- Pinned here, or the stock cell style paints a selected row in the
-                             system's inactive-selection text colour (black) the moment the grid
-                             loses focus — e.g. after «Копировать». -->
-                        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
-                        <Setter Property="FontSize" Value="12.5" />
-                        <Setter Property="Template">
-                            <Setter.Value>
-                                <ControlTemplate TargetType="DataGridCell">
-                                    <Border Background="Transparent" Padding="12,8"
-                                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="0,0,0,1">
-                                        <ContentPresenter VerticalAlignment="Top" />
-                                    </Border>
-                                </ControlTemplate>
-                            </Setter.Value>
-                        </Setter>
-                    </Style>
-                </DataGrid.CellStyle>
                 <!-- Every column is exactly as wide as its content (or its header) needs;
                      «Почему» takes all the space that is left. -->
                 <DataGrid.Columns>
-                    <DataGridTemplateColumn Header="{DynamicResource Log_ColTime}" Width="Auto" MinWidth="70">
+                    <DataGridTemplateColumn Header="{DynamicResource Log_ColTime}" Width="Auto" MinWidth="70"
+                                            CellStyle="{StaticResource LogFirstCellStyle}"
+                                            HeaderStyle="{StaticResource FirstColumnHeaderStyle}">
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel>

@@ -30,6 +30,14 @@ namespace MihomoLauncher.Services
         // The tile's network cards (NicKey of its AppEntry), null = Windows decides. Build turns
         // the target into "the same, through these cards" — see NicPlan.
         public string Nic { get; set; }
+        // A folder of a tile (PROCESS-PATH-REGEX, 2026-11-22): written below every tile's programs —
+        // a program named in any tile is more specific than any tile's folder — and among folders
+        // the deeper one first (FolderLen = the folder path's length), whatever the tile order.
+        public bool Folder { get; set; }
+        public int FolderLen { get; set; }
+        // An auto-tracked program by its exact file (PROCESS-PATH-REGEX anchored at both ends):
+        // written right below the sites, above every program by name — the more specific wins.
+        public bool AutoFile { get; set; }
         public RuleDef() { }
         public RuleDef(string type, string value, string target) { Type = type; Value = value; Target = target; }
     }
@@ -236,21 +244,172 @@ namespace MihomoLauncher.Services
 
             // The check address is the tile's own probe, not its list of sites: it stays with the
             // programs (below every tile's sites), so it can't outrank another tile's program.
-            AddRule("DOMAIN-SUFFIX", HostOf(ResolveCheckUrl(app)), true);
+            AddRule("DOMAIN-SUFFIX", HostOf(RouteUrl(app)), true);
 
             foreach (var prog in app.Programs ?? new List<RuleProgram>())
             {
+                // An auto entry is the exact FILE auto-tracking detected (by its process tree), and
+                // the rule is as precise as the detection (2026-11-22): a same-named exe elsewhere —
+                // VS Code's codex.exe vs the Store ChatGPT's codex.exe — is not this tile's. No usable
+                // path → by name, like any program.
+                var file = AutoFileRegex(prog);
+                if (file.Length > 0)
+                {
+                    if (seen.Add("PROCESS-PATH-REGEX|" + file))
+                        rules.Add(new RuleDef("PROCESS-PATH-REGEX", file, target) { Nic = nic, AutoFile = true });
+                    continue;
+                }
                 var exe = ProcessImageName(prog);
                 if (!string.IsNullOrEmpty(exe)) AddRule("PROCESS-NAME", exe, false);
             }
+
+            // Folders: everything started from the folder or below. Not raw — like a program, the
+            // whole of it follows a subscription's own rules.
+            foreach (var f in app.Folders ?? new List<RuleFolder>())
+            {
+                var rx = FolderRegex(f?.Path);
+                if (string.IsNullOrEmpty(rx) || !seen.Add("PROCESS-PATH-REGEX|" + rx)) continue;
+                rules.Add(new RuleDef("PROCESS-PATH-REGEX", rx, target)
+                {
+                    Nic = nic, Folder = true, FolderLen = NormalizeFolder(f.Path).Length,
+                });
+            }
         }
 
-        // The address used to verify (and route) a rule: the explicit CheckUrl, else the
-        // first site's Url.
-        public static string ResolveCheckUrl(AppEntry app)
+        // "D:\Apps\Tool\" / "d:/apps/tool" → "D:\Apps\Tool" (full, no trailing slash); "" if unusable.
+        public static string NormalizeFolder(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return "";
+            try
+            {
+                var full = Path.GetFullPath(path.Trim().Replace('/', '\\'));
+                var root = Path.GetPathRoot(full) ?? "";
+                return full.Length > root.Length ? full.TrimEnd('\\') : full;
+            }
+            catch { return ""; }
+        }
+
+        // The engine's regexp for "started from this folder or below" (PROCESS-PATH-REGEX).
+        //
+        // The flavour is dlclark/regexp2 (.NET-compatible), case-insensitive by the engine itself
+        // (measured 2026-11-22 on 1.19.34: a lookahead passes `-t`, RE2 would refuse it). Anchored at
+        // the start, the folder plus a backslash, anything after it — the end is left open.
+        //
+        // Written WITHOUT a single parenthesis or comma: a rule line is split at commas, and a
+        // subscription's SUB-RULE,(…) wraps the matcher in parentheses — a value with either can't
+        // go there (Build). So those, and '#' (a YAML comment after a space), are \xHH escapes.
+        //
+        // A path segment that carries a dotted version ("ms-dotnettools.csdevkit-3.40.215-win32-x64",
+        // "app-1.15.0" — ProgramPathRepair's notion) gets its version digits as a pattern, so the rule
+        // survives the update that renames that folder.
+        public static string FolderRegex(string path)
+        {
+            var full = NormalizeFolder(path);
+            if (full.Length == 0) return "";
+            var sb = new StringBuilder("^").Append(PathPattern(full));
+            // A drive root ("D:\") already ends with its separator.
+            if (!full.EndsWith("\\")) sb.Append(@"\\");
+            return sb.ToString();
+        }
+
+        // The regexp for exactly this FILE (an auto entry, 2026-11-22): the same escaping and version
+        // masking as a folder, anchored at both ends — the file itself, never a longer path that
+        // merely starts with it. "" when the path is unusable.
+        public static string FileRegex(string path)
+        {
+            var full = NormalizeFolder(path);
+            if (full.Length == 0 || full.EndsWith("\\")) return "";
+            return "^" + PathPattern(full) + "$";
+        }
+
+        // The file line of an auto entry, "" when it is a by-name entry (manual, or no usable path).
+        public static string AutoFileRegex(RuleProgram prog)
+        {
+            if (prog == null || !prog.Auto || string.IsNullOrWhiteSpace(prog.Path)) return "";
+            return FileRegex(prog.Path);
+        }
+
+        // Is `exePath` exactly the file of `file` (the same file after a version bump too)?
+        public static bool IsSameFile(string exePath, string file)
+            => !string.IsNullOrEmpty(file) && MatchCached("F|" + file, () => FileRegex(file), exePath);
+
+        // Escaped path, segment by segment, dotted versions as a digits pattern.
+        private static string PathPattern(string full)
+        {
+            var sb = new StringBuilder();
+            var parts = full.Split('\\');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (i > 0) sb.Append(@"\\");
+                var seg = parts[i];
+                if (ProgramPathRepair.LooksVersioned(seg))
+                {
+                    int at = 0;
+                    foreach (System.Text.RegularExpressions.Match m in ProgramPathRepair.VersionRuns(seg))
+                    {
+                        sb.Append(RegexLiteral(seg.Substring(at, m.Index - at)));
+                        // Only a dotted run is a version: "win32" / "x64" next to it stay as they are.
+                        sb.Append(m.Value.IndexOfAny(new[] { '.', '_' }) >= 0 ? "[0-9][0-9._]*" : m.Value);
+                        at = m.Index + m.Length;
+                    }
+                    sb.Append(RegexLiteral(seg.Substring(at)));
+                }
+                else sb.Append(RegexLiteral(seg));
+            }
+            return sb.ToString();
+        }
+
+        private static string RegexLiteral(string s)
+        {
+            var sb = new StringBuilder();
+            foreach (var c in s ?? "")
+            {
+                if (c == '(' || c == ')' || c == ',' || c == '#') sb.Append("\\x").Append(((int)c).ToString("x2"));
+                else if (@"\.+*?|[]{}^$".IndexOf(c) >= 0) sb.Append('\\').Append(c);
+                else if (c < ' ') continue;   // no control characters in a path; never in a rule line
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        // Is `exePath` inside `folder` (or below)? The launcher's own reading of a folder entry —
+        // the same "folder\…" test the engine's regexp makes, version segments included.
+        public static bool InFolder(string exePath, string folder)
+            => !string.IsNullOrEmpty(folder) && MatchCached("D|" + folder, () => FolderRegex(folder), exePath);
+
+        private static bool MatchCached(string key, Func<string> pattern, string exePath)
+        {
+            if (string.IsNullOrEmpty(exePath)) return false;
+            System.Text.RegularExpressions.Regex rx;
+            if (!_folderRx.TryGetValue(key, out rx))
+            {
+                var text = pattern();
+                try
+                {
+                    rx = text.Length == 0 ? null : new System.Text.RegularExpressions.Regex(text,
+                        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+                }
+                catch { rx = null; }
+                if (_folderRx.Count > 4000) _folderRx.Clear();
+                _folderRx[key] = rx;
+            }
+            try { return rx != null && rx.IsMatch(exePath.Replace('/', '\\')); }
+            catch { return false; }
+        }
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.RegularExpressions.Regex> _folderRx =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, System.Text.RegularExpressions.Regex>(StringComparer.OrdinalIgnoreCase);
+
+        // The address ROUTED with a rule as its own (and named in the routing explanations): the
+        // check address, else its HomeUrl (AppEntry.OwnUrl), else the first site's Url. Not what is
+        // checked — that is the check address alone (MainWindow.ResolveCheckUrl). Before 2026-11-23
+        // the check address was here alone; whatever the loader moved out of it into HomeUrl
+        // (NormalizeCheckAddresses) is picked up here, so the engine gets the same rule lines.
+        public static string RouteUrl(AppEntry app)
         {
             if (app == null) return "";
-            if (!string.IsNullOrWhiteSpace(app.CheckUrl)) return app.CheckUrl.Trim();
+            var own = app.OwnUrl;
+            if (own.Length > 0) return own;
             var firstSite = (app.Sites ?? new List<RuleSite>()).FirstOrDefault(s => s != null && !string.IsNullOrWhiteSpace(s.Url));
             return firstSite != null ? firstSite.Url.Trim() : "";
         }
@@ -958,7 +1117,8 @@ namespace MihomoLauncher.Services
             var nic = new NicPlan(cfg, directProxies, providers);
             rules = rules.Where(r => r != null)
                 .Select(r => r.Nic == null ? r
-                    : new RuleDef(r.Type, r.Value, nic.Route(r.Target, r.Nic)) { Raw = r.Raw, Site = r.Site, Probe = r.Probe })
+                    : new RuleDef(r.Type, r.Value, nic.Route(r.Target, r.Nic))
+                      { Raw = r.Raw, Site = r.Site, Probe = r.Probe, Folder = r.Folder, FolderLen = r.FolderLen, AutoFile = r.AutoFile })
                 .ToList();
             // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
             // on, in which case its target (a proxy, or REJECT under its kill-switch). The engine
@@ -982,6 +1142,10 @@ namespace MihomoLauncher.Services
                 var written = new HashSet<string>(
                     rules.Where(r => !string.IsNullOrEmpty(r.Type)).Select(r => r.Type + "|" + r.Value),
                     StringComparer.OrdinalIgnoreCase);
+                // Once any tile has a folder, a «без VPN» tile's programs and folders need their lines
+                // even with the catch-all DIRECT: its program may lie inside another tile's folder, its
+                // folder inside a wider one — and the more specific entry has to win (2026-11-22).
+                bool anyFolder = (cfg.Apps ?? new List<AppEntry>()).Any(a => a != null && !a.IsAllTraffic && a.HasFolders);
                 foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && !a.IsAllTraffic))
                 {
                     var mine = new List<RuleDef>();
@@ -992,9 +1156,13 @@ namespace MihomoLauncher.Services
                         // DIRECT anyway). Its SITES do (2026-11-16): without a line, another tile's
                         // program (chrome.exe → VPN / Wi-Fi) took kinozal.tv away from the «без VPN»
                         // tile that lists it. Sites beat programs whatever the tiles' modes.
-                        if (catchAllDirect && !app.HasInterfaces && !r.Site) continue;
+                        // An auto file line always: it sits above every program by name, so another
+                        // tile naming the same exe must not take this very file away (2026-11-22).
+                        bool processLine = r.Folder || string.Equals(r.Type, "PROCESS-NAME", StringComparison.OrdinalIgnoreCase);
+                        if (catchAllDirect && !app.HasInterfaces && !r.Site && !r.AutoFile && !(anyFolder && processLine)) continue;
                         if (written.Add(r.Type + "|" + r.Value))
-                            pinned.Add(new RuleDef(r.Type, r.Value, nic.Route("DIRECT", r.Nic)) { Site = r.Site });
+                            pinned.Add(new RuleDef(r.Type, r.Value, nic.Route("DIRECT", r.Nic))
+                                       { Site = r.Site, Folder = r.Folder, FolderLen = r.FolderLen, AutoFile = r.AutoFile });
                     }
                 }
             }
@@ -1127,11 +1295,21 @@ namespace MihomoLauncher.Services
             // (2026-11-16): they used to trail after everything in tile order, so a «без VPN» tile's
             // site (kinozal.tv → LAN) sat below another tile's program (chrome.exe → Wi-Fi) and the
             // browser took it. Sites of every tile above programs of every tile — pinned or not.
+            // Folders (2026-11-22) go below every program: a program named in any tile beats any
+            // tile's folder, and among folders the deeper path wins, whatever the tile order (stable
+            // sort, so equal lengths keep the order of the tiles).
+            // Auto-tracked files (2026-11-22) right below the sites: an exact file beats any tile's
+            // program by name. Order: sites → auto files → programs by name → folders → MATCH.
             rules = rules.Where(r => r != null && r.Probe)
                 .Concat(rules.Where(r => r != null && !r.Probe && r.Site))
                 .Concat(pinned.Where(r => r.Site))
-                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site))
-                .Concat(pinned.Where(r => !r.Site)).ToList();
+                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site && r.AutoFile))
+                .Concat(pinned.Where(r => !r.Site && r.AutoFile))
+                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site && !r.Folder && !r.AutoFile))
+                .Concat(pinned.Where(r => !r.Site && !r.Folder && !r.AutoFile))
+                .Concat(rules.Where(r => r != null && !r.Probe && !r.Site && r.Folder)
+                             .Concat(pinned.Where(r => !r.Site && r.Folder))
+                             .OrderByDescending(r => r.FolderLen)).ToList();
             sb.AppendLine("rules:");
             bool ownWritten = false;
             foreach (var r in rules)

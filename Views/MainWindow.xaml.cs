@@ -135,7 +135,7 @@ namespace MihomoLauncher.Views
         {
             string proxy, pick;
             ProxySlotInfo info;
-            var enabledIds = new HashSet<string>((_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).Select(s => s.Id));
+            var enabledIds = new HashSet<string>((_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).Select(s => s.Id));
             if (_assignment.TryGetValue(e.Id, out proxy) && proxy != null && _proxySlot.TryGetValue(proxy, out info)
                 && info != null && enabledIds.Contains(info.Id)) return info.Id;
             if (_platePick.TryGetValue(e.Id, out pick) && enabledIds.Contains(pick)) return pick;
@@ -301,6 +301,10 @@ namespace MihomoLauncher.Views
                     // Put the Windows-level kill-switch in place before anything else is tried.
                     // It does not need the engine, so it must not wait for it either.
                     SyncFirewallSoon();
+                    // The rules' auto-tracking and the folder watchers (2026-11-22). Needs neither
+                    // the engine nor a connection: helpers that go online are found by their own
+                    // TCP connections, so a rule is ready before anything is connected.
+                    StartAutoTrack();
                     await AutoHealStoreAppsAsync().ConfigureAwait(true);
                     await EnsureAutoIconsAsync().ConfigureAwait(true);
                     MigrateTemplateUrls();
@@ -308,6 +312,7 @@ namespace MihomoLauncher.Views
                     await EnsureAsnDbAsync().ConfigureAwait(true);
                 }
                 catch (Exception ex) { Log.Error("startup", ex); }
+                StartAutoTrack();   // idempotent: also when the start-up above threw before it
 
                 // Reflect whether the engine ended up installed (mom may have pressed «Позже»):
                 // show/hide the install banner and re-render the status banner accordingly.
@@ -862,8 +867,13 @@ namespace MihomoLauncher.Views
 
         // Everything a rule can be recognised by in the engine's connection list: the hosts it
         // claims (its sites, its template's domains, its check address) and the programs it lists.
-        private static void RuleTargets(AppEntry app, List<string> hosts, List<string> procs, List<string> nets)
+        private static void RuleTargets(AppEntry app, List<string> hosts, List<string> procs, List<string> nets,
+                                        List<string> dirs = null, List<string> files = null)
         {
+            // Folder entries: whatever runs from there (by the connection's full process path).
+            if (dirs != null && app != null)
+                foreach (var f in app.Folders ?? new List<RuleFolder>())
+                    if (f != null && !string.IsNullOrWhiteSpace(f.Path)) dirs.Add(f.Path);
             if (app == null) return;
             foreach (var site in app.Sites ?? new List<RuleSite>())
             {
@@ -887,12 +897,14 @@ namespace MihomoLauncher.Views
                     else hosts.Add(value);
                 }
             }
-            var check = MihomoConfigBuilder.HostOf(MihomoConfigBuilder.ResolveCheckUrl(app));
+            var check = MihomoConfigBuilder.HostOf(MihomoConfigBuilder.RouteUrl(app));
             if (!string.IsNullOrEmpty(check)) hosts.Add(check);
 
             foreach (var prog in app.Programs ?? new List<RuleProgram>())
             {
                 if (prog == null || string.IsNullOrEmpty(prog.Path)) continue;
+                // An auto entry is routed by its exact file: only that file's connections are its own.
+                if (files != null && MihomoConfigBuilder.AutoFileRegex(prog).Length > 0) { files.Add(prog.Path); continue; }
                 try { procs.Add(System.IO.Path.GetFileName(prog.Path)); } catch { }
             }
         }
@@ -906,18 +918,20 @@ namespace MihomoLauncher.Views
             var hosts = new List<string>();
             var procs = new List<string>();
             var nets = new List<string>();
+            var dirs = new List<string>();
+            var files = new List<string>();
             bool catchAll = false;
             foreach (var a in apps ?? Enumerable.Empty<AppEntry>())
             {
                 if (a != null && a.IsAllTraffic) catchAll = true;
-                else RuleTargets(a, hosts, procs, nets);
+                else RuleTargets(a, hosts, procs, nets, dirs, files);
             }
-            if (hosts.Count == 0 && procs.Count == 0 && nets.Count == 0 && !catchAll) return;
+            if (hosts.Count == 0 && procs.Count == 0 && nets.Count == 0 && dirs.Count == 0 && files.Count == 0 && !catchAll) return;
 
             var ctl = _mihomo;
             _ = Task.Run(async () =>
             {
-                try { await ctl.CloseConnectionsAsync(hosts, procs, nets, catchAll).ConfigureAwait(false); }
+                try { await ctl.CloseConnectionsAsync(hosts, procs, nets, catchAll, folders: dirs, files: files).ConfigureAwait(false); }
                 catch (Exception ex) { Log.Error("close-rule-connections", ex); }
             });
         }
@@ -980,13 +994,22 @@ namespace MihomoLauncher.Views
                 _pathScanAtUtc = DateTime.UtcNow;
 
                 var fixes = ProgramPathRepair.RepairAll(_config);
-                if (fixes.Count == 0) return;
+                // Folder entries whose folder is gone (an update renamed its version folder): the
+                // engine's regexp already follows the version, the firewall's exe list does not.
+                var folderFixes = ProgramPathRepair.RepairFolders(_config);
+                foreach (var f in folderFixes)
+                    Log.Info("Путь папки обновлён (" + where + "): «" + f.Rule + "» " + f.OldPath + " → " + f.NewPath);
+                if (fixes.Count == 0 && folderFixes.Count == 0) return;
                 foreach (var f in fixes)
                     Log.Info("Путь программы обновлён (" + where + "): «" + f.Rule + "» " + f.OldPath + " → " + f.NewPath);
                 AppConfigStore.Save(_config);
+                if (folderFixes.Count > 0) ReapplyLiveConfig("путь папки изменился");
                 // Same exe name → the engine's PROCESS-NAME rules are already right; a renamed
-                // exe needs the live config rewritten.
-                if (fixes.Any(f => !string.Equals(System.IO.Path.GetFileName(f.OldPath), System.IO.Path.GetFileName(f.NewPath), StringComparison.OrdinalIgnoreCase)))
+                // exe needs the live config rewritten. So does an auto entry (routed by its exact
+                // file) whose path moved beyond what its version mask already covers.
+                if (folderFixes.Count == 0 && fixes.Any(f =>
+                        !string.Equals(System.IO.Path.GetFileName(f.OldPath), System.IO.Path.GetFileName(f.NewPath), StringComparison.OrdinalIgnoreCase)
+                        || !string.Equals(MihomoConfigBuilder.FileRegex(f.OldPath), MihomoConfigBuilder.FileRegex(f.NewPath), StringComparison.Ordinal)))
                     ReapplyLiveConfig("путь программы изменился");
                 SyncFirewallSoon();
                 RebuildTiles();
@@ -1419,11 +1442,13 @@ namespace MihomoLauncher.Views
                                               .OrderBy(a => a.IsAllTraffic ? 0 : 1))
                 TilesPanel.Items.Add(CreateTile(entry));
             // The outline of a new tile ends the row; an empty tab says how to fill it, beside it.
-            // Only in a free place of the last row — a row full of tiles gets none (2026-11-17: «не
+            // Shown whenever it fits without making the window taller (ShowsAddTile): a free place
+            // in the last row, or — on another tab, already as tall as «Основная» — a new row
+            // inside that height. A full row with no room under it gets none (2026-11-17: «не
             // переноси на новую строчку… просто не показываем»); «APP» adds rules as well.
             int count = TilesPanel.Items.Count;
             bool empty = count == 0;
-            if (empty || count % Math.Max(1, _tileCols) != 0) TilesPanel.Items.Add(AddRuleTile());
+            if (ShowsAddTile(tab, count, _tileCols)) TilesPanel.Items.Add(AddRuleTile());
             if (empty) TilesPanel.Items.Add(EmptyTabHint());
             // Other tabs are at least as tall as «Основная» (2026-11-17: «зафиксируем размер окна на
             // вкладке основная при переходе в другие вкладки») — switching tabs doesn't make the
@@ -1638,7 +1663,7 @@ namespace MihomoLauncher.Views
         private bool HasNoAllowedVpnVariant(AppEntry e)
         {
             if (e == null || !e.RequiresVpn) return false;
-            var enabled = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
+            var enabled = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).ToList();
             if (enabled.Count == 0) return false;   // no variants configured at all is a different case
             var disabled = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
             return enabled.All(s => disabled.Contains(s.Id));
@@ -1674,6 +1699,11 @@ namespace MihomoLauncher.Views
             bool plateBlocks;
             var plate = MakeVpnPlate(entry, enabled, reconnecting, notChecked, out plateBlocks);
             bool bright = !plateBlocks;
+            // Amber while auto-tracking has added something here that was not seen yet (the notice,
+            // MainWindow.AutoTrack): the gear AND the tile's frame — the gear alone was too easy to
+            // miss (2026-11-22). The frame keeps the blue hover; it comes back when the pointer leaves.
+            bool autoNotice = AutoNoticeOn(entry);
+            var restBorder = autoNotice ? Theme.NoticeTileBorder : bright ? Theme.TileBorder : Theme.TileDisabledBorder;
 
             const double TileSize = TileSizePx;
             const double IconSize = 40;   // 44 before the VPN plate took the bottom 37 px
@@ -1687,7 +1717,7 @@ namespace MihomoLauncher.Views
                 Margin = new Thickness(3.5),
                 CornerRadius = new CornerRadius(9),
                 Background = bright ? Theme.TileBg : Theme.TileDisabledBg,
-                BorderBrush = bright ? Theme.TileBorder : Theme.TileDisabledBorder,
+                BorderBrush = restBorder,
                 BorderThickness = new Thickness(1),
                 // hand cursor is reserved for actual buttons; "arrow + hourglass" while it launches
                 Cursor = launching ? Cursors.AppStarting : Cursors.Arrow,
@@ -1795,9 +1825,13 @@ namespace MihomoLauncher.Views
                 });
             }
 
+            // The gear in the notice amber (autoNotice, above) — same icon, same size, same click;
+            // the click ends the notice.
             grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Settings24, 14,
-                new Thickness(5, 5, 0, 0), HorizontalAlignment.Left, Loc.T("Main_TipEditRule"), false,
-                () => OpenRuleEditor(entry)));
+                new Thickness(5, 5, 0, 0), HorizontalAlignment.Left,
+                autoNotice ? AutoNoticeTip(entry) : Loc.T("Main_TipEditRule"), false,
+                () => { EndAutoNotice(entry.Id); OpenRuleEditor(entry); },
+                autoNotice ? Theme.NoticeAmber : null));
             // The network card, as an icon under the gear (2026-11-16 try-out, see NicAsIcon).
             if (ShowNicPlate && NicAsIcon) grid.Children.Add(MakeNicChip(entry, reconnecting));
 
@@ -1900,9 +1934,9 @@ namespace MihomoLauncher.Views
             };
             border.MouseLeave += (s, e) =>
             {
-                // Back to how it looks — a dimmed tile stays dimmed.
+                // Back to how it looks — a dimmed tile stays dimmed, a noticed one amber.
                 border.Background = bright ? Theme.TileBg : Theme.TileDisabledBg;
-                border.BorderBrush = bright ? Theme.TileBorder : Theme.TileDisabledBorder;
+                border.BorderBrush = restBorder;
             };
             border.MouseLeftButtonUp += (s, e) => OnTileClick(entry);
             border.MouseRightButtonUp += (s, e) => { e.Handled = true; OnTileClick(entry); };
@@ -1913,12 +1947,7 @@ namespace MihomoLauncher.Views
         // A tile with no sharp picture: its initials on a rounded square of a colour picked by the
         // name (the same name — the same colour, every time). Drawn, not a bitmap: sharp at any
         // scale, exactly the icon's size. Replaced the grey «?» (2026-11-17).
-        private static readonly Color[] MonogramColors =
-        {
-            Color.FromRgb(0x3F, 0x6F, 0xD8), Color.FromRgb(0x2F, 0x9A, 0x6B), Color.FromRgb(0xC2, 0x6A, 0x2E),
-            Color.FromRgb(0x87, 0x5C, 0xCF), Color.FromRgb(0xC0, 0x4B, 0x5C), Color.FromRgb(0x2A, 0x8E, 0xA8),
-            Color.FromRgb(0x9C, 0x7C, 0x2C), Color.FromRgb(0x5E, 0x6B, 0x84),
-        };
+        private static readonly Color[] MonogramColors = Theme.MonogramColors;
 
         private FrameworkElement MakeMonogram(string name, double size)
         {
@@ -1943,7 +1972,7 @@ namespace MihomoLauncher.Views
                     Text = Initials(name),
                     FontSize = size * 0.42,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = Brushes.White,
+                    Foreground = Theme.TextOnColor,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     Margin = new Thickness(0, 0, 0, size * 0.03),
@@ -2093,7 +2122,7 @@ namespace MihomoLauncher.Views
                 return;
             }
 
-            var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
+            var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).ToList();
             if (slots.Count == 0)
             {
                 SetState(UiState.Done);
@@ -2529,8 +2558,10 @@ namespace MihomoLauncher.Views
         // fake-ip each one takes the machine's RESOLVER down with it — measured: five reloads
         // in three seconds, then a minute in which the launcher itself could not resolve
         // api.github.com or byfox.dev. That is what "the launcher killed my internet" was.
+        // `cutFiles`: program files whose open connections are cut after the reload — helpers just
+        // auto-added to a tile (MainWindow.AutoTrack), so they redial through it.
         private void ApplyFinalConfig(List<ParsedProxy> usedProxies, string reason = null, bool force = false,
-                                      IEnumerable<AppEntry> alsoCut = null)
+                                      IEnumerable<AppEntry> alsoCut = null, List<string> cutFiles = null)
         {
             var vpnApps = _config.Apps.Where(a => a.RequiresVpn).ToList();
             var liveProxyNames = new HashSet<string>(_assignment.Values);
@@ -2560,10 +2591,14 @@ namespace MihomoLauncher.Views
                     // a rejected reload leaves the OLD routing live, so cutting here would kill a
                     // rule's traffic and then hand it straight back to the route it just lost —
                     // the rule goes dark for no reason at all, kill-switch or no kill-switch.
-                    if (moved.Count > 0)
+                    if (moved.Count > 0 || (cutFiles != null && cutFiles.Count > 0))
                         _ = reload.ContinueWith(t =>
                         {
-                            if (t.Status == TaskStatus.RanToCompletion && t.Result) CloseConnectionsFor(moved);
+                            if (t.Status == TaskStatus.RanToCompletion && t.Result)
+                            {
+                                if (moved.Count > 0) CloseConnectionsFor(moved);
+                                CloseProcessConnections(cutFiles);
+                            }
                             else Log.Info("Соединения не разрывались: движок не принял новый конфиг, "
                                           + "правила остались на старом маршруте.");
                         });
@@ -2597,13 +2632,15 @@ namespace MihomoLauncher.Views
         {
             _appliedAssignment.Clear();
             foreach (var kv in _assignment) _appliedAssignment[kv.Key] = kv.Value;
+            // A tile moved to another VPN: two tiles that were on the same route may not be any more.
+            try { Dispatcher.BeginInvoke(new Action(UpdateConflictIcon)); } catch { }
         }
 
         // Write the idle "armed" config (all VPN apps -> REJECT) so they have no internet
         // until "Подключить" connects them. Called at startup so the kill-switch is on
         // even before mom presses anything (the launcher runs at logon). No-op if mihomo
         // isn't reachable yet.
-        private async Task ArmKillSwitchAsync(CancellationToken ct)
+        private async Task ArmKillSwitchAsync(CancellationToken ct, List<string> cutFiles = null)
         {
             try
             {
@@ -2622,12 +2659,13 @@ namespace MihomoLauncher.Views
                 // whole machine its internet for a few seconds at every single startup.
                 if (!changed) return;
 
-                await _mihomo.ReloadAsync(ct, "взвод кил-свитча (не подключено)").ConfigureAwait(true);
+                bool took = await _mihomo.ReloadAsync(ct, "взвод кил-свитча (не подключено)").ConfigureAwait(true);
 
                 // Armed means blocked from now on — including for the connections that were
                 // opened while it wasn't.
                 CloseConnectionsFor((_config.Apps ?? new List<AppEntry>())
                     .Where(a => a != null && a.KillSwitch && !_assignment.ContainsKey(a.Id)));
+                if (took) CloseProcessConnections(cutFiles);
             }
             catch (Exception ex) { Log.Error("arm-kill-switch", ex); }
         }
@@ -2648,7 +2686,8 @@ namespace MihomoLauncher.Views
                     ProxyName = kv.Value,
                     SlotNumber = info?.Number ?? 0,
                     SlotName = info?.Name ?? kv.Value,
-                    Target = HostOf(ResolveCheckUrl(app)),
+                    // The rule's own address (check address, else the one moved out of it).
+                    Target = HostOf(app.OwnUrl),
                     NodeUp = true,
                 });
             }
@@ -2751,7 +2790,7 @@ namespace MihomoLauncher.Views
             RestoreKillAfterDirect(entry);
             SetAutoConnect(entry, true, "reconnect-one");
 
-            var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
+            var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).ToList();
             if (slots.Count == 0)
             {
                 await ShowDialog(Loc.T("Main_NoVariantsTitle"), Loc.T("Main_NoVariantsBody")).ConfigureAwait(true);
@@ -3038,29 +3077,14 @@ namespace MihomoLauncher.Views
             return rules;
         }
 
-        // The address used to verify (and route) an app: explicit CheckUrl, else the
-        // app's own URL (Path), else a URL embedded in its launch arguments.
+        // The address a rule is CHECKED with: the check field and nothing else (2026-11-23 — field
+        // empty = not checked). No fallback to a site or to the old single-item Path/Arguments: the
+        // loader wrote whatever the old connect really probed into the field (AppConfigStore
+        // NormalizeCheckAddresses), so nothing that was checked stops being checked.
         private static string ResolveCheckUrl(AppEntry app)
         {
-            if (app == null) return "";
-            if (!string.IsNullOrWhiteSpace(app.CheckUrl)) return app.CheckUrl.Trim();
-            if (IsUrl(app.Path)) return app.Path.Trim();
-            return ExtractUrl(app.Arguments);
-        }
-
-        private static bool IsUrl(string s)
-        {
-            return !string.IsNullOrEmpty(s) &&
-                   (s.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
-                    s.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
-        }
-
-        private static string ExtractUrl(string text)
-        {
-            if (string.IsNullOrWhiteSpace(text)) return "";
-            foreach (var tok in text.Split(new[] { ' ', '\t', '"' }, StringSplitOptions.RemoveEmptyEntries))
-                if (IsUrl(tok)) return tok;
-            return "";
+            if (app == null || string.IsNullOrWhiteSpace(app.CheckUrl)) return "";
+            return app.CheckUrl.Trim();
         }
 
         private static string HostOf(string url)
@@ -3078,8 +3102,8 @@ namespace MihomoLauncher.Views
             foreach (var a in apps)
             {
                 var url = ResolveCheckUrl(a);
-                // «Не проверять»: connect it regardless of what the site says. Same outcome as
-                // having no address to probe — the rule rides the first variant whose node is up.
+                // Not checked (no check address; SkipCheck is kept equal to that): connect it
+                // regardless of any site — the rule rides the first configuration whose node is up.
                 if (a.SkipCheck) result[a.Id] = true;
                 else if (string.IsNullOrEmpty(url)) result[a.Id] = true;  // nothing to probe — don't gate
                 else targets.Add(new KeyValuePair<AppEntry, string>(a, url));
@@ -3786,7 +3810,7 @@ namespace MihomoLauncher.Views
             try
             {
                 var active = DirectDns.Active(_config);
-                IcoDns.Foreground = active.Count > 0 ? Theme.AccentGreen : new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFF));
+                IcoDns.Foreground = active.Count > 0 ? Theme.AccentGreen : Theme.TextOnAction;
                 BtnDns.ToolTip = active.Count > 0
                     ? Loc.T("Main_DnsTipOwn", string.Join(", ", active.Select(x => x.Engine)))
                     : Loc.T("Main_DnsTipNone");
@@ -3981,15 +4005,8 @@ namespace MihomoLauncher.Views
             catch (Exception ex) { Log.Error("apply-rule-order", ex); }
         }
 
-        private static readonly SolidColorBrush TileBinHotBg = FrozenBrush(0x5C, 0x30, 0x30);
-        private static readonly SolidColorBrush TileBinHotBorder = FrozenBrush(0x80, 0x44, 0x44);
-
-        private static SolidColorBrush FrozenBrush(byte r, byte g, byte b)
-        {
-            var br = new SolidColorBrush(Color.FromRgb(r, g, b));
-            br.Freeze();
-            return br;
-        }
+        private static readonly SolidColorBrush TileBinHotBg = Theme.ChipDangerBgHover;
+        private static readonly SolidColorBrush TileBinHotBorder = Theme.ChipDangerBorderHover;
 
         // The tile's bin: the rule goes with its tile (a tile IS a rule). Asked first; behind the
         // access password like every routing change. What it routed falls to «Всё остальное».
@@ -4033,10 +4050,17 @@ namespace MihomoLauncher.Views
             var before = RoutingSignature(_config);
             var beforeGlobal = GlobalRoutingSignature(_config);
             var dlg = new EditRuleDialog(entry, _config.VpnSlots) { Owner = this };
-            if (dlg.ShowDialog() != true || dlg.Result == null) return;
+            if (dlg.ShowDialog() != true || dlg.Result == null)
+            {
+                // Cancelled: the amber rows have been seen — only that flag is written.
+                AutoNewSeen(entry.Id);
+                return;
+            }
 
             _config.Apps[idx] = dlg.Result;
+            AutoPrograms.ClearAutoNew(_config, dlg.Result.Id);   // the editor's result carries none anyway
             AppConfigStore.Save(_config);
+            EndAutoNotice(dlg.Result.Id);
             EngineLogStore.Instance.RefreshRules(_config);   // so the log names the edited rule
             SyncFirewallSoon();                              // programs/kill-switch may have changed
 
@@ -4200,13 +4224,17 @@ namespace MihomoLauncher.Views
         {
             // SkipCheck belongs here even though it writes no mihomo rule: it decides whether a
             // rule is verified before being assigned, so flipping it has to re-run the connect.
-            sb.Append(a.RequiresVpn).Append(':').Append(a.CheckUrl).Append(':').Append(a.KillSwitch)
+            // HomeUrl too: its host is routed with the rule (MihomoConfigBuilder.RouteUrl).
+            sb.Append(a.RequiresVpn).Append(':').Append(a.CheckUrl).Append('|').Append(a.HomeUrl).Append(':').Append(a.KillSwitch)
               .Append(':').Append(a.SkipCheck).Append(':').Append(a.Block).Append(':');
             // Routing depends on each program's image name and each site's domain + rule list.
             foreach (var p in (a.Programs ?? new List<RuleProgram>()))
-                sb.Append('P').Append(p.Path).Append('/').Append(p.Aumid).Append(',');
+                // Auto entries route by their exact file, manual ones by name: the flag is routing.
+                sb.Append('P').Append(p.Path).Append('/').Append(p.Aumid).Append(p.Auto ? "/A" : "").Append(',');
             foreach (var st in (a.Sites ?? new List<RuleSite>()))
                 sb.Append('S').Append(st.Url).Append('/').Append(st.RuleItems?.Count ?? 0).Append(',');
+            foreach (var f in (a.Folders ?? new List<RuleFolder>()))
+                sb.Append('F').Append(f?.Path).Append(',');
             sb.Append(':');
             foreach (var d in (a.DisabledVpnSlotIds ?? new List<string>()).OrderBy(x => x, StringComparer.Ordinal))
                 if (ignoreSlots == null || !ignoreSlots.Contains(d)) sb.Append(d).Append(',');
@@ -4411,11 +4439,34 @@ namespace MihomoLauncher.Views
             try
             {
                 EngineLogStore.ConfigSource = () => _config;
-                int n = RuleConflicts.Find(_config).Count;
+                RuleConflicts.RouteOf = RouteKey;
+                // Only the ones that change where traffic goes: two tiles on the same route, or a
+                // narrower address taking its part from a wider one, stay listed but grey.
+                int n = RuleConflicts.Find(_config).Count(g => g.Real);
                 IcoLog.Foreground = n > 0 ? Theme.ConflictIcon : Theme.TextSecondary;
                 BtnLog.ToolTip = n > 0 ? Loc.T("Log_TipConflicts", n) : Loc.T("Log_Tip");
             }
             catch (Exception ex) { Log.Error("conflict-icon", ex); }
+        }
+
+        // Where a tile's traffic goes right now, as a key: the VPN it is on (or DIRECT / REJECT
+        // when it is on none), its cards and how hard they are held. Equal keys = whichever of
+        // two tiles wins an address, it goes the same way. Mirrors MihomoConfigBuilder: a tile
+        // without a node writes REJECT under its kill-switch, DIRECT otherwise; cards re-point either.
+        private string RouteKey(AppEntry a)
+        {
+            if (a == null) return null;
+            string target;
+            if (a.IsBlocking) target = "REJECT";
+            else if (a.RequiresVpn)
+            {
+                string proxy;
+                target = _assignment.TryGetValue(a.Id ?? "", out proxy) && !string.IsNullOrEmpty(proxy) ? "P:" + proxy
+                       : a.KillSwitch ? "REJECT" : "DIRECT";
+            }
+            else target = "DIRECT";
+            if (target == "REJECT") return target;
+            return target + "|nic=" + (MihomoConfigBuilder.NicKey(a) ?? "") + "|lock=" + a.LockNic + "|ks=" + a.KillSwitch;
         }
 
         // «Весь трафик» while it is the only tile (it then really is all of it), «Всё остальное»

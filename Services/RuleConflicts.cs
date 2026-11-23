@@ -14,6 +14,14 @@ namespace MihomoLauncher.Services
         Keyword,    // a keyword of the left tile may catch the right one's address
         Ip,         // overlapping IP ranges
         Program,    // the same program in two tiles
+        // A program of the left tile inside a folder of the right one, or a folder inside a wider
+        // folder (2026-11-22): the more specific entry wins by design (MihomoConfigBuilder.Build),
+        // whatever the order of the tiles — harmless, like Partial.
+        FolderPartial,
+        // An auto entry's exact file in the left tile vs the same exe NAME in the right one: the file
+        // line sits above every program by name, so that one file goes left, every other copy right —
+        // harmless by design, like FolderPartial.
+        FilePartial,
     }
 
     public sealed class RuleConflict
@@ -21,6 +29,7 @@ namespace MihomoLauncher.Services
         public ConflictKind Kind;
         public string WinnerItem = "";   // "youtube.com"
         public string LoserItem = "";
+        public bool Folder;              // a folder entry is involved (the same folder in two tiles: Same)
     }
 
     // Two tiles whose lists collide, and everything that collides between them.
@@ -29,6 +38,15 @@ namespace MihomoLauncher.Services
         public AppEntry Winner;
         public AppEntry Loser;
         public List<RuleConflict> Items = new List<RuleConflict>();
+        // Both tiles send their traffic the same way right now (RuleConflicts.RouteOf) — whoever
+        // wins, nothing changes. Still listed, but no alarm.
+        public bool SameRoute;
+        // Only «a narrower address of the left tile takes its part from a wider one of the right»
+        // — what the narrower line was written for.
+        public bool PartialOnly => Items.Count > 0 && Items.All(i => i.Kind == ConflictKind.Partial || i.Kind == ConflictKind.FolderPartial
+                                                                     || i.Kind == ConflictKind.FilePartial);
+        // Worth the red icon: something listed really goes elsewhere than its tile says.
+        public bool Real => !SameRoute && !PartialOnly;
     }
 
     // Where two tiles claim the same traffic (2026-11-13). The engine takes the FIRST matching
@@ -48,6 +66,7 @@ namespace MihomoLauncher.Services
             public string Type;
             public string Value;
             public bool Site;
+            public bool Folder;
         }
 
         public static List<ConflictGroup> Find(AppConfig cfg)
@@ -158,13 +177,94 @@ namespace MihomoLauncher.Services
                     for (int i = 1; i < list.Count; i++) Add(list[0], list[i], ConflictKind.Program);
                 }
 
+                // --- folders (2026-11-22), below every program in the config. The same folder in
+                // two tiles: the left one wins (Same). Nested folders, or a program of one tile
+                // inside another tile's folder: the more specific one wins by design (FolderPartial).
+                var foundFolders = new List<Tuple<Item, Item, ConflictKind>>();
+                var folderItems = new List<Item>();
+                foreach (var tile in ordered)
+                    foreach (var f in tile.Folders ?? new List<RuleFolder>())
+                    {
+                        var norm = MihomoConfigBuilder.NormalizeFolder(f?.Path);
+                        if (norm.Length == 0) continue;
+                        folderItems.Add(new Item { Order = items.Count + folderItems.Count, Tile = tile, Type = "FOLDER", Value = norm, Folder = true });
+                    }
+                if (folderItems.Count > 0)
+                {
+                    for (int a = 0; a < folderItems.Count; a++)
+                        for (int b = a + 1; b < folderItems.Count; b++)
+                        {
+                            var x = folderItems[a]; var y = folderItems[b];
+                            if (x.Tile == y.Tile) continue;
+                            if (string.Equals(x.Value, y.Value, StringComparison.OrdinalIgnoreCase))
+                                foundFolders.Add(Tuple.Create(x, y, ConflictKind.Same));
+                            else if (MihomoConfigBuilder.InFolder(x.Value + "\\", y.Value))
+                                foundFolders.Add(Tuple.Create(x, y, ConflictKind.FolderPartial));   // x inside y
+                            else if (MihomoConfigBuilder.InFolder(y.Value + "\\", x.Value))
+                                foundFolders.Add(Tuple.Create(y, x, ConflictKind.FolderPartial));
+                        }
+                    int extra = items.Count + folderItems.Count;
+                    foreach (var tile in ordered)
+                        foreach (var p in tile.Programs ?? new List<RuleProgram>())
+                        {
+                            var path = (p?.Path ?? "").Trim();
+                            if (path.Length == 0) continue;
+                            foreach (var fi in folderItems)
+                            {
+                                if (fi.Tile == tile || !MihomoConfigBuilder.InFolder(path, fi.Value)) continue;
+                                string exe;
+                                try { exe = System.IO.Path.GetFileName(path).ToLowerInvariant(); } catch { continue; }
+                                var prog = new Item { Order = extra++, Tile = tile, Type = "PROCESS-NAME", Value = exe };
+                                foundFolders.Add(Tuple.Create(prog, fi, ConflictKind.FolderPartial));
+                            }
+                        }
+                }
+
+                // --- auto entries by their exact file (2026-11-22), right below the sites in the
+                // config. The same file auto-claimed by two tiles: the left one wins (Same). A file
+                // vs another tile's program by the same NAME: that file goes with its tile, every
+                // other copy with the named one — harmless by design (FilePartial).
+                int extraFiles = items.Count + folderItems.Count + 100000;
+                var fileItems = new List<Item>();
+                foreach (var tile in ordered)
+                    foreach (var p in tile.Programs ?? new List<RuleProgram>())
+                        if (MihomoConfigBuilder.AutoFileRegex(p).Length > 0)
+                            fileItems.Add(new Item { Order = extraFiles++, Tile = tile, Type = "FILE", Value = p.Path.Trim() });
+                for (int a = 0; a < fileItems.Count; a++)
+                    for (int b = a + 1; b < fileItems.Count; b++)
+                    {
+                        var x = fileItems[a]; var y = fileItems[b];
+                        if (x.Tile != y.Tile && MihomoConfigBuilder.IsSameFile(y.Value, x.Value))
+                            foundFolders.Add(Tuple.Create(x, y, ConflictKind.Same));
+                    }
+                foreach (var fi in fileItems)
+                {
+                    string exe;
+                    try { exe = System.IO.Path.GetFileName(fi.Value).ToLowerInvariant(); } catch { continue; }
+                    foreach (var named in items.Where(i => !i.Site && i.Type == "PROCESS-NAME" && i.Tile != fi.Tile && i.Value == exe))
+                        foundFolders.Add(Tuple.Create(fi, named, ConflictKind.FilePartial));
+                }
+
                 // --- group by the pair of tiles, in the order the conflicts appear
-                foreach (var f in found.OrderBy(f => f.Item1.Order).ThenBy(f => f.Item2.Order))
+                foreach (var f in found.OrderBy(f => f.Item1.Order).ThenBy(f => f.Item2.Order).Concat(foundFolders))
                 {
                     var grp = result.FirstOrDefault(g => g.Winner == f.Item1.Tile && g.Loser == f.Item2.Tile);
                     if (grp == null) { grp = new ConflictGroup { Winner = f.Item1.Tile, Loser = f.Item2.Tile }; result.Add(grp); }
-                    grp.Items.Add(new RuleConflict { Kind = f.Item3, WinnerItem = f.Item1.Value, LoserItem = f.Item2.Value });
+                    grp.Items.Add(new RuleConflict
+                    {
+                        Kind = f.Item3, WinnerItem = f.Item1.Value, LoserItem = f.Item2.Value,
+                        Folder = f.Item1.Folder || f.Item2.Folder || f.Item1.Type == "FILE" || f.Item2.Type == "FILE",
+                    });
                 }
+
+                var routeOf = RouteOf;
+                if (routeOf != null)
+                    foreach (var g in result)
+                    {
+                        string a = null, b = null;
+                        try { a = routeOf(g.Winner); b = routeOf(g.Loser); } catch { }
+                        g.SameRoute = a != null && string.Equals(a, b, StringComparison.Ordinal);
+                    }
             }
             catch (Exception ex) { Log.Error("rule-conflicts", ex); }
             return result;
@@ -173,6 +273,10 @@ namespace MihomoLauncher.Services
         // Does the tile write lines at all? A VPN tile always does; a «без VPN» one only under its
         // kill-switch (MainWindow.BuildVpnRules / MihomoConfigBuilder.BuildProbe).
         public static bool Writes(AppEntry a) => a != null && (a.RequiresVpn || a.KillSwitch);
+
+        // How a tile's traffic goes right now, as a comparable key (MainWindow.RouteKey); null =
+        // unknown. Two conflicting tiles with the same key route identically: no harm (2026-11-22).
+        public static Func<AppEntry, string> RouteOf;
 
         private static List<Item> Bucket(Dictionary<string, List<Item>> d, string key)
         {

@@ -15,7 +15,7 @@
     <sys:String x:Key="Main_FootRoutesRestored">Tunnel routes restored — traffic goes through the VPN again.</sys:String>
     <sys:String x:Key="Main_FootEngineLost">The VPN engine is not responding and won't start. Press ⟳ on a tile or reinstall the engine.</sys:String>
     <sys:String x:Key="Main_KillTimerHelpTitle">Remote desktop session</sys:String>
-    <sys:String x:Key="Main_KillTimerHelpBody">A mode for remote setup (RDP, AnyDesk and the like). While it is on:&#10;&#10;• 60 seconds after you switch it on, the mihomo VPN engine is stopped, and then every 60 seconds while it runs. If a wrong VPN config cuts your connection, access returns within a minute;&#10;• Windows Remote Desktop (RDP) is let past the tunnel and every block — from the local network and from an external address, even with “Block” on “Everything else”. A new connection gets in while the engine is stopped and then holds while it runs.&#10;&#10;Without the mode RDP has no special rules: it follows the tiles like everything else. Turn it on for remote setup, off when done. Off by default.</sys:String>
+    <sys:String x:Key="Main_KillTimerHelpBody" xml:space="preserve">A mode for remote setup (RDP, AnyDesk and the like). While it is on:&#10;&#10;• 60 seconds after you switch it on, the mihomo VPN engine is stopped, and then every 60 seconds while it runs. If a wrong VPN config cuts your connection, access returns within a minute;&#10;• Windows Remote Desktop (RDP) is let past the tunnel and every block — from the local network and from an external address, even with “Block” on “Everything else”. A new connection gets in while the engine is stopped and then holds while it runs.&#10;&#10;Without the mode RDP has no special rules: it follows the tiles like everything else. Turn it on for remote setup, off when done. Off by default.</sys:String>
     <sys:String x:Key="Set_FirewallLabel">Block programs through Windows when the tunnel is unavailable</sys:String>
     <sys:String x:Key="Set_FirewallHint">The kill-switch inside the engine only works while the engine is alive. This protection lives in the Windows Firewall: programs from kill-switch rules cannot reach the internet around the tunnel — even if the engine crashed, is restarting, or the launcher is closed. The local network, printers and Remote Desktop are never affected.</sys:String>
     <sys:String x:Key="Set_FirewallOff">Protection is off: if the engine stops, the programs go straight out.</sys:String>
@@ -58,7 +58,7 @@
     <sys:String x:Key="Main_NicIpNoneTip">ip.byfox.dev did not answer through this card — will try again in a minute.</sys:String>
     <sys:String x:Key="Main_NicIpLocal">Local address: {0}</sys:String>
     <sys:String x:Key="Main_NicIpOrg">Provider: {0}</sys:String>
-    <sys:String x:Key="Main_NicIpTip">The card's external IP (without VPN), city and country. Updated every 10 min and on network change.&#10;This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.</sys:String>
+    <sys:String x:Key="Main_NicIpTip" xml:space="preserve">The card's external IP (without VPN), city and country. Updated every 10 min and on network change.&#10;This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.</sys:String>
     <sys:String x:Key="Main_QuotedName">“{0}”</sys:String>
     <sys:String x:Key="Main_TileDirect">no VPN</sys:String>
     <sys:String x:Key="Main_TileReconnecting">reconnecting…</sys:String>
@@ -67,6 +67,7 @@
     <sys:String x:Key="Main_TileNotWorking">not working</sys:String>
     <sys:String x:Key="Main_TileStopped">stopped</sys:String>
     <sys:String x:Key="Main_TipEditRule">Edit rule</sys:String>
+    <sys:String x:Key="Main_TipAutoAdded">Added automatically: {0}</sys:String>
     <sys:String x:Key="Main_TipDeleteTile">Delete tile</sys:String>
     <sys:String x:Key="Main_DelTileTitle">Delete tile «{0}»?</sys:String>
     <sys:String x:Key="Main_DelTileBody">The rule is deleted together with the tile. Its programs and sites will go like «Everything else».</sys:String>
@@ -98,8 +99,7 @@
     <sys:String x:Key="Main_TipPickNic">Which network cards this tile's traffic goes through</sys:String>
     <sys:String x:Key="Main_TipNicDead">None of the chosen cards works right now — the tile's traffic does not go out</sys:String>
     <sys:String x:Key="Main_NicLockedTip">The tile is bound to the card («Bind to network card» in the tile's settings): without it the tile's traffic does not go out and never moves to another card</sys:String>
-    <sys:String x:Key="Main_NicLockedTitle">The tile is bound to a network card</sys:String>
-    <sys:String x:Key="Main_NicLockedMsg">The tile is bound to the card «{0}» and never moves to another one.&#10;&#10;To change the card, switch off «Bind to network card» in the tile's settings (the gear).</sys:String>
+    <sys:String x:Key="Main_NicPickerLocked">Card is pinned in the tile settings</sys:String>
     <sys:String x:Key="Main_TileNoCard">no card {0}</sys:String>
     <sys:String x:Key="Main_TileNoCardShort">no card</sys:String>
     <sys:String x:Key="Main_TileNoNet">no network</sys:String>
@@ -114,9 +114,9 @@
     <sys:String x:Key="Main_FootWaitingForConnect">Will connect «{0}» as soon as the current connect finishes…</sys:String>
     <sys:String x:Key="Main_FootLaunching">Starting «{0}»…</sys:String>
     <sys:String x:Key="Main_OpenFailTitle">Couldn’t open</sys:String>
-    <sys:String x:Key="Main_OpenFailBody">“{0}” didn’t open.&#10;&#10;Reason: {1}</sys:String>
-    <sys:String x:Key="Main_NoVariantsTitle">No variants</sys:String>
-    <sys:String x:Key="Main_NoVariantsBody">No VPN variants have been added in Settings.</sys:String>
+    <sys:String x:Key="Main_OpenFailBody" xml:space="preserve">“{0}” didn’t open.&#10;&#10;Reason: {1}</sys:String>
+    <sys:String x:Key="Main_NoVariantsTitle">No VPN configurations</sys:String>
+    <sys:String x:Key="Main_NoVariantsBody">No VPN configurations have been added in Settings.</sys:String>
     <sys:String x:Key="Main_DetailStartingEngine">Starting the VPN engine…</sys:String>
     <sys:String x:Key="Main_EngineNotSetUpTitle">VPN engine not set up</sys:String>
     <sys:String x:Key="Main_EngineNotSetUpBody">Open “Settings” → “Set up mihomo” (once, with administrator rights).</sys:String>
@@ -135,23 +135,23 @@
     <sys:String x:Key="Main_EngineNoStartQueued">Windows has postponed starting the engine — this happens when the battery is almost empty or right after a Windows update. Press “Reinstall engine”: the launcher will switch to a Windows service, which Windows does not postpone. Or plug in the charger and wait a minute.</sys:String>
     <sys:String x:Key="Main_EngineNoStartSafeMode">The mihomo engine isn’t responding. “Remote desktop session” is most likely the cause: it stops the engine every 60 seconds. Turn it off on the main screen and try again.</sys:String>
     <sys:String x:Key="Main_DetailCheckingVariants">Checking which connections answer…</sys:String>
-    <sys:String x:Key="Main_DetailConnectingVariant">Connecting variant {0} of {1}: {2}</sys:String>
-    <sys:String x:Key="Main_FootVariantSkipped">Variant “{0}” skipped: {1}</sys:String>
-    <sys:String x:Key="Main_FootVariantApplyFail">Couldn’t apply variant “{0}”.</sys:String>
-    <sys:String x:Key="Main_FootVariantNotUp">Variant “{0}” didn’t come up.</sys:String>
+    <sys:String x:Key="Main_DetailConnectingVariant">Connecting VPN configuration {0} of {1}: {2}</sys:String>
+    <sys:String x:Key="Main_FootVariantSkipped">VPN configuration “{0}” skipped: {1}</sys:String>
+    <sys:String x:Key="Main_FootVariantApplyFail">Couldn’t apply VPN configuration “{0}”.</sys:String>
+    <sys:String x:Key="Main_FootVariantNotUp">VPN configuration “{0}” didn’t come up.</sys:String>
     <sys:String x:Key="Main_DetailProbingSites">Checking sites through “{0}”…</sys:String>
     <sys:String x:Key="Main_FootVpnOff">VPN disconnected.</sys:String>
     <sys:String x:Key="Main_FootReconnectingApp">Reconnecting “{0}”…</sys:String>
     <sys:String x:Key="Main_EngineNotRunningTitle">VPN engine not running</sys:String>
     <sys:String x:Key="Main_EngineNotRunningBody">The mihomo engine isn’t responding. Open “Settings” → “Mihomo”.</sys:String>
-    <sys:String x:Key="Main_FootTryingVariant">“{0}”: trying variant {1} — {2}…</sys:String>
+    <sys:String x:Key="Main_FootTryingVariant">“{0}”: trying VPN configuration {1} — {2}…</sys:String>
     <sys:String x:Key="Main_FootApplyFail">Couldn’t apply “{0}”.</sys:String>
     <sys:String x:Key="Main_FootProbingApp">“{0}”: checking the site through “{1}”…</sys:String>
     <sys:String x:Key="Main_FootReconnected">“{0}” reconnected.</sys:String>
     <sys:String x:Key="Main_FootReconnectFailed">“{0}” couldn’t be connected.</sys:String>
     <sys:String x:Key="Main_ConnectFailedTitle">“{0}” not connected</sys:String>
     <sys:String x:Key="Main_ConnectFailedManyTitle">Not connected: {0}</sys:String>
-    <sys:String x:Key="Main_VariantsUnreadableBody">These VPN variants couldn’t be read:&#10;&#10;{0}&#10;&#10;Fix them in Settings → General (for example, point to the new location of the .conf file).</sys:String>
+    <sys:String x:Key="Main_VariantsUnreadableBody" xml:space="preserve">These VPN configurations couldn’t be read:&#10;&#10;{0}&#10;&#10;Fix them in Settings → General (for example, point to the new location of the .conf file).</sys:String>
     <sys:String x:Key="Main_EngineNeededTitle">VPN engine needed</sys:String>
     <sys:String x:Key="Main_EngineNeededBodySetup">The mihomo VPN engine is downloaded but not set up. Set it up now? Administrator rights are required.</sys:String>
     <sys:String x:Key="Main_EngineNeededBodyInstall">The mihomo VPN engine isn’t installed yet. Download the latest version and set it up now?</sys:String>
@@ -173,7 +173,7 @@
     <sys:String x:Key="Main_FootEngineInstalled">VPN engine installed and running.</sys:String>
     <sys:String x:Key="Main_FootAppDisconnected">“{0}” disconnected.</sys:String>
     <sys:String x:Key="Main_TipBuiltInHelp">What is this tile?</sys:String>
-    <sys:String x:Key="AllTraffic_Help">Everything that belongs to no other tile goes through this tile’s VPN. With no other tiles, that is all traffic. It comes after every tile. Any tile’s sites and templates outrank programs: YouTube from its own tile goes by that tile in Chrome too. If one address is in two tiles, the one further left wins.&#10;&#10;The kill-switch works always: on and this tile’s VPN down (or the tile off) — this traffic has no internet.&#10;&#10;“Block” on the plate: while the tile is on, everything outside the other tiles is blocked.</sys:String>
+    <sys:String x:Key="AllTraffic_Help" xml:space="preserve">Everything that belongs to no other tile goes through this tile’s VPN. With no other tiles, that is all traffic. It comes after every tile. Any tile’s sites and templates outrank programs: YouTube from its own tile goes by that tile in Chrome too. If one address is in two tiles, the one further left wins.&#10;&#10;The kill-switch works always: on and this tile’s VPN down (or the tile off) — this traffic has no internet.&#10;&#10;“Block” on the plate: while the tile is on, everything outside the other tiles is blocked.</sys:String>
     <sys:String x:Key="Lock_Title">Access password</sys:String>
     <sys:String x:Key="Lock_Ask">Enter the access password.</sys:String>
     <sys:String x:Key="Lock_Wrong">Wrong password.</sys:String>
@@ -204,12 +204,12 @@
     <sys:String x:Key="AllTraffic_KillTip">On: while this tile's VPN is down or the tile is off, the rest of the traffic has no internet. Off: it goes direct meanwhile.</sys:String>
     <sys:String x:Key="Main_FootAllTrafficOn">Everything else goes through VPN {0}. Tiles with their own settings work as before.</sys:String>
     <sys:String x:Key="Main_FootAllTrafficOff">Everything else goes direct again. Only the tiles that are on use the VPN.</sys:String>
-    <sys:String x:Key="Main_FootAllTrafficFailed">Couldn’t send everything else through the VPN — no variant answered.</sys:String>
+    <sys:String x:Key="Main_FootAllTrafficFailed">Couldn’t send everything else through the VPN — no VPN configuration answered.</sys:String>
     <sys:String x:Key="Main_UpdateLineLauncher">• Launcher: {0} → {1}</sys:String>
     <sys:String x:Key="Main_UpdateLineEngine">• mihomo VPN engine: {0} → {1}</sys:String>
     <sys:String x:Key="Main_UpdateLineGeo">• Geolocation database (countries/cities): {0}</sys:String>
-    <sys:String x:Key="Main_UpdateBodyTail">&#10;&#10;Update now? The app will download new files.</sys:String>
-    <sys:String x:Key="Main_UpdateBodyTailRestart">&#10;&#10;Update now? The app will download new files and restart.</sys:String>
+    <sys:String x:Key="Main_UpdateBodyTail" xml:space="preserve">&#10;&#10;Update now? The app will download new files.</sys:String>
+    <sys:String x:Key="Main_UpdateBodyTailRestart" xml:space="preserve">&#10;&#10;Update now? The app will download new files and restart.</sys:String>
     <sys:String x:Key="Main_UpdateAvailableTitle">Update available</sys:String>
     <sys:String x:Key="Main_UpdateNow">Update</sys:String>
     <sys:String x:Key="Main_UpdateTitle">Update</sys:String>
@@ -225,11 +225,10 @@
     <sys:String x:Key="Main_ClosingForUpdate">Closing the app to install the update…</sys:String>
     <sys:String x:Key="Main_FootUpdateDone">Update complete.</sys:String>
     <sys:String x:Key="Main_UpdateFailTitle">Update failed</sys:String>
-    <sys:String x:Key="Main_UpdateFailBody">The update didn’t finish.&#10;&#10;Reason: {0}</sys:String>
+    <sys:String x:Key="Main_UpdateFailBody" xml:space="preserve">The update didn’t finish.&#10;&#10;Reason: {0}</sys:String>
     <sys:String x:Key="Set_Title">Settings</sys:String>
     <sys:String x:Key="Set_TabMain">General</sys:String>
     <sys:String x:Key="Set_TabSettings">Config</sys:String>
-    <sys:String x:Key="Set_TabNet">Network</sys:String>
     <sys:String x:Key="Main_TipTileSpeed">↓ download / ↑ upload, Mbit/s — all of the tile's traffic through the engine (VPN or direct), LAN excluded. Bar: red &lt;1, yellow 1–10, green 10–50, blue 50+. Click — speed and who goes where: now and over 1–24 h.</sys:String>
     <sys:String x:Key="Main_SpeedMbit">Mbps</sys:String>
     <sys:String x:Key="Main_SpeedTitle">{0} — speed</sys:String>
@@ -360,6 +359,8 @@
     <sys:String x:Key="Set_NicFailed">Failed: {0}</sys:String>
     <sys:String x:Key="Set_NicNoHelper">The launcher's service is needed — press “Reinstall engine” on the Mihomo tab.</sys:String>
     <sys:String x:Key="Set_NicTimeout">the launcher's service did not answer within 25 seconds (if the launcher was just updated, restart it and try again)</sys:String>
+    <sys:String x:Key="Nic_DlgTitle">Network adapter priority</sys:String>
+    <sys:String x:Key="Nic_DlgMenu">Network adapter priority…</sys:String>
     <sys:String x:Key="Set_BtnAdd">+ Add</sys:String>
     <sys:String x:Key="Set_BtnEdit">Edit</sys:String>
     <sys:String x:Key="Set_BtnDelete">Delete</sys:String>
@@ -367,19 +368,15 @@
     <sys:String x:Key="Set_BtnDown">Down</sys:String>
     <sys:String x:Key="Set_BtnRefresh">Refresh</sys:String>
     <sys:String x:Key="Set_BtnRefreshLists">Refresh URL templates</sys:String>
-    <sys:String x:Key="Set_VpnVariants">VPN options</sys:String>
+    <sys:String x:Key="Set_VpnVariants">VPN configurations</sys:String>
     <sys:String x:Key="Set_Rules">Rules</sys:String>
     <sys:String x:Key="Set_ColName">Name</sys:String>
     <sys:String x:Key="Set_ColType">Type</sys:String>
     <sys:String x:Key="Set_ColValue">Value</sys:String>
-    <sys:String x:Key="Set_ColEnabled">On</sys:String>
-    <sys:String x:Key="Set_ColSlotStatus">Check</sys:String>
-    <sys:String x:Key="Set_SlotAnswers">answers</sys:String>
-    <sys:String x:Key="Set_SlotNoAnswer">no answer</sys:String>
     <sys:String x:Key="Set_ColLaunchedFromTile">Launched from tile</sys:String>
     <sys:String x:Key="Set_ColPath">Path</sys:String>
     <sys:String x:Key="Set_ConfigFileTitle">Launcher settings file</sys:String>
-    <sys:String x:Key="Set_ConfigFileDesc">Where the launcher's configuration is kept (programs, links, VPN options). You can set your own path — for example, to keep settings in a cloud folder.</sys:String>
+    <sys:String x:Key="Set_ConfigFileDesc">Where the launcher's settings are kept (programs, links, VPN configurations). You can set your own path — for example, to keep settings in a cloud folder.</sys:String>
     <sys:String x:Key="Set_BtnBrowse">Browse...</sys:String>
     <sys:String x:Key="Set_Autostart">Start when the computer turns on</sys:String>
     <sys:String x:Key="Set_AutostartHint">On autostart no window opens: the app sits in the tray (icon next to the clock) and connects by itself.</sys:String>
@@ -393,7 +390,7 @@
     <sys:String x:Key="Set_EngineStatus">Engine status</sys:String>
     <sys:String x:Key="Set_NowViaTunnel">Currently through the VPN tunnel:</sys:String>
     <sys:String x:Key="Set_ColApp">App</sys:String>
-    <sys:String x:Key="Set_ColVariant">Option</sys:String>
+    <sys:String x:Key="Set_ColVariant">VPN configuration</sys:String>
     <sys:String x:Key="Set_ColNode">Node (proxy)</sys:String>
     <sys:String x:Key="Set_ColSite">Site</sys:String>
     <sys:String x:Key="Set_ColStatus">Status</sys:String>
@@ -435,8 +432,8 @@
     <sys:String x:Key="Set_NoLists">No URL templates</sys:String>
     <sys:String x:Key="Set_NoListsDesc">No rule has a URL template.</sys:String>
     <sys:String x:Key="Set_ListsRefreshed">URL templates refreshed: {0} of {1} ({2} range(s)).</sys:String>
-    <sys:String x:Key="Set_DeleteVariantsMany">Delete the selected options ({0})?</sys:String>
-    <sys:String x:Key="Set_DeleteVariantTitle">Delete option?</sys:String>
+    <sys:String x:Key="Set_DeleteVariantsMany">Delete the selected VPN configurations ({0})?</sys:String>
+    <sys:String x:Key="Set_DeleteVariantTitle">Delete VPN configuration?</sys:String>
     <sys:String x:Key="Set_NotFilled">Not filled in</sys:String>
     <sys:String x:Key="Set_SpecifyMihomoPath">Specify the path to mihomo.exe.</sys:String>
     <sys:String x:Key="Set_ConfigNotCreated">config.yaml hasn't been created yet (click "Set up mihomo").</sys:String>
@@ -448,6 +445,8 @@
     <sys:String x:Key="Set_No">No</sys:String>
     <sys:String x:Key="Set_On">On</sys:String>
     <sys:String x:Key="Set_Off">Off</sys:String>
+    <sys:String x:Key="Lst_ColLock" xml:space="preserve">Card&#10;lock</sys:String>
+    <sys:String x:Key="Lst_ColAuto" xml:space="preserve">Auto-&#10;add</sys:String>
     <sys:String x:Key="Set_RouteUp">working ✓</sys:String>
     <sys:String x:Key="Set_RouteDown">offline ✗</sys:String>
     <sys:String x:Key="Set_KindClashSub">Clash subscription</sys:String>
@@ -457,12 +456,11 @@
     <sys:String x:Key="Rule_LockNicTip">Bind the tile to the card it goes through now. Cable pulled or card switched off — the tile's traffic does not go out at all instead of moving to Wi-Fi or another card. The tile's programs are walled by the firewall even with the engine stopped; a tile made of sites only is not protected while the engine is stopped.</sys:String>
     <sys:String x:Key="Rule_LockNicNoneTitle">Nothing to bind to</sys:String>
     <sys:String x:Key="Rule_LockNicNone">The tile does not go through any working network card right now — nothing to bind it to. Connect the card and switch this on again.</sys:String>
-    <sys:String x:Key="Rule_SkipCheck">Skip the check</sys:String>
-    <sys:String x:Key="Rule_SkipCheckTip">Connect through the first VPN that comes up, without checking the site. Untick — the launcher picks a variant by the check address.</sys:String>
-    <sys:String x:Key="Rule_CheckUrlPlaceholder">Site to check the connection, https://…</sys:String>
-    <sys:String x:Key="Rule_AutoIcon">Icon from server</sys:String>
+    <sys:String x:Key="Rule_CheckUrlPlaceholder">Site to check the connection (empty — no check), https://…</sys:String>
+    <sys:String x:Key="Rule_CheckUrlTip">Filled in — the rule connects only through a VPN configuration this site opens through. Empty — no check: through the first one that comes up.</sys:String>
     <sys:String x:Key="Rule_Browse">Browse...</sys:String>
-    <sys:String x:Key="Rule_IconPathPlaceholder">path to your own .png/.ico icon</sys:String>
+    <sys:String x:Key="Rule_IconPathPlaceholder">icon from the server — or a path to your own .png/.ico</sys:String>
+    <sys:String x:Key="Rule_IconPathTip">Empty — the icon from the server. Pick a .png/.ico file to use your own.</sys:String>
     <sys:String x:Key="Rule_WhatIncluded">What's in this rule</sys:String>
     <sys:String x:Key="Rule_ColTile">Tile</sys:String>
     <sys:String x:Key="Rule_TileTip">Launch/open from the tile (only one can be checked). A template opens the check address.</sys:String>
@@ -476,16 +474,34 @@
     <sys:String x:Key="Rule_AddTemplate">URL template</sys:String>
     <sys:String x:Key="Rule_AddApp">App</sys:String>
     <sys:String x:Key="Rule_AddProcess">Process</sys:String>
+    <sys:String x:Key="Rule_AddFolder">Folder</sys:String>
+    <sys:String x:Key="Rule_AddFolderTip">Add a whole folder as one row: every program in it and in its subfolders follows this rule — including ones that appear later.</sys:String>
+    <sys:String x:Key="Rule_PickFolderTitle">Choose a folder</sys:String>
+    <sys:String x:Key="Rule_FolderTip">Every program in this folder and its subfolders follows this rule. With “Tile” ticked, the tile opens the folder.</sys:String>
+    <sys:String x:Key="Rule_FolderTooWideTitle">Folder too wide</sys:String>
+    <sys:String x:Key="Rule_FolderTooWide">“{0}” is a drive root or the Windows folder: every program on the computer would follow the rule. Choose the folder of one program.</sys:String>
+    <sys:String x:Key="Rule_DupFolder">The folder “{0}” is already in this rule.</sys:String>
+    <sys:String x:Key="Rule_AutoTrack">Auto-add programs</sys:String>
+    <sys:String x:Key="Rule_AutoTrackTip">Helpers of this rule's programs that go online (processes they start, programs from their folder) are added to the rule by themselves, under “Added automatically”. Programs only — sites are never added. Switch it off and tracking stops; what was added stays.</sys:String>
+    <sys:String x:Key="Rule_AutoSection">Added automatically</sys:String>
+    <sys:String x:Key="Rule_IgnoredSection">Do not add automatically</sys:String>
+    <sys:String x:Key="Rule_IgnoredTip">This program is not added to this tile automatically. ✕ lifts the ban: next time it may be added again.</sys:String>
+    <sys:String x:Key="Rule_AutoFromChild">Added automatically: started by {0}. Drag the row up to make it a regular entry; ✕ removes it for good.</sys:String>
+    <sys:String x:Key="Rule_AutoFromDir">Added automatically: lies in the folder of {0}. Drag the row up to make it a regular entry; ✕ removes it for good.</sys:String>
     <sys:String x:Key="Rule_UseVpn">Use VPN</sys:String>
-    <sys:String x:Key="Rule_VpnOrderHint">Click a box to give it a priority number: 1 is tried first, 2 is the fallback. Clicking a numbered box clears it. An empty box means this VPN is not used.</sys:String>
-    <sys:String x:Key="Rule_AllowedVpn">Which VPN options can be used</sys:String>
-    <sys:String x:Key="Rule_NoVpnVariants">No VPN options are switched on — enable them in Settings.</sys:String>
+    <sys:String x:Key="Rule_VpnOrderHint">Click a box to give it a priority number: 1 is the first VPN configuration to try, 2 the fallback. Clicking a numbered box clears it. An empty box means this configuration is not used.</sys:String>
+    <sys:String x:Key="Rule_AllowedVpn">VPN configurations</sys:String>
+    <sys:String x:Key="Rule_SlotsAll">Select all</sys:String>
+    <sys:String x:Key="Rule_SlotsNone">Clear all</sys:String>
+    <sys:String x:Key="Rule_NoVpnVariants">No VPN configurations — add them in Settings.</sys:String>
 
     <!-- Live engine log: what is blocked and why -->
     <sys:String x:Key="Log_Title">What is blocked, and why</sys:String>
     <sys:String x:Key="Log_TabConflicts">URL conflicts</sys:String>
     <sys:String x:Key="Log_HintConflicts">Where two tiles claim the same address or program. Any tile’s sites and templates outrank programs; between two tiles with the same address, the one further left wins.</sys:String>
     <sys:String x:Key="Log_TipConflicts">Live log. Tiles conflict over addresses: {0} — see the “URL conflicts” tab.</sys:String>
+    <sys:String x:Key="Log_ConfHarmlessRoute">No difference right now: “{0}” and “{1}” take the same route. It matters once you change the VPN, card or kill-switch of one of them.</sys:String>
+    <sys:String x:Key="Log_ConfHarmlessPartial">Usually intended: a narrower address in “{0}” takes its part from a wider one in “{1}”.</sys:String>
     <sys:String x:Key="Log_ConfNone">No conflicts: no address or program appears in two tiles.</sys:String>
     <sys:String x:Key="Log_ConfWins">Works:</sys:String>
     <sys:String x:Key="Log_ConfWho">it stands left of “{1}”, so these addresses won’t work in “{1}”.</sys:String>
@@ -501,6 +517,10 @@
     <sys:String x:Key="Log_ConfWhenOff">While “{0}” is off (its kill-switch is off), these addresses follow “{1}”.</sys:String>
     <sys:String x:Key="Log_ConfFix">For the right-hand tile to work: remove the address from the left one, or reorder the tiles.</sys:String>
     <sys:String x:Key="Log_ConfFixProg">Keep the program in one tile.</sys:String>
+    <sys:String x:Key="Log_ConfFolderPartial">{0} from “{1}” lies in the folder {2} from “{3}” and follows “{1}”</sys:String>
+    <sys:String x:Key="Log_ConfWhoFolder">it is more specific: a detected program file, a program or a nested folder beats the wider entry of “{1}”, whatever the order of the tiles.</sys:String>
+    <sys:String x:Key="Log_ConfHarmlessFolder">Intended: the more specific entry in “{0}” (a detected file, a program or a nested folder) beats the wider one in “{1}” and takes its part.</sys:String>
+    <sys:String x:Key="Log_ConfFilePartial">this very file {0} (detected automatically) follows “{1}”; every other copy of {2} follows “{3}”</sys:String>
     <sys:String x:Key="Log_WhyAllBlock">Blocked by the “{0}” tile: “Block” is selected and the address belongs to no tile.</sys:String>
     <sys:String x:Key="Log_WhyAllKill">Kill-switch of the “{0}” tile: its VPN is not up and the address belongs to no tile.</sys:String>
     <sys:String x:Key="Log_Tip">Live log: what the engine blocks and why</sys:String>
@@ -535,7 +555,7 @@
     <sys:String x:Key="Log_VerdictFirewallOpen">Protection lifted</sys:String>
     <sys:String x:Key="Log_WhyFirewallBlocking">There is no tunnel right now, so the programs of kill-switch rules are cut off from the internet by the Windows Firewall itself — the engine is not involved and these attempts will not appear in its log. The local network and Remote Desktop keep working.</sys:String>
     <sys:String x:Key="Log_WhyFirewallLifted">The tunnel is carrying traffic again — the firewall block is holding nothing back.</sys:String>
-    <sys:String x:Key="Log_WhyKillSwitch">Blocked by the kill-switch of rule "{0}": {1}. The rule has no VPN option connected, so it stays sealed.</sys:String>
+    <sys:String x:Key="Log_WhyKillSwitch">Blocked by the kill-switch of rule "{0}": {1}. The rule has no VPN configuration connected, so it stays sealed.</sys:String>
     <sys:String x:Key="Log_WhyTileBlock">Blocked by tile “{0}”: “Block” is on — {1}.</sys:String>
     <sys:String x:Key="Log_WhyBlockedRule">Blocked by rule "{0}": {1}.</sys:String>
     <sys:String x:Key="Log_WhyBlockedBare">Blocked by engine rule {0} → REJECT. No such rule exists in the launcher — it may be left over from an earlier configuration.</sys:String>
@@ -560,6 +580,7 @@
     <sys:String x:Key="Rule_TypeTemplate">Template</sys:String>
     <sys:String x:Key="Rule_TypeSite">Site</sys:String>
     <sys:String x:Key="Rule_TypeProg">App</sys:String>
+    <sys:String x:Key="Rule_TypeFolder">Folder</sys:String>
     <sys:String x:Key="Rule_TplRanges">{0} · {1} range(s)</sys:String>
     <sys:String x:Key="Rule_TplRangesNoName">template · {0} range(s)</sys:String>
     <sys:String x:Key="Rule_TplLoading">loading list "{0}"…</sys:String>
@@ -573,11 +594,11 @@
     <sys:String x:Key="Rule_NotFilled">Not filled in</sys:String>
     <sys:String x:Key="Rule_NeedName">Enter a rule name.</sys:String>
     <sys:String x:Key="Rule_BadUrlTitle">Invalid address</sys:String>
-    <sys:String x:Key="Rule_BadUrlList">Check the site address (it should look like example.com):&#10;• {0}</sys:String>
+    <sys:String x:Key="Rule_BadUrlList" xml:space="preserve">Check the site address (it should look like example.com):&#10;• {0}</sys:String>
     <sys:String x:Key="Rule_EmptyTitle">Empty</sys:String>
     <sys:String x:Key="Rule_NeedOneItem">Add at least one site or program.</sys:String>
     <sys:String x:Key="Rule_BadCheckUrl">The connection-check address is invalid (it should look like example.com).</sys:String>
-    <sys:String x:Key="Slot_Title">VPN option</sys:String>
+    <sys:String x:Key="Slot_Title">VPN configuration</sys:String>
     <sys:String x:Key="Slot_Name">Name</sys:String>
     <sys:String x:Key="Slot_SourceType">Source type</sys:String>
     <sys:String x:Key="Slot_KindWireGuard">WireGuard .conf (file)</sys:String>
@@ -595,11 +616,10 @@
     <sys:String x:Key="Slot_NodeDefault">Default — {0}</sys:String>
     <sys:String x:Key="Slot_NodeDefaultUnknown">Default (as in the subscription)</sys:String>
     <sys:String x:Key="Slot_NodeGone">{0} — not in the subscription, default for now</sys:String>
-    <sys:String x:Key="Slot_UseInRotation">Use this option when cycling through</sys:String>
     <sys:String x:Key="Slot_Save">Save</sys:String>
     <sys:String x:Key="Slot_Cancel">Cancel</sys:String>
-    <sys:String x:Key="Slot_TitleAdd">Add VPN option</sys:String>
-    <sys:String x:Key="Slot_TitleEdit">Edit VPN option</sys:String>
+    <sys:String x:Key="Slot_TitleAdd">Add VPN configuration</sys:String>
+    <sys:String x:Key="Slot_TitleEdit">Edit VPN configuration</sys:String>
     <sys:String x:Key="Slot_VlessLink">VLESS link</sys:String>
     <sys:String x:Key="Slot_HintVless">Paste a link like vless://uuid@host:port?...#name</sys:String>
     <sys:String x:Key="Slot_SubUrl">Subscription URL</sys:String>
@@ -609,20 +629,21 @@
     <sys:String x:Key="Slot_PickConfTitle">Choose a WireGuard .conf file</sys:String>
     <sys:String x:Key="Slot_PickConfFilter">WireGuard config (*.conf)|*.conf|All files (*.*)|*.*</sys:String>
     <sys:String x:Key="Slot_NotFilled">Not filled in</sys:String>
-    <sys:String x:Key="Slot_NeedName">Enter an option name.</sys:String>
+    <sys:String x:Key="Slot_NeedName">Enter a name for the VPN configuration.</sys:String>
     <sys:String x:Key="Slot_NeedValue">Enter a path to a .conf file or a link.</sys:String>
     <sys:String x:Key="Slot_Source">Link or file</sys:String>
     <sys:String x:Key="Slot_HintAny">Paste a link — the type and name are detected automatically: vless://, vmess://, trojan://, ss://, ssr://, hysteria2://, hysteria://, tuic://, anytls://, socks5://, an http(s):// subscription, or pick a WireGuard .conf file. You can paste several links, one per line.</sys:String>
     <sys:String x:Key="Slot_Detected">Detected: {0}</sys:String>
-    <sys:String x:Key="Slot_DetectedMany">Variants to add: {0} ({1}). Names are taken from the links.</sys:String>
+    <sys:String x:Key="Slot_DetectedMany">VPN configurations to add: {0} ({1}). Names are taken from the links.</sys:String>
     <sys:String x:Key="Slot_DetectedBad">Unrecognized lines: {0}.</sys:String>
     <sys:String x:Key="Slot_NotRecognized">Not recognized — the launcher doesn’t know this kind of link.</sys:String>
     <sys:String x:Key="Slot_NotRecognizedTitle">Link not recognized</sys:String>
-    <sys:String x:Key="Slot_NotRecognizedList">These lines don’t look like any supported link:&#10;• {0}</sys:String>
-    <sys:String x:Key="Slot_OneWhenEditing">When editing a variant, use one link only. To add several, press “Add”.</sys:String>
+    <sys:String x:Key="Slot_NotRecognizedList" xml:space="preserve">These lines don’t look like any supported link:&#10;• {0}</sys:String>
+    <sys:String x:Key="Slot_OneWhenEditing">When editing a VPN configuration, use one link only. To add several, press “Add”.</sys:String>
     <sys:String x:Key="Svc_ShareLinkUnknown">link not recognized (supported: vmess, trojan, ss, ssr, hysteria, tuic, anytls, socks5)</sys:String>
     <sys:String x:Key="Dlg_Copy">Copy</sys:String>
     <sys:String x:Key="Dlg_Close">Close</sys:String>
+    <sys:String x:Key="Ctl_Paste">Paste</sys:String>
     <sys:String x:Key="Dlg_TemplatesClashTitle">Templates — Clash</sys:String>
     <sys:String x:Key="Dlg_TemplatesHint">Ready-made lists of sites and IPs for services: the blackmatrix7 mirror and byFox templates on api.byfox.dev. The lists update by themselves. Press “?” to read what a template covers.</sys:String>
     <sys:String x:Key="Dlg_SearchByName">Search by name…</sys:String>
@@ -701,9 +722,9 @@
     <sys:String x:Key="Upd_BlockedFile">The file «{0}» is in use</sys:String>
     <sys:String x:Key="Upd_BlockedFileBy">The file «{0}» is in use by: {1}</sys:String>
     <sys:String x:Key="Upd_HolderService">service {0}</sys:String>
-    <sys:String x:Key="Upd_BlockedDialog">The update was not installed — nothing changed, the previous version is running.&#10;&#10;{0}, so it can't be replaced.&#10;&#10;Restart the computer and update again.</sys:String>
-    <sys:String x:Key="Upd_InstallFailedStatus">Failed to install the update:&#10;{0}</sys:String>
-    <sys:String x:Key="Upd_InstallFailedDialog">Failed to install the update.&#10;&#10;{0}&#10;&#10;Please try again or reinstall the program.</sys:String>
+    <sys:String x:Key="Upd_BlockedDialog" xml:space="preserve">The update was not installed — nothing changed, the previous version is running.&#10;&#10;{0}, so it can't be replaced.&#10;&#10;Restart the computer and update again.</sys:String>
+    <sys:String x:Key="Upd_InstallFailedStatus" xml:space="preserve">Failed to install the update:&#10;{0}</sys:String>
+    <sys:String x:Key="Upd_InstallFailedDialog" xml:space="preserve">Failed to install the update.&#10;&#10;{0}&#10;&#10;Please try again or reinstall the program.</sys:String>
     <sys:String x:Key="Upd_Downloading">Downloading update…</sys:String>
     <sys:String x:Key="Upd_Extracting">Extracting update…</sys:String>
     <sys:String x:Key="Upd_PreparingInstaller">Preparing the update installer…</sys:String>
@@ -725,8 +746,8 @@
     <sys:String x:Key="Set_TabUpdates">Updates</sys:String>
 
     <!-- DNS for direct traffic (Settings → «DNS», main-screen button, log search) -->
-    <sys:String x:Key="Main_DnsTipOwn">Your own DNS for direct traffic: {0}.&#10;Click to open the DNS settings.</sys:String>
-    <sys:String x:Key="Main_DnsTipNone">No DNS of your own for direct traffic — the PC's DNS resolves it.&#10;Click to set one up.</sys:String>
+    <sys:String x:Key="Main_DnsTipOwn" xml:space="preserve">Your own DNS for direct traffic: {0}.&#10;Click to open the DNS settings.</sys:String>
+    <sys:String x:Key="Main_DnsTipNone" xml:space="preserve">No DNS of your own for direct traffic — the PC's DNS resolves it.&#10;Click to set one up.</sys:String>
     <sys:String x:Key="Set_DnsTitle">Your own DNS for direct traffic</sys:String>
     <sys:String x:Key="Set_DnsSourceTitle">Whose DNS to use</sys:String>
     <sys:String x:Key="Set_DnsSourceOwn">Own — the ones below</sys:String>
@@ -990,6 +1011,7 @@
     <sys:String x:Key="Svc_SetupCancelledNeedAdmin">Setup cancelled (administrator rights are required).</sys:String>
     <sys:String x:Key="Svc_Empty">Empty</sys:String>
     <sys:String x:Key="Svc_RuleNothingToLaunch">The rule has no program or site to launch.</sys:String>
+    <sys:String x:Key="Svc_FolderMissing">Folder not found: {0}</sys:String>
     <sys:String x:Key="Svc_PathNotSet">Path is not set</sys:String>
     <sys:String x:Key="Svc_EmptyAddress">Empty address.</sys:String>
     <sys:String x:Key="Svc_EmptyResponse">Empty response (HTTP {0}).</sys:String>
@@ -999,16 +1021,16 @@
     <sys:String x:Key="Svc_Timeout">Request timed out.</sys:String>
     <sys:String x:Key="Svc_NoResponse">No response: {0}</sys:String>
     <sys:String x:Key="Svc_EmptyRuleListAddress">Empty rule list address.</sys:String>
-    <sys:String x:Key="Svc_ErrorButContinue">An error occurred, but the program will keep running.&#10;&#10;{0}</sys:String>
+    <sys:String x:Key="Svc_ErrorButContinue" xml:space="preserve">An error occurred, but the program will keep running.&#10;&#10;{0}</sys:String>
     <sys:String x:Key="Main_Routing">Routing</sys:String>
     <sys:String x:Key="Main_RoutingTip">Table: which rule goes through which VPN, and in what order</sys:String>
     <sys:String x:Key="Main_VpnListTip">VPN list: add, edit, delete</sys:String>
     <sys:String x:Key="Main_RulesListTip">Rules: programs and sites — add, edit, delete</sys:String>
     <sys:String x:Key="Vpn_Title">VPN per rule</sys:String>
-    <sys:String x:Key="Vpn_Hint">Click a box to give it a number: 1 is the first variant to try, 2 the fallback, and so on. Clicking a numbered box clears it and the rest renumber. An empty box means this rule never uses that VPN.</sys:String>
+    <sys:String x:Key="Vpn_Hint">Click a box to give it a number: 1 is the first VPN configuration to try, 2 the fallback, and so on. Clicking a numbered box clears it and the rest renumber. An empty box means this rule never uses that VPN.</sys:String>
     <sys:String x:Key="Vpn_Save">Save</sys:String>
     <sys:String x:Key="Vpn_Cancel">Cancel</sys:String>
-    <sys:String x:Key="Vpn_NoVariants">No VPN variants are switched on - add them in Settings.</sys:String>
+    <sys:String x:Key="Vpn_NoVariants">No VPN configurations — add them in Settings.</sys:String>
     <sys:String x:Key="Vpn_NoRules">No rules are set to go through a VPN.</sys:String>
     <sys:String x:Key="Vpn_CellOnTip">Click to drop this VPN from the rule</sys:String>
     <sys:String x:Key="Vpn_CellOffTip">Click to add this VPN as the next choice</sys:String>

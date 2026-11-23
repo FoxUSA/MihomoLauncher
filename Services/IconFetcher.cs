@@ -260,7 +260,9 @@ namespace MihomoLauncher.Services
 
             foreach (var p in app.Programs ?? new List<RuleProgram>())
             {
-                if (p == null) continue;
+                // An auto-added helper says nothing about what the tile is (2026-11-22) — unless
+                // the person ticked «Плитка» on it.
+                if (p == null || (p.Auto && !p.Launch)) continue;
                 var exe = "";
                 try { exe = Path.GetFileNameWithoutExtension(p.Path ?? ""); } catch { }
                 s = Lookup(ix, exe);
@@ -274,7 +276,9 @@ namespace MihomoLauncher.Services
                 s = LookupHost(ix, HostOf(site.Url));
                 if (s.Length > 0) return s;
             }
-            s = LookupHost(ix, HostOf(app.CheckUrl));
+            // OwnUrl, not CheckUrl: the address moved out of the check field (2026-11-23) still
+            // names the same icon.
+            s = LookupHost(ix, HostOf(app.OwnUrl));
             if (s.Length > 0) return s;
 
             foreach (var site in sites)
@@ -512,7 +516,7 @@ namespace MihomoLauncher.Services
             if (app == null) return "";
             var sites = (app.Sites ?? new List<RuleSite>()).Where(s => s != null && !string.IsNullOrWhiteSpace(s.Url)).ToList();
             var site = sites.FirstOrDefault(s => s.Launch) ?? sites.FirstOrDefault();
-            var host = site != null ? HostOf(site.Url) : HostOf(app.CheckUrl);
+            var host = site != null ? HostOf(site.Url) : HostOf(app.OwnUrl);
             return host ?? "";
         }
 

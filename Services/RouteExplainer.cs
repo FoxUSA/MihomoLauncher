@@ -311,6 +311,9 @@ namespace MihomoLauncher.Services
                     if (type.EndsWith("-REGEX"))
                     {
                         if (ctx.Process == null) return Cond.Maybe(Loc.T("Ex_WhyProcRegex", payload), ruleText);
+                        // A path regexp (a tile's folder) can't be judged from a bare exe name.
+                        if (type == "PROCESS-PATH-REGEX" && ctx.Process.IndexOf('\\') < 0)
+                            return Cond.Maybe(Loc.T("Ex_WhyProcRegex", payload), ruleText);
                         try { return Regex.IsMatch(ctx.Process, payload, RegexOptions.IgnoreCase) ? Cond.Always(ruleText) : Cond.Never; }
                         catch { return Cond.Maybe(Loc.T("Ex_WhyProcRegex", payload), ruleText); }
                     }

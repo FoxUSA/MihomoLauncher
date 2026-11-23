@@ -420,7 +420,18 @@ namespace MihomoLauncher.Services
                     var exe = "";
                     try { exe = string.IsNullOrEmpty(prog.Path) ? "" : Path.GetFileName(prog.Path); } catch { }
                     var label = string.IsNullOrWhiteSpace(prog.Name) ? exe : prog.Name;
+                    // An auto entry is written as its exact file: the engine reports that regexp.
+                    var file = MihomoConfigBuilder.AutoFileRegex(prog);
+                    if (file.Length > 0) { Put(file, RuleItemKind.Program, exe); continue; }
                     Put(exe, RuleItemKind.Program, string.IsNullOrEmpty(exe) ? label : exe);
+                }
+
+                // A folder entry: the engine reports its regexp as the payload (2026-11-22).
+                if (pass.Rest)
+                foreach (var folder in app.Folders ?? new List<RuleFolder>())
+                {
+                    if (folder == null || string.IsNullOrWhiteSpace(folder.Path)) continue;
+                    Put(MihomoConfigBuilder.FolderRegex(folder.Path), RuleItemKind.Program, folder.Path);
                 }
 
                 if (pass.Sites)
@@ -445,8 +456,8 @@ namespace MihomoLauncher.Services
                 }
 
                 if (pass.Rest)
-                    Put(MihomoConfigBuilder.HostOf(MihomoConfigBuilder.ResolveCheckUrl(app)),
-                        RuleItemKind.CheckUrl, MihomoConfigBuilder.ResolveCheckUrl(app));
+                    Put(MihomoConfigBuilder.HostOf(MihomoConfigBuilder.RouteUrl(app)),
+                        RuleItemKind.CheckUrl, MihomoConfigBuilder.RouteUrl(app));
             }
             return map;
         }

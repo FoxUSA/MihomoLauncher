@@ -9,7 +9,8 @@
                  WindowStartupLocation="CenterOwner"
                  ResizeMode="CanResizeWithGrip"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <Grid Background="Transparent" MouseDown="OnBackgroundClick">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -21,66 +22,141 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Rule_Title}" />
+        <!-- Compact window (2026-11-22): every pixel taken from the rows below goes to the list (row 3 is *). -->
+        <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Rule_Title}" Height="32" />
 
         <!-- ===== Row 1: name + check url ===== -->
-        <Grid x:Name="RowName" Grid.Row="1" Margin="20,8,20,0">
+        <Grid x:Name="RowName" Grid.Row="1" Margin="20,2,20,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="210" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <ui:TextBox x:Name="TxtName" Grid.Column="0" FontSize="13" MaxLength="40"
+                        MinHeight="0" Height="30" Padding="8,3" VerticalContentAlignment="Center"
                         PlaceholderText="{DynamicResource Rule_NamePlaceholder}" />
+            <!-- «Не проверять» is gone (2026-11-23): the address IS the switch — filled = checked,
+                 empty = not checked; the field takes the box's place. Never filled by itself. -->
             <ui:TextBox x:Name="TxtCheckUrl" Grid.Column="1" FontSize="13" Margin="8,0,0,0"
+                        MinHeight="0" Height="30" Padding="8,3" VerticalContentAlignment="Center"
+                        svc:PasteButton.IsEnabled="True"
+                        ToolTip="{DynamicResource Rule_CheckUrlTip}"
                         PlaceholderText="{DynamicResource Rule_CheckUrlPlaceholder}" />
-            <!-- Right on the check-address line, because it's what turns that address off. -->
-            <CheckBox x:Name="ChkSkipCheck" Grid.Column="2" Margin="10,0,0,0" IsChecked="True"
-                      VerticalAlignment="Center" FontSize="13"
-                      Content="{DynamicResource Rule_SkipCheck}"
-                      ToolTip="{DynamicResource Rule_SkipCheckTip}" />
         </Grid>
 
-        <!-- ===== Row 2: icon row (label + switch + Обзор + path, all in one line) + table title ===== -->
-        <StackPanel x:Name="RowIcon" Grid.Row="2" Margin="20,10,20,0">
-            <Grid>
+        <!-- ===== Row 2: icon row (Обзор + path, one line) + table title ===== -->
+        <StackPanel x:Name="RowIcon" Grid.Row="2" Margin="20,5,20,0">
+            <!-- «Иконка с сервера» is gone (2026-11-23): an empty path = the server's icon, a path =
+                 the person's own. Both always enabled; the switch's room went to the path. -->
+            <Grid VerticalAlignment="Center">
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <TextBlock x:Name="LblAutoIcon" Grid.Column="0" Text="{DynamicResource Rule_AutoIcon}" FontSize="13"
-                           VerticalAlignment="Center" Margin="0,0,8,0" />
-                <ui:ToggleSwitch x:Name="ChkAutoIcon" Grid.Column="1" VerticalAlignment="Center"
-                                 Checked="OnAutoIconToggled" Unchecked="OnAutoIconToggled" />
-                <Grid x:Name="IconManualPanel" Grid.Column="2" Margin="14,0,0,0" VerticalAlignment="Center">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                    </Grid.ColumnDefinitions>
-                    <ui:Button Grid.Column="0" Content="{DynamicResource Rule_Browse}" Click="OnBrowseIcon" />
-                    <ui:TextBox x:Name="TxtIcon" Grid.Column="1" FontSize="13" Margin="8,0,0,0" VerticalAlignment="Center"
-                                PlaceholderText="{DynamicResource Rule_IconPathPlaceholder}" />
-                </Grid>
+                <ui:Button Grid.Column="0" Content="{DynamicResource Rule_Browse}" Click="OnBrowseIcon"
+                           MinHeight="0" Height="30" Padding="11,3" />
+                <ui:TextBox x:Name="TxtIcon" Grid.Column="1" FontSize="13" Margin="8,0,0,0" VerticalAlignment="Center"
+                            MinHeight="0" Height="30" Padding="8,3" VerticalContentAlignment="Center"
+                            ToolTip="{DynamicResource Rule_IconPathTip}"
+                            PlaceholderText="{DynamicResource Rule_IconPathPlaceholder}" />
             </Grid>
 
-            <TextBlock Text="{DynamicResource Rule_WhatIncluded}" FontSize="13" FontWeight="SemiBold" Margin="0,14,0,4" />
+            <TextBlock Text="{DynamicResource Rule_WhatIncluded}" FontSize="13" FontWeight="SemiBold" Margin="0,7,0,3" />
         </StackPanel>
 
         <!-- ===== Row 3: the table — framed, fills the rest, visible even when empty ===== -->
         <Border x:Name="RowItems" Grid.Row="3" Margin="20,0,20,0" CornerRadius="8"
                 Background="{x:Static svc:Theme.ListBg}"
-                BorderBrush="{x:Static svc:Theme.TileBorder}" BorderThickness="1">
+                BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+            <!-- One outline, not two (2026-11-22: «двоится»): the shared styles close the table with
+                 their own left / top / right lines, and the frame drew a second one a pixel away.
+                 The grid is pushed 1 px out on those three sides and clipped back to the frame's
+                 rounded inside (svc:FrameClip), so the table's outer lines are cut off and the
+                 frame is the only outline. -->
             <Grid>
-                <DataGrid x:Name="ItemsGrid" Margin="1" Background="Transparent"
-                          RowHeight="36" VerticalScrollBarVisibility="Auto"
+                <!-- Looks like the rules list (ListsWindow.GridApps, 2026-11-22): the shared styles as they
+                     are — 26 px rows, 34 px header; the controls inside a row are sized to fit 26. -->
+                <DataGrid x:Name="ItemsGrid" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7" Background="Transparent"
                           Style="{StaticResource AppDataGridStyle}"
-                          RowStyle="{StaticResource AppDataGridRowStyle}"
                           CellStyle="{StaticResource AppDataGridCellStyle}"
                           ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}">
+                    <!-- A row auto-tracking added and nobody has seen yet (RuleProgram.AutoNew): one
+                         amber 1 px frame around the whole row, all four sides (the top too — asked
+                         for after seeing it without). Shown once: the flag is cleared when the editor
+                         closes. Nothing else about the row changes. -->
+                    <DataGrid.RowStyle>
+                        <Style TargetType="DataGridRow" BasedOn="{StaticResource AppDataGridRowStyle}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsAutoNew}" Value="True">
+                                    <!-- Exactly the tile's notice frame: same brush, same 1 px. -->
+                                    <Setter Property="BorderBrush" Value="{x:Static svc:Theme.NoticeTileBorder}" />
+                                    <!-- 2 px at the sides: the outer one is under the frame's clip. -->
+                                    <Setter Property="BorderThickness" Value="2,1,2,1" />
+                                </DataTrigger>
+                                <!-- Third section «Не добавлять автоматически»: muted. -->
+                                <DataTrigger Binding="{Binding IsIgnored}" Value="True">
+                                    <Setter Property="Opacity" Value="0.5" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </DataGrid.RowStyle>
+                    <!-- Two sections (2026-11-22): what the person added, then — only when there is
+                         any — a thin captioned line and what auto-tracking added. Grouped by
+                         ItemRow.Section ("manual" / "auto"); the manual group has no header. -->
+                    <DataGrid.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.ContainerStyle>
+                                <Style TargetType="GroupItem">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="GroupItem">
+                                                <StackPanel>
+                                                    <!-- Between the two sections: line — caption — line, in a colour
+                                                         that reads on the dark grid (2026-11-22: «не видно»). -->
+                                                    <Grid x:Name="AutoHeader" Margin="10,5,10,3" Visibility="Collapsed">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Grid.Column="0" Height="1" VerticalAlignment="Center"
+                                                                Background="{x:Static svc:Theme.AccentBlue}" Opacity="0.45" />
+                                                        <TextBlock x:Name="AutoCaption" Grid.Column="1" Text="{DynamicResource Rule_AutoSection}" FontSize="12.5"
+                                                                   FontWeight="SemiBold" Foreground="{x:Static svc:Theme.AccentBlue}"
+                                                                   VerticalAlignment="Center" Margin="12,0" />
+                                                        <Border Grid.Column="2" Height="1" VerticalAlignment="Center"
+                                                                Background="{x:Static svc:Theme.AccentBlue}" Opacity="0.45" />
+                                                    </Grid>
+                                                    <!-- Cells draw only their right and bottom edges (AppDataGridCellStyle),
+                                                         so the first auto row needs its top line here — like the upper
+                                                         table gets from its header. -->
+                                                    <Border x:Name="AutoTopLine" Height="1" Visibility="Collapsed"
+                                                            Background="{x:Static svc:Theme.TableLine}" />
+                                                    <ItemsPresenter />
+                                                </StackPanel>
+                                                <ControlTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding Name}" Value="auto">
+                                                        <Setter TargetName="AutoHeader" Property="Visibility" Value="Visible" />
+                                                        <Setter TargetName="AutoTopLine" Property="Visibility" Value="Visible" />
+                                                    </DataTrigger>
+                                                    <!-- The third section: what this rule refuses to auto-add. -->
+                                                    <DataTrigger Binding="{Binding Name}" Value="ignored">
+                                                        <Setter TargetName="AutoHeader" Property="Visibility" Value="Visible" />
+                                                        <Setter TargetName="AutoTopLine" Property="Visibility" Value="Visible" />
+                                                        <Setter TargetName="AutoCaption" Property="Text" Value="{DynamicResource Rule_IgnoredSection}" />
+                                                    </DataTrigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </GroupStyle.ContainerStyle>
+                        </GroupStyle>
+                    </DataGrid.GroupStyle>
                     <DataGrid.Columns>
                         <!-- Плитка: single-select checkbox (what launches from the tile) -->
-                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColTile}" Width="Auto" CanUserSort="False" CanUserResize="False"
+                        <!-- Minimum widths (2026-11-23): with no rows an Auto column sizes to its caption
+                             only and the header looked squeezed; these are about what the rows give. -->
+                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColTile}" Width="Auto" MinWidth="64" CanUserSort="False" CanUserResize="False"
                                                 CellStyle="{StaticResource CheckboxCellStyle}"
                                                 HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
                             <DataGridTemplateColumn.CellTemplate>
@@ -96,7 +172,7 @@
 
                         <!-- Тип: clickable — opens site / template path / reveals file in Explorer.
                              Cursor changes to Hand; no cell highlight (handled on preview-down). -->
-                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColType}" Width="Auto" CanUserSort="False" CanUserResize="False">
+                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColType}" Width="Auto" MinWidth="96" CanUserSort="False" CanUserResize="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <TextBlock Text="{Binding TypeLabel}" Cursor="Hand" Padding="2,0"
@@ -109,20 +185,20 @@
                         </DataGridTemplateColumn>
 
                         <!-- Имя: template name / site host / exe file / Store app name -->
-                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColName}" Width="Auto" MaxWidth="240" CanUserSort="False">
+                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColName}" Width="Auto" MinWidth="130" MaxWidth="240" CanUserSort="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding DisplayName}" FontSize="12.5" Padding="2,0"
+                                    <TextBlock Text="{Binding DisplayName}" FontSize="12" Padding="2,0"
                                                VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
                                                Cursor="Hand" Background="Transparent"
                                                PreviewMouseLeftButtonDown="OnTypeClick"
-                                               ToolTip="{Binding DisplayName}" />
+                                               ToolTip="{Binding NameTip}" />
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
                         </DataGridTemplateColumn>
 
                         <!-- Что открывается / запускается: editable URL for sites, path for programs -->
-                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColWhatOpens}" Width="*" CanUserSort="False">
+                        <DataGridTemplateColumn Header="{DynamicResource Rule_ColWhatOpens}" Width="*" MinWidth="220" CanUserSort="False">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
                                     <!-- Click anywhere on the path = open it (same as «Тип»): a template
@@ -135,16 +211,19 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
-                                            <ui:TextBox FontSize="12.5"
+                                            <!-- Fits the 26 px row: WPF-UI's box is 32+ px tall by default. -->
+                                            <ui:TextBox FontSize="12" MinHeight="0" Height="22" Padding="6,1"
+                                                        VerticalContentAlignment="Center"
+                                                        svc:PasteButton.IsEnabled="True"
                                                         VerticalAlignment="Center" PlaceholderText="example.com"
                                                         Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                                            <Border Grid.Column="1" Width="26" Height="26" Margin="4,0,0,0"
+                                            <Border Grid.Column="1" Width="20" Height="20" Margin="4,0,0,0"
                                                     CornerRadius="5" Background="Transparent" Cursor="Hand"
                                                     VerticalAlignment="Center"
                                                     PreviewMouseLeftButtonDown="OnTypeClick"
                                                     ToolTip="{DynamicResource Rule_TypeTip}">
-                                                <ui:SymbolIcon Symbol="Open24" FontSize="15"
-                                                               Foreground="{x:Static svc:Theme.AccentBlue}"
+                                                <ui:SymbolIcon Symbol="Open24" FontSize="13"
+                                                               Foreground="{x:Static svc:Theme.Accent}"
                                                                HorizontalAlignment="Center" VerticalAlignment="Center" />
                                             </Border>
                                         </Grid>
@@ -159,7 +238,7 @@
                                                    FontSize="12" VerticalAlignment="Center"
                                                    Cursor="Hand" Background="Transparent"
                                                    PreviewMouseLeftButtonDown="OnTypeClick"
-                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding ProgTitle}" />
+                                                   TextTrimming="CharacterEllipsis" ToolTip="{Binding PathTip}" />
                                     </Grid>
                                 </DataTemplate>
                             </DataGridTemplateColumn.CellTemplate>
@@ -170,7 +249,7 @@
                                                 CellStyle="{StaticResource CheckboxCellStyle}">
                             <DataGridTemplateColumn.CellTemplate>
                                 <DataTemplate>
-                                    <ui:Button Content="✕" Padding="6,0" FontSize="12"
+                                    <ui:Button Content="✕" Padding="6,0" FontSize="12" MinHeight="0" Height="20"
                                                Background="Transparent" BorderThickness="0" Cursor="Hand"
                                                Foreground="{x:Static svc:Theme.AccentRed}"
                                                HorizontalAlignment="Center" VerticalAlignment="Center"
@@ -189,26 +268,32 @@
         </Border>
 
         <!-- ===== Row 4: add buttons (right under the table) ===== -->
-        <StackPanel x:Name="RowAddButtons" Grid.Row="4" Orientation="Horizontal" Margin="20,8,20,0">
-            <ui:Button Content="URL" MinWidth="70" Margin="0,0,8,0" Click="OnAddSiteUrl"
-                       Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button Content="{DynamicResource Rule_AddTemplate}" MinWidth="96" Margin="0,0,8,0" Click="OnAddSiteTemplate"
-                       Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button x:Name="BtnAddApp" Content="{DynamicResource Rule_AddApp}" MinWidth="96" Margin="0,0,8,0" Click="OnAddProgPath"
-                       Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button x:Name="BtnAddProcess" Content="{DynamicResource Rule_AddProcess}" MinWidth="80" Margin="0,0,8,0" Click="OnAddProgRunning"
-                       Foreground="{x:Static svc:Theme.AccentGreen}" />
-            <ui:Button x:Name="BtnAddStore" Content="Store" MinWidth="70" Click="OnAddProgStore"
-                       Foreground="{x:Static svc:Theme.AccentGreen}" />
+        <StackPanel x:Name="RowAddButtons" Grid.Row="4" Orientation="Horizontal" Margin="20,5,20,0">
+            <ui:Button Content="URL" MinWidth="70" MinHeight="0" Height="28" Padding="10,2" Margin="0,0,8,0" Click="OnAddSiteUrl"
+                       Style="{StaticResource AddButtonStyle}" />
+            <ui:Button Content="{DynamicResource Rule_AddTemplate}" MinWidth="96" MinHeight="0" Height="28" Padding="10,2" Margin="0,0,8,0" Click="OnAddSiteTemplate"
+                       Style="{StaticResource AddButtonStyle}" />
+            <ui:Button x:Name="BtnAddApp" Content="{DynamicResource Rule_AddApp}" MinWidth="96" MinHeight="0" Height="28" Padding="10,2" Margin="0,0,8,0" Click="OnAddProgPath"
+                       Style="{StaticResource AddButtonStyle}" />
+            <ui:Button x:Name="BtnAddProcess" Content="{DynamicResource Rule_AddProcess}" MinWidth="80" MinHeight="0" Height="28" Padding="10,2" Margin="0,0,8,0" Click="OnAddProgRunning"
+                       Style="{StaticResource AddButtonStyle}" />
+            <!-- A whole folder as ONE row (2026-11-22): everything started from it goes this way. -->
+            <ui:Button x:Name="BtnAddFolder" Content="{DynamicResource Rule_AddFolder}" MinWidth="70" MinHeight="0" Height="28" Padding="10,2" Margin="0,0,8,0" Click="OnAddFolder"
+                       ToolTip="{DynamicResource Rule_AddFolderTip}"
+                       Style="{StaticResource AddButtonStyle}" />
+            <ui:Button x:Name="BtnAddStore" Content="Store" MinWidth="70" MinHeight="0" Height="28" Padding="10,2" Click="OnAddProgStore"
+                       Style="{StaticResource AddButtonStyle}" />
         </StackPanel>
 
         <!-- ===== Row 5: VPN switches + allowed variants ===== -->
-        <StackPanel x:Name="RowVpn" Grid.Row="5" Margin="20,14,20,0">
+        <StackPanel x:Name="RowVpn" Grid.Row="5" Margin="20,8,20,0">
             <!-- «Использовать VPN» removed 2026-11-14: VPN or «Напрямую» is picked on the tile's
                  plate, like any other exit; the list below is which VPNs, in what order. -->
-            <StackPanel Orientation="Horizontal">
+            <!-- A WrapPanel (2026-11-22, third switch): with a long card name or a narrow window the
+                 last switch moves to a second line instead of being cut off. -->
+            <WrapPanel Orientation="Horizontal">
                 <!-- Both switches, when on, are the violet of the tile chips' frame (2026-11-20). -->
-                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch">
+                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch" Margin="0,0,0,2">
                     <ui:ToggleSwitch.Resources>
                         <x:Static x:Key="ToggleSwitchFillOn" Member="svc:Theme.GuardSwitchFill" />
                         <x:Static x:Key="ToggleSwitchFillOnPointerOver" Member="svc:Theme.GuardSwitchFillHover" />
@@ -219,7 +304,7 @@
                     </ui:ToggleSwitch.Resources>
                 </ui:ToggleSwitch>
                 <!-- 2026-11-19: pin the tile to the card it goes through now; the card's name next to it. -->
-                <ui:ToggleSwitch x:Name="ChkLockNic" Content="{DynamicResource Rule_LockNic}" Margin="28,0,0,0"
+                <ui:ToggleSwitch x:Name="ChkLockNic" Content="{DynamicResource Rule_LockNic}" Margin="24,0,0,2"
                                  ToolTip="{DynamicResource Rule_LockNicTip}"
                                  Checked="OnLockNicChecked" Unchecked="OnLockNicUnchecked">
                     <ui:ToggleSwitch.Resources>
@@ -231,17 +316,30 @@
                         <x:Static x:Key="ToggleSwitchStrokeOnPressed" Member="svc:Theme.GuardSwitchFill" />
                     </ui:ToggleSwitch.Resources>
                 </ui:ToggleSwitch>
-                <TextBlock x:Name="TxtLockNic" FontSize="12.5" Opacity="0.6" Margin="10,0,0,0"
+                <TextBlock x:Name="TxtLockNic" FontSize="12.5" Opacity="0.6" Margin="10,0,0,2"
                            VerticalAlignment="Center" />
-            </StackPanel>
+                <!-- 2026-11-22: helpers of the rule's programs that go online join the rule by
+                     themselves (AutoPrograms). Plain accent colour: it guards nothing. -->
+                <ui:ToggleSwitch x:Name="ChkAutoTrack" Content="{DynamicResource Rule_AutoTrack}" Margin="24,0,0,2"
+                                 ToolTip="{DynamicResource Rule_AutoTrackTip}" IsChecked="True" />
+            </WrapPanel>
 
-            <TextBlock Text="{DynamicResource Rule_AllowedVpn}"
-                       FontSize="12.5" FontWeight="SemiBold" Margin="0,10,0,2" />
             <!-- The rows stay in the Settings order; priority is the NUMBER in the box, not the
                  row position, which is what lets the same control work here and in the VPN table
-                 (where rows are rules and there is nothing to drag). -->
-            <TextBlock Text="{DynamicResource Rule_VpnOrderHint}"
-                       FontSize="11.5" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,4" />
+                 (where rows are rules and there is nothing to drag).
+                 How the boxes work lives in the caption's tooltip: the two-line hint under it
+                 was removed on request (2026-11-22). -->
+            <!-- Right after the caption (2026-11-23): one button that numbers every configuration
+                 1..N in the order shown («Отметить все») or clears them all («Снять все») — through
+                 the same Renumber as a click on a square, so its caption follows those clicks too. -->
+            <StackPanel Orientation="Horizontal" Margin="0,6,0,3">
+                <TextBlock Text="{DynamicResource Rule_AllowedVpn}" Background="Transparent"
+                           ToolTip="{DynamicResource Rule_VpnOrderHint}" VerticalAlignment="Center"
+                           FontSize="12.5" FontWeight="SemiBold" />
+                <ui:Button x:Name="BtnAllSlots" Margin="10,0,0,0" MinHeight="0" Height="22" Padding="8,0"
+                           FontSize="12" VerticalAlignment="Center" Cursor="Hand"
+                           Content="{DynamicResource Rule_SlotsAll}" Click="OnAllSlots" />
+            </StackPanel>
             <!-- Three columns, filled row by row: more VPN variants add a row per three
                  instead of one each, so the card doesn't keep growing down. -->
             <ItemsControl x:Name="AllowSlots">
@@ -254,19 +352,19 @@
                     <DataTemplate>
                         <!-- The whole row toggles — the box AND the name (2026-11-16). Transparent
                              background so the gaps between them take the click too. -->
-                        <Grid Margin="0,2,12,2" Background="Transparent" Cursor="Hand"
+                        <Grid Margin="0,3,12,3" Background="Transparent" Cursor="Hand"
                               Tag="{Binding Id}" ToolTip="{Binding BoxTip}"
                               MouseLeftButtonUp="OnSlotToggle">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Width="28" Height="28" CornerRadius="5"
-                                    BorderThickness="1" Margin="0,0,10,0"
+                            <Border Grid.Column="0" Width="20" Height="20" CornerRadius="4"
+                                    BorderThickness="1" Margin="0,0,8,0"
                                     Background="{Binding BoxFill}"
                                     BorderBrush="{Binding BoxEdge}">
-                                <TextBlock Text="{Binding RankText}" FontSize="12.5" FontWeight="SemiBold"
-                                           Foreground="#EAF1FF"
+                                <TextBlock Text="{Binding RankText}" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="{x:Static svc:Theme.TextOnAction}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <!-- The name goes in a TextBlock, NOT in Content: a ContentPresenter
@@ -285,11 +383,11 @@
         </StackPanel>
 
         <!-- ===== Row 6: save / cancel ===== -->
-        <Border Grid.Row="6" Padding="20,12">
+        <Border Grid.Row="6" Padding="20,8,20,12">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <ui:Button x:Name="BtnSave" Content="{DynamicResource Rule_Save}" Margin="0,0,8,0"
-                           Appearance="Primary" FontSize="14" Padding="20,8" Click="OnSave" />
-                <ui:Button Content="{DynamicResource Rule_Cancel}" FontSize="14" Padding="20,8" Click="OnCancel" />
+                           Appearance="Primary" FontSize="14" Padding="20,2" MinHeight="0" Height="30" Click="OnSave" />
+                <ui:Button Content="{DynamicResource Rule_Cancel}" FontSize="14" Padding="20,2" MinHeight="0" Height="30" Click="OnCancel" />
             </StackPanel>
         </Border>
     </Grid>

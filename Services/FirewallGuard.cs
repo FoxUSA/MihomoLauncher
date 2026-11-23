@@ -146,6 +146,21 @@ namespace MihomoLauncher.Services
                         Path = path,
                     });
                 }
+                // A folder entry (2026-11-22): every exe in it, below it too (FolderWatch caps and
+                // caches the list, and reports new files). A change to that set changes the plan's
+                // signature — which is what makes SyncIfNeeded rewrite the rules.
+                foreach (var folder in app.Folders ?? new List<RuleFolder>())
+                {
+                    if (folder == null || string.IsNullOrWhiteSpace(folder.Path)) continue;
+                    List<string> exes;
+                    try { exes = FolderWatch.ExesUnder(folder.Path); } catch { continue; }
+                    foreach (var exe in exes)
+                    {
+                        if (IsOursOrEngine(cfg, exe)) continue;
+                        if (!seen.Add(exe)) continue;
+                        plan.Programs.Add(new ProgramRef { Label = app.Name + " · " + SafeFileName(exe), Path = exe });
+                    }
+                }
             }
             if (plan.Programs.Count == 0) { plan.Signature = ""; return plan; }
 

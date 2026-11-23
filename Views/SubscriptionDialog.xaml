@@ -8,7 +8,8 @@
                  ResizeMode="CanResize"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -106,8 +107,12 @@
             </Grid>
             <ui:TextBox Grid.Row="1" x:Name="TxtSearch" Margin="0,0,0,8" FontSize="13"
                         PlaceholderText="{DynamicResource Sub_Search}" TextChanged="OnSearchChanged" />
-            <ListBox Grid.Row="2" x:Name="EntriesHost"
-                     Background="{x:Static svc:Theme.ListBg}" BorderThickness="0" Padding="4"
+            <!-- A list in a well with the outline (2026-11-22 colour standard). -->
+            <Border Grid.Row="2" CornerRadius="8"
+                    Background="{x:Static svc:Theme.ListBg}"
+                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+            <ListBox x:Name="EntriesHost"
+                     Background="Transparent" BorderThickness="0" Padding="4"
                      FontFamily="Consolas" FontSize="12.5"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      VirtualizingPanel.IsVirtualizing="True"
@@ -131,6 +136,7 @@
                     </Style>
                 </ListBox.ItemContainerStyle>
             </ListBox>
+            </Border>
             <TextBlock Grid.Row="3" x:Name="LblShown" FontSize="12" Margin="0,6,0,0"
                        Foreground="{x:Static svc:Theme.TextMuted}" />
         </Grid>

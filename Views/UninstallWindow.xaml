@@ -10,7 +10,8 @@
                  ResizeMode="NoResize"
                  ShowInTaskbar="True"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -31,7 +32,7 @@
             <Border Margin="0,12,0,0"
                     Background="{x:Static svc:Theme.ListBg}"
                     BorderBrush="{x:Static svc:Theme.CardBorder}"
-                    BorderThickness="1" CornerRadius="6">
+                    BorderThickness="1" CornerRadius="8">
                 <ItemsControl x:Name="StepsList" Margin="10,6">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
@@ -65,7 +66,7 @@
             <ProgressBar x:Name="Bar2" Margin="0,14,0,0"
                          Height="6" Minimum="0" Maximum="100" Value="0"
                          Visibility="Collapsed"
-                         Foreground="{x:Static svc:Theme.AccentBlue}"
+                         Foreground="{x:Static svc:Theme.Accent}"
                          Background="{x:Static svc:Theme.ListBg}"
                          BorderThickness="0" />
 

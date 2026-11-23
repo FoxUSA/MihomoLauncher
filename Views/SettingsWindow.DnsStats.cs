@@ -82,14 +82,13 @@ namespace MihomoLauncher.Views
         private TextBlock[] _kpiValue, _kpiSub;
 
         private static readonly Brush StBlue = Theme.SpeedBlue, StRed = Theme.SpeedRed, StAmber = Theme.SpeedAmber, StGreen = Theme.SpeedGreen;
-        private static readonly Brush StViolet = StFrozen(Color.FromRgb(0xA9, 0x8B, 0xFF));
-        private static readonly Brush StStripe = StFrozen(Color.FromArgb(0x0A, 0xFF, 0xFF, 0xFF));
-        private static readonly Brush StLine = StFrozen(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
-        private static readonly Brush StBadge = StFrozen(Color.FromRgb(0x3A, 0x3A, 0x42));
+        private static readonly Brush StViolet = Theme.AccentViolet;
+        private static readonly Brush StStripe = Theme.ListStripeOnCard;
+        private static readonly Brush StLine = Theme.ListLineOnCard;
+        private static readonly Brush StBadge = Theme.BadgeGreyBg;
         private const double StRowH = 31;   // a one-line row, all in: content 24 + padding 3+3 + rule 1
         private const int StMaxRows = 300;
 
-        private static Brush StFrozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 
         private void InitDnsStats()
         {
@@ -574,7 +573,7 @@ namespace MihomoLauncher.Views
                 Width = w, Height = h, CornerRadius = new CornerRadius(h * 0.24), Background = bg, VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock
                 {
-                    Text = text, FontSize = font > 0 ? font : h * 0.42, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White,
+                    Text = text, FontSize = font > 0 ? font : h * 0.42, FontWeight = FontWeights.SemiBold, Foreground = Theme.TextOnColor,
                     HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
                 },
             };
@@ -587,12 +586,8 @@ namespace MihomoLauncher.Views
         private static Brush StKindBrush(DnsStats.Kind k)
             => k == DnsStats.Kind.Stub ? StAmber : k == DnsStats.Kind.NoAddress ? StViolet : k == DnsStats.Kind.Rule ? StRed : StGreen;
 
-        private static readonly Color[] StColors =
-        {
-            Color.FromRgb(0x3F, 0x6F, 0xD8), Color.FromRgb(0x2F, 0x9A, 0x6B), Color.FromRgb(0xC2, 0x6A, 0x2E),
-            Color.FromRgb(0x87, 0x5C, 0xCF), Color.FromRgb(0xC0, 0x4B, 0x5C), Color.FromRgb(0x2A, 0x8E, 0xA8),
-            Color.FromRgb(0x9C, 0x7C, 0x2C), Color.FromRgb(0x5E, 0x6B, 0x84),
-        };
+        // The tiles' monogram colours: a company gets the same kind of badge a tile does.
+        private static readonly Color[] StColors = Theme.MonogramColors;
 
         private static Brush StColorOf(string name)
         {

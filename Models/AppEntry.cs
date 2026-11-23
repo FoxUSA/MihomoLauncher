@@ -31,8 +31,34 @@ namespace MihomoLauncher.Models
         // When true, this program is launched when the rule's tile is clicked.
         public bool Launch { get; set; } = false;
 
+        // Added by auto-tracking (2026-11-22, AutoPrograms): a helper of the rule's own programs
+        // that went online. Otherwise an ordinary program with Launch=false — routing, the
+        // firewall, conflicts and path repair treat it like any other, with no code of their own.
+        // Dragged into the manual part of the editor, it becomes a manual entry (false).
+        public bool Auto { get; set; } = false;
+        // Why it was added: the ancestor's exe name ("Code.exe"), or "folder:<exe>" when it lies in
+        // the install folder of that program of the rule. Shown in the editor's tooltip.
+        public string AutoFrom { get; set; } = "";
+        // Added by auto-tracking and not seen yet (2026-11-22): the rule's gear turns amber
+        // (MainWindow.AutoTrack) and the editor outlines the row. Saved, so it survives a restart;
+        // cleared on all of a rule's entries when its editor closes, saved or cancelled.
+        public bool AutoNew { get; set; } = false;
+
         [XmlIgnore]
         public bool IsStoreApp => !string.IsNullOrEmpty(Aumid);
+    }
+
+    // A whole folder inside a rule (2026-11-22): every program started from it or below goes the
+    // rule's way (PROCESS-PATH-REGEX), its files are never listed. A separate list, not a flag on
+    // RuleProgram, on purpose: every existing `foreach (prog in app.Programs)` assumes an exe path
+    // (the firewall's ApplicationName, the image name in routing, path repair, icons) and must go
+    // on ignoring folders.
+    public class RuleFolder
+    {
+        public string Name { get; set; } = "";
+        public string Path { get; set; } = "";
+        // The «Плитка» box: the tile opens this folder in Explorer.
+        public bool Launch { get; set; } = false;
     }
 
     // One site inside a rule: a URL to open/route, optionally carrying a cached blackmatrix7
@@ -69,17 +95,42 @@ namespace MihomoLauncher.Models
         // ----- Rule contents -----
         public List<RuleProgram> Programs { get; set; } = new List<RuleProgram>();
         public List<RuleSite> Sites { get; set; } = new List<RuleSite>();
+        public List<RuleFolder> Folders { get; set; } = new List<RuleFolder>();
 
-        // Standalone connectivity probe: the tile is enabled only while this URL actually
-        // loads from the current exit IP (see SiteChecker). Empty -> falls back to the first
-        // site's Url, else the plain RequiresVpn gate.
+        // «Авто-добавление программ» (2026-11-22): the launcher watches this rule's programs and
+        // adds their helpers that go online (child processes, programs of the same install folder)
+        // by itself — see AutoPrograms. ON by default, for existing configs too (absent → true).
+        // Switched off, tracking stops; what was already added stays.
+        public bool AutoTrack { get; set; } = true;
+        // Auto entries the person deleted (✕): never auto-added to THIS rule again — the editor's
+        // third section «Не добавлять автоматически». A full path = that exact file (a version bump
+        // is still that file, AutoPrograms.IsBanned); a bare exe name (older configs) = by name.
+        public List<string> AutoIgnored { get; set; } = new List<string>();
+
+        // «Сайт для проверки подключения»: the rule is put through a VPN configuration only once
+        // this URL loads from that exit (see SiteChecker). Since 2026-11-23 the field IS the switch:
+        // filled = checked, empty = not checked (the «Не проверять» box is gone) — and nothing is
+        // ever written here by itself any more. Its host is also routed with the rule (RouteUrl).
         public string CheckUrl { get; set; } = "";
 
-        // Skip the availability probe entirely ("Не проверять"): the rule is put through the
-        // VPN as soon as a variant's node is up, without asking its CheckUrl whether it can be
-        // reached. Default ON — a site that answers slowly, rate-limits the probe or is dead
-        // from every exit used to leave its tile red for hours while the tunnel itself was
-        // perfectly fine, and the person at the keyboard cannot be expected to debug that.
+        // The rule's own address, never checked and not shown (2026-11-23): what the check field
+        // used to hold under «Не проверять» — a template's site, a known service guessed from the
+        // name — moved here by AppConfigStore.NormalizeCheckAddresses, and a template's site when
+        // one is added. It keeps doing what it did there: its host is routed with the rule and a
+        // template's tile opens it (OwnUrl). Both jobs, without making the rule wait for a check.
+        public string HomeUrl { get; set; } = "";
+
+        // The address that stands for the rule when one is needed — opened by a template's tile,
+        // routed with the rule, used to find its icon: the check address, else HomeUrl.
+        [XmlIgnore]
+        public string OwnUrl => !string.IsNullOrWhiteSpace(CheckUrl) ? CheckUrl.Trim() : (HomeUrl ?? "").Trim();
+
+        // Skip the availability probe entirely: the rule is put through the VPN as soon as a
+        // configuration's node is up. Still the stored truth the connect reads (MainWindow
+        // ProbeAppsAsync, the routing signature), but since 2026-11-23 it is no box of its own:
+        // it is always "CheckUrl is empty" — the editor saves it so and the loader keeps it so.
+        // Default ON — a site that answers slowly, rate-limits the probe or is dead from every exit
+        // used to leave its tile red for hours while the tunnel itself was perfectly fine.
         public bool SkipCheck { get; set; } = true;
 
         // ----- Shared VPN + icon settings (apply to the whole rule) -----
@@ -189,7 +240,11 @@ namespace MihomoLauncher.Models
         public bool HasTileTarget =>
             IsAllTraffic ||
             (Programs != null && Programs.Exists(p => p != null && p.Launch)) ||
-            (Sites != null && Sites.Exists(s => s != null && s.Launch));
+            (Sites != null && Sites.Exists(s => s != null && s.Launch)) ||
+            (Folders != null && Folders.Exists(f => f != null && f.Launch));
+
+        [XmlIgnore]
+        public bool HasFolders => Folders != null && Folders.Exists(f => f != null && !string.IsNullOrWhiteSpace(f.Path));
 
         // ----- Legacy single-item fields: read ONLY by the v11->v12 migration -----
         [XmlAttribute]

@@ -30,6 +30,11 @@ namespace MihomoLauncher.Views
     // Tables with fixed columns and a fixed number of rows, striped (2026-11-16: «таблицей с
     // разным цветом строчек … ровные столбики, чтобы не скакали»): figures right-aligned in
     // tabular digits; the window keeps its height whatever is open.
+    //
+    // Drawn like the rules list (ListsWindow.GridApps, 2026-11-22: «все таблицы одного стиля и
+    // размера»): the header, cell padding, hairlines and row colours of Themes\DataGridStyles.xaml,
+    // taken from the same Theme table tokens, in the same well with the outline. The one difference is the row height: these cells hold two
+    // lines (name + connections, host + address), which 26 px cannot, so rows stay WhoRowH.
     public partial class MainWindow
     {
         internal sealed class WhoConn
@@ -110,11 +115,17 @@ namespace MihomoLauncher.Views
 
         private const int WhoRows = 8;
         private const double WhoRowH = 36;
-        private static readonly Brush WhoStripe = Frozen(Color.FromArgb(0x0C, 0xFF, 0xFF, 0xFF));
-        private static readonly Brush WhoHeadBg = Frozen(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
         private static readonly FontFamily WhoMono = new FontFamily("Consolas");
 
-        private static Brush Frozen(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
+        // The model table's metrics (Themes\DataGridStyles.xaml): header 34 high, 13 semibold; cells
+        // 12 with 8 px sides; hairlines right and bottom of every cell, the first column also left.
+        private const double WhoHeadH = 34;
+        private const double WhoHeadFont = 13;
+        private const double WhoCellFont = 12;
+        private const double WhoCellPad = 8;
+        // What a cell adds around its text: both side paddings + its right hairline (+1 more for the
+        // first column's left one — not counted, it is within the «air» added on top).
+        private const double WhoCellChrome = 2 * WhoCellPad + 1;
 
         private string AsnPath => _mihomo == null ? null : System.IO.Path.Combine(_mihomo.WorkDir, "ASN.mmdb");
 
@@ -215,9 +226,9 @@ namespace MihomoLauncher.Views
             // ---- left: programs ----
             var leftHead = PaneTitle();
             DockPanel.SetDock(leftHead, Dock.Top);
-            var progCols = new[] { new GridLength(1, GridUnitType.Star), new GridLength(64), new GridLength(Gutter) };
+            var progCols = new[] { new GridLength(1, GridUnitType.Star), new GridLength(72), new GridLength(Gutter) };
             var progTable = new DockPanel();
-            var progHeader = HeaderRow(progCols, 1, Loc.T("Main_WhoColProgram"), Loc.T("Main_WhoColDown"));
+            var progHeader = HeaderRow(progCols, 1, -1, Loc.T("Main_WhoColProgram"), Loc.T("Main_WhoColDown"));
             DockPanel.SetDock(progHeader, Dock.Top);
             progTable.Children.Add(progHeader);
             var progRows = new List<Border>();
@@ -233,13 +244,13 @@ namespace MihomoLauncher.Views
             void AddProgRow()
             {
                 int i = progRows.Count;
-                var name = Cell(13, Theme.TextPrimary, FontWeights.SemiBold);
+                var name = Cell(WhoCellFont, Theme.TextPrimary, FontWeights.SemiBold);
                 var sub = Cell(11, Theme.TextMuted);
                 var down = Num();
                 var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 stack.Children.Add(name);
                 stack.Children.Add(sub);
-                var row = Row(progCols, i, stack, down);
+                var row = Row(progCols, i, -1, stack, down);
                 int idx = i;
                 row.Cursor = Cursors.Hand;
                 row.MouseLeftButtonDown += (s, e) =>
@@ -265,7 +276,7 @@ namespace MihomoLauncher.Views
             }
             var leftStack = new DockPanel();
             leftStack.Children.Add(leftHead);
-            leftStack.Children.Add(progTable);
+            leftStack.Children.Add(WhoWell(progTable));
             var left = Pane(leftStack, new Thickness(6));
 
             // ---- right: where the selected program goes ----
@@ -295,11 +306,11 @@ namespace MihomoLauncher.Views
             var addrCols = new[]
             {
                 new GridLength(160), new GridLength(160), new GridLength(120), new GridLength(1, GridUnitType.Star),
-                new GridLength(58), new GridLength(52), new GridLength(Gutter),
+                new GridLength(66), new GridLength(60), new GridLength(Gutter),
             };
             var aGrids = new List<Grid>();
             var addrTable = new DockPanel();
-            var addrHeader = HeaderRow(addrCols, 4, Loc.T("Main_WhoColAddr"), Loc.T("Main_WhoColWhere"), Loc.T("Main_WhoColIsp"), "",
+            var addrHeader = HeaderRow(addrCols, 4, 2, Loc.T("Main_WhoColAddr"), Loc.T("Main_WhoColWhere"), Loc.T("Main_WhoColIsp"), "",
                                        Loc.T("Main_WhoColDown"), Loc.T("Main_WhoColUp"));
             DockPanel.SetDock(addrHeader, Dock.Top);
             addrTable.Children.Add(addrHeader);
@@ -317,13 +328,13 @@ namespace MihomoLauncher.Views
             var addrScroll = ScrollBox(addrBody, !detached);
             addrTable.Children.Add(addrScroll);
             double[] want = { 160, 160, 120 };
-            double[] least = { 110, 100, 80 };
+            double[] least = { 120, 110, 90 };
             void LayoutAddr()
             {
                 double view = addrScroll.ViewportWidth > 0 ? addrScroll.ViewportWidth : addrScroll.ActualWidth;
                 if (view <= 0) return;
-                // Row padding 8 + ↓ + ↑ + gutter are fixed; the three text columns share the rest.
-                var w = WhoFit(want, least, view - 8 - 58 - 52 - Gutter);
+                // ↓ + ↑ + gutter are fixed; the three text columns share the rest.
+                var w = WhoFit(want, least, view - 66 - 60 - Gutter);
                 foreach (var g in aGrids)
                     for (int k = 0; k < 3; k++) g.ColumnDefinitions[k].Width = new GridLength(w[k]);
                 SyncGutter(addrScroll, (Grid)addrHeader.Child);
@@ -338,7 +349,7 @@ namespace MihomoLauncher.Views
             void AddAddrRow()
             {
                 int i = aRows.Count;
-                var host = Cell(12.5, Theme.TextPrimary, FontWeights.SemiBold);
+                var host = Cell(WhoCellFont, Theme.TextPrimary, FontWeights.SemiBold);
                 var ip = Cell(11, Theme.TextMuted);
                 ip.FontFamily = WhoMono;
                 var hs = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -358,7 +369,7 @@ namespace MihomoLauncher.Views
                 var down = Num();
                 var up = Num();
                 up.Foreground = Theme.TextSecondary;
-                var arow = Row(addrCols, i, hs, geo, isp, new Border(), down, up);
+                var arow = Row(addrCols, i, 2, hs, geo, isp, new Border(), down, up);
                 addrBody.Children.Add(arow);
                 aRows.Add(arow);
                 aGrids.Add((Grid)arow.Child);
@@ -372,7 +383,7 @@ namespace MihomoLauncher.Views
                 LineHeight = 20,
             };
             var tableHost = new Grid();
-            tableHost.Children.Add(addrTable);
+            tableHost.Children.Add(WhoWell(addrTable));
             tableHost.Children.Add(empty);
             var rightStack = new DockPanel();
             rightStack.Children.Add(rightHeadRow);
@@ -397,8 +408,8 @@ namespace MihomoLauncher.Views
                 bool live = hours == 0;
 
                 // Column titles: speed now, or the volume over the period.
-                ((TextBlock)((Grid)progHeader.Child).Children[1]).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
-                ((TextBlock)((Grid)addrHeader.Child).Children[4]).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
+                WhoHeadText(progHeader, 1).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
+                WhoHeadText(addrHeader, 4).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
 
                 List<WhoConn> conns;
                 if (!live || !_whoNow.TryGetValue(entry.Id, out conns) || conns == null) conns = new List<WhoConn>();
@@ -435,7 +446,7 @@ namespace MihomoLauncher.Views
                     progRows[i].Opacity = live && p != null && p.Open == 0 ? 0.5 : 1;
                     if (live) SetSpeed(progDown[i], p == null ? (double?)null : p.Down);
                     else SetVolume(progDown[i], p == null ? (double?)null : p.Down);
-                    progRows[i].Background = p != null && p.Key == selected ? Theme.SelectionBg : (i % 2 == 1 ? WhoStripe : Brushes.Transparent);
+                    WhoPaint(progRows[i], i, p == null ? (bool?)null : p.Key == selected);
                     progRows[i].ToolTip = p == null ? null : (p.Path.Length > 0 ? p.Path + "\n\n" : "") + Loc.T("Main_WhoTipOpen");
                     progRows[i].Cursor = p == null ? null : Cursors.Hand;
                 }
@@ -485,6 +496,7 @@ namespace MihomoLauncher.Views
                         aHost[i].Text = aIp[i].Text = aPlace[i].Text = aIsp[i].Text = "";
                         aCc[i].Visibility = Visibility.Collapsed;
                         aRows[i].Opacity = 1;
+                        WhoPaint(aRows[i], i, null);
                         SetSpeed(aDown[i], null); SetSpeed(aUp[i], null);
                         aHost[i].ToolTip = null;
                         continue;
@@ -493,6 +505,7 @@ namespace MihomoLauncher.Views
                     aHost[i].Text = (named ? a.Host : (a.Ip.Length > 0 ? a.Ip : "—")) + (a.Count > 1 ? "  ×" + a.Count : "");
                     aHost[i].ToolTip = (named ? a.Host : Loc.T("Main_WhoNoName")) + (live && a.Open == 0 ? "\n" + Loc.T("Main_WhoClosedTip") : "");
                     aRows[i].Opacity = live && a.Open == 0 ? 0.5 : 1;
+                    WhoPaint(aRows[i], i, false);
                     // Named: «173.194.182.8:443». A bare address is already the top line, so below it
                     // only «порт 59453 · UDP» (was a dangling «:59453»).
                     bool udp = string.Equals(a.Network, "udp", StringComparison.OrdinalIgnoreCase);
@@ -517,18 +530,18 @@ namespace MihomoLauncher.Views
                 }
 
                 // What each text column needs: its header, then its longest line among the rows.
-                want[0] = WhoTextWidth(Loc.T("Main_WhoColAddr"), 11.5, FontWeights.Normal, null);
-                want[1] = WhoTextWidth(Loc.T("Main_WhoColWhere"), 11.5, FontWeights.Normal, null);
-                want[2] = WhoTextWidth(Loc.T("Main_WhoColIsp"), 11.5, FontWeights.Normal, null);
+                want[0] = WhoTextWidth(Loc.T("Main_WhoColAddr"), WhoHeadFont, FontWeights.SemiBold, null);
+                want[1] = WhoTextWidth(Loc.T("Main_WhoColWhere"), WhoHeadFont, FontWeights.SemiBold, null);
+                want[2] = WhoTextWidth(Loc.T("Main_WhoColIsp"), WhoHeadFont, FontWeights.SemiBold, null);
                 for (int i = 0; i < addrs.Count; i++)
                 {
-                    want[0] = Math.Max(want[0], Math.Max(WhoTextWidth(aHost[i].Text, 12.5, FontWeights.SemiBold, null),
+                    want[0] = Math.Max(want[0], Math.Max(WhoTextWidth(aHost[i].Text, WhoCellFont, FontWeights.SemiBold, null),
                                                          WhoTextWidth(aIp[i].Text, 11, FontWeights.Normal, WhoMono)));
                     double badge = aCc[i].Visibility == Visibility.Visible ? BadgeWidth + 6 : 0;
                     want[1] = Math.Max(want[1], badge + WhoTextWidth(aPlace[i].Text, 12, FontWeights.Normal, null));
                     want[2] = Math.Max(want[2], WhoTextWidth(aIsp[i].Text, 12, FontWeights.Normal, null));
                 }
-                for (int k = 0; k < 3; k++) want[k] += 16;   // the cell's own margin + a little air
+                for (int k = 0; k < 3; k++) want[k] += WhoCellChrome + 8;   // the cell's padding and hairline + a little air
                 LayoutAddr();
 
                 if (sel != null) empty.Text = "";
@@ -724,10 +737,11 @@ namespace MihomoLauncher.Views
             },
         };
 
+        // A grouped block: the raised surface (2026-11-22 standard; was the badge grey).
         private static Border Pane(UIElement child, Thickness padding) => new Border
         {
-            Background = Theme.BadgeNeutralBg,
-            BorderBrush = Theme.BadgeNeutralBorder,
+            Background = Theme.CardBg,
+            BorderBrush = Theme.CardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = padding,
@@ -749,7 +763,7 @@ namespace MihomoLauncher.Views
         // A right-aligned figure in tabular digits: the columns stay put as the numbers change.
         private static TextBlock Num()
         {
-            var t = new TextBlock { FontSize = 12.5, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Foreground = Theme.TextPrimary };
+            var t = new TextBlock { FontSize = WhoCellFont, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center, Foreground = Theme.TextPrimary };
             Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
             return t;
         }
@@ -787,7 +801,7 @@ namespace MihomoLauncher.Views
         {
             const int Spare = 80;   // 80 × 36 — taller than any screen
             var fill = new StackPanel { IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
-            for (int i = 0; i < Spare; i++) fill.Children.Add(new Border { Height = WhoRowH, CornerRadius = new CornerRadius(5) });
+            for (int i = 0; i < Spare; i++) fill.Children.Add(new Border { Height = WhoRowH });
             var host = new Grid { ClipToBounds = true };
             host.Children.Add(fill);
             host.Children.Add(sv);
@@ -804,7 +818,7 @@ namespace MihomoLauncher.Views
                     shown = n;
                     fill.Margin = new Thickness(0, n * WhoRowH, 0, 0);
                     for (int i = 0; i < Spare; i++)
-                        ((Border)fill.Children[i]).Background = (n + i) % 2 == 1 ? WhoStripe : Brushes.Transparent;
+                        WhoPaint((Border)fill.Children[i], n + i, null);
                 }
                 Apply();
             };
@@ -870,44 +884,90 @@ namespace MihomoLauncher.Views
             return g;
         }
 
-        // Titles from column 0; those from `rightFrom` on (the figures) aligned right.
-        private static Border HeaderRow(GridLength[] cols, int rightFrom, params string[] titles)
+        // One cell of the model table: 8 px sides, a hairline right and bottom (the first column
+        // also left; the header row also on top). joinRight: no right hairline — the column runs
+        // on into the empty spare column beside it, so the two read as one.
+        private static Border WhoCellBox(UIElement content, int col, bool head, bool joinRight)
+        {
+            var b = new Border
+            {
+                Padding = new Thickness(WhoCellPad, 0, WhoCellPad, 0),
+                BorderThickness = new Thickness(col == 0 ? 1 : 0, head ? 1 : 0, joinRight ? 0 : 1, 1),
+                Child = content,
+            };
+            b.BorderBrush = Theme.TableLine;
+            if (head) b.Background = Theme.TableHeaderBg;
+            Grid.SetColumn(b, col);
+            return b;
+        }
+
+        // A table in a well with the outline, like every table (2026-11-22). The table is pushed 1 px
+        // out on three sides and clipped back to the frame's inside (FrameClip): the frame is its
+        // only outline.
+        private static Border WhoWell(FrameworkElement table)
+        {
+            table.Margin = new Thickness(-1, -1, -1, 0);
+            FrameClip.SetRadius(table, 7);
+            return new Border
+            {
+                Background = Theme.ListBg,
+                BorderBrush = Theme.CardBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Child = table,
+            };
+        }
+
+        // The title in header cell i (the cells are WhoCellBox borders).
+        private static TextBlock WhoHeadText(Border header, int i) => (TextBlock)((Border)((Grid)header.Child).Children[i]).Child;
+
+        // Titles from column 0; those from `rightFrom` on (the figures) aligned right. The last
+        // column (the scroll bar's gutter) gets no cell.
+        private static Border HeaderRow(GridLength[] cols, int rightFrom, int joinRight, params string[] titles)
         {
             var g = Columns(cols);
-            for (int i = 0; i < titles.Length && i < cols.Length; i++)
+            for (int i = 0; i < titles.Length && i < cols.Length - 1; i++)
             {
                 var t = new TextBlock
                 {
-                    // TextSecondary, not Muted: the column titles were too faint (2026-11-17).
-                    Text = titles[i], FontSize = 11.5, Foreground = Theme.TextSecondary, VerticalAlignment = VerticalAlignment.Center,
+                    Text = titles[i], FontSize = WhoHeadFont, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = Theme.TextPrimary,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     TextAlignment = i >= rightFrom ? TextAlignment.Right : TextAlignment.Left,
-                    Margin = new Thickness(0, 0, 8, 0),
                 };
-                Grid.SetColumn(t, i);
-                g.Children.Add(t);
+                g.Children.Add(WhoCellBox(t, i, true, i == joinRight));
             }
-            return new Border { Height = 26, Background = WhoHeadBg, CornerRadius = new CornerRadius(5), Padding = new Thickness(8, 0, 0, 0), Child = g };
+            return new Border { Height = WhoHeadH, Child = g };
         }
 
-        private static Border Row(GridLength[] cols, int index, params UIElement[] cells)
+        private static Border Row(GridLength[] cols, int index, int joinRight, params UIElement[] cells)
         {
             var g = Columns(cols);
-            for (int i = 0; i < cells.Length && i < cols.Length; i++)
+            for (int i = 0; i < cells.Length && i < cols.Length - 1; i++)
             {
                 var fe = cells[i] as FrameworkElement;
-                if (fe != null) fe.Margin = new Thickness(0, 0, 8, 0);
-                Grid.SetColumn(cells[i], i);
-                g.Children.Add(cells[i]);
+                if (fe != null) fe.Margin = new Thickness(0);
+                g.Children.Add(WhoCellBox(cells[i], i, false, i == joinRight));
             }
-            return new Border
-            {
-                Height = WhoRowH,
-                Background = index % 2 == 1 ? WhoStripe : Brushes.Transparent,
-                CornerRadius = new CornerRadius(5),
-                Padding = new Thickness(8, 0, 0, 0),
-                Child = g,
-            };
+            var row = new Border { Height = WhoRowH, Child = g };
+            WhoPaint(row, index, null);
+            // Hover only on a row that shows something: an empty placeholder row stays still.
+            row.MouseEnter += (s, e) => WhoPaint(row, index, row.Tag as bool?);
+            row.MouseLeave += (s, e) => WhoPaint(row, index, row.Tag as bool?);
+            return row;
+        }
+
+        // A row's background, by the model's AppDataGridRowStyle: selected → TableRowSelected,
+        // under the pointer → TableRowHover, odd rows → TableRowAlt (Theme).
+        // state: null = an empty row (stripe only), false = a row with data, true = it is selected.
+        // Kept in Tag so the hover handlers know it.
+        private static void WhoPaint(Border row, int index, bool? state)
+        {
+            row.Tag = state;
+            if (state == true) row.Background = Theme.TableRowSelected;
+            else if (state != null && row.IsMouseOver) row.Background = Theme.TableRowHover;
+            else if (index % 2 == 1) row.Background = Theme.TableRowAlt;
+            else row.Background = Brushes.Transparent;
         }
     }
 }

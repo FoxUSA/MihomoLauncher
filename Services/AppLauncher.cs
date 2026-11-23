@@ -26,18 +26,25 @@ namespace MihomoLauncher.Services
                 .Where(x => !string.IsNullOrWhiteSpace(x.Url))
                 .ToList();
 
+            // A folder with «Плитка» (2026-11-22): the tile opens it in Explorer.
+            var folderToOpen = (rule.Folders ?? new List<RuleFolder>())
+                .Where(f => f != null && f.Launch && !string.IsNullOrWhiteSpace(f.Path)).ToList();
+
             var progToRun = programs.Where(p => p.Launch).ToList();
             var siteToRun = sites.Where(x => x.Site.Launch).ToList();
-            if (progToRun.Count == 0 && siteToRun.Count == 0)
+            if (progToRun.Count == 0 && siteToRun.Count == 0 && folderToOpen.Count == 0)
             {
-                // Nothing marked — sensible default: all programs, else all sites.
-                if (programs.Count > 0) progToRun = programs;
+                // Nothing marked — sensible default: all programs, else all sites. Never the ones
+                // auto-tracking added: those are helpers, started by their own program.
+                var manual = programs.Where(p => !p.Auto).ToList();
+                if (manual.Count > 0) progToRun = manual;
                 else siteToRun = sites;
             }
 
-            if (progToRun.Count == 0 && siteToRun.Count == 0)
+            if (progToRun.Count == 0 && siteToRun.Count == 0 && folderToOpen.Count == 0)
                 return (false, Loc.T("Svc_RuleNothingToLaunch"));
-            return LaunchAll(progToRun, siteToRun.Select(x => x.Url).ToList());
+            var r = LaunchAll(progToRun, siteToRun.Select(x => x.Url).ToList(), folderToOpen);
+            return r;
         }
 
         // Image names (no ".exe") of the desktop programs a click on this rule starts — what the
@@ -46,8 +53,9 @@ namespace MihomoLauncher.Services
         {
             var programs = (rule?.Programs ?? new List<RuleProgram>()).Where(p => p != null).ToList();
             var run = programs.Where(p => p.Launch).ToList();
-            bool anySiteMarked = (rule?.Sites ?? new List<RuleSite>()).Any(s => s != null && s.Launch);
-            if (run.Count == 0 && !anySiteMarked) run = programs;   // same default as Launch
+            bool anySiteMarked = (rule?.Sites ?? new List<RuleSite>()).Any(s => s != null && s.Launch)
+                              || (rule?.Folders ?? new List<RuleFolder>()).Any(f => f != null && f.Launch);
+            if (run.Count == 0 && !anySiteMarked) run = programs.Where(p => !p.Auto).ToList();   // same default as Launch
             return run.Where(p => !p.IsStoreApp && !string.IsNullOrWhiteSpace(p.Path))
                       .Select(p => { try { return Path.GetFileNameWithoutExtension(p.Path.Trim()); } catch { return ""; } })
                       .Where(n => !string.IsNullOrEmpty(n))
@@ -55,7 +63,8 @@ namespace MihomoLauncher.Services
                       .ToList();
         }
 
-        private static (bool ok, string error) LaunchAll(List<RuleProgram> progToRun, List<string> urls)
+        private static (bool ok, string error) LaunchAll(List<RuleProgram> progToRun, List<string> urls,
+                                                         List<RuleFolder> folders = null)
         {
             var errors = new List<string>();
             bool any = false;
@@ -63,6 +72,11 @@ namespace MihomoLauncher.Services
             foreach (var prog in progToRun)
             {
                 var r = LaunchProgram(prog);
+                if (r.ok) any = true; else errors.Add(r.error);
+            }
+            foreach (var f in folders ?? new List<RuleFolder>())
+            {
+                var r = OpenFolder(f.Path);
                 if (r.ok) any = true; else errors.Add(r.error);
             }
             foreach (var url in urls)
@@ -76,12 +90,12 @@ namespace MihomoLauncher.Services
         }
 
         // The address a site opens from the tile. A plain site has its own URL; a template
-        // (rule list, no URL) borrows the rule's CheckUrl — the service's own site, which the
-        // template picker fills in automatically.
+        // (rule list, no URL) borrows the rule's own address — the check address, else HomeUrl
+        // (the service's site the template brought; 2026-11-23 it no longer sits in the check field).
         private static string LaunchUrl(AppEntry rule, RuleSite site)
         {
             if (!string.IsNullOrWhiteSpace(site.Url)) return site.Url.Trim();
-            if (site.HasRuleList && !string.IsNullOrWhiteSpace(rule.CheckUrl)) return rule.CheckUrl.Trim();
+            if (site.HasRuleList && rule.OwnUrl.Length > 0) return rule.OwnUrl;
             return "";
         }
 
@@ -119,6 +133,21 @@ namespace MihomoLauncher.Services
                 catch { }
 
                 Process.Start(psi);
+                return (true, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message);
+            }
+        }
+
+        private static (bool ok, string error) OpenFolder(string path)
+        {
+            try
+            {
+                var p = (path ?? "").Trim();
+                if (!Directory.Exists(p)) return (false, Loc.T("Svc_FolderMissing", p));
+                Process.Start(new ProcessStartInfo { FileName = "explorer.exe", Arguments = "\"" + p + "\"", UseShellExecute = true });
                 return (true, null);
             }
             catch (Exception ex)

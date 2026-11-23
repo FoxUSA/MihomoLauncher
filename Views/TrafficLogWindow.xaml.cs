@@ -107,7 +107,7 @@ namespace MihomoLauncher.Views
             TabAll.Header = WithCount("Log_TabAll", rows.Count);
 
             var groups = RuleConflicts.Find(CurrentConfig);
-            TabConflicts.Header = WithCount("Log_TabConflicts", groups.Count);
+            TabConflicts.Header = WithCount("Log_TabConflicts", groups.Count(g => g.Real));
             if (CurrentTab == "conflicts") RenderConflicts(groups);
         }
 
@@ -121,7 +121,7 @@ namespace MihomoLauncher.Views
         {
             // Rebuilt only when something changed — the header timer calls this every 0.7 s.
             var sig = string.Join(";", groups.Select(g => g.Winner?.Id + ">" + g.Loser?.Id + ":" + g.Items.Count
-                                                         + ":" + g.Winner?.KillSwitch + g.Loser?.RequiresVpn + g.Loser?.KillSwitch))
+                                                         + ":" + g.Winner?.KillSwitch + g.Loser?.RequiresVpn + g.Loser?.KillSwitch + g.SameRoute))
                       + "|" + Loc.Current;
             if (sig == _conflictSig) return;
             _conflictSig = sig;
@@ -140,13 +140,27 @@ namespace MihomoLauncher.Views
                 return;
             }
 
-            foreach (var g in groups)
+            // Real ones first; the harmless ones after them, greyed, with why they don't matter.
+            foreach (var g in groups.Where(x => x.Real).Concat(groups.Where(x => !x.Real)))
             {
                 string w = g.Winner?.Name ?? "", l = g.Loser?.Name ?? "";
-                bool programs = g.Items.All(i => i.Kind == ConflictKind.Program);
+                bool programs = g.Items.All(i => i.Kind == ConflictKind.Program || i.Folder);
+                bool folderPartial = g.Items.All(i => i.Kind == ConflictKind.FolderPartial || i.Kind == ConflictKind.FilePartial);
                 var addrs = g.Items.Select(i => i.LoserItem).Distinct().ToList();
 
                 var sp = new StackPanel();
+                if (!g.Real)
+                {
+                    sp.Opacity = 0.6;
+                    sp.Children.Add(new TextBlock
+                    {
+                        Text = Loc.T(g.SameRoute ? "Log_ConfHarmlessRoute" : folderPartial ? "Log_ConfHarmlessFolder" : "Log_ConfHarmlessPartial", w, l),
+                        FontSize = 12,
+                        Margin = new Thickness(0, 0, 0, 6),
+                        Foreground = Theme.AccentGreen,
+                        TextWrapping = TextWrapping.Wrap,
+                    });
+                }
                 sp.Children.Add(new TextBlock
                 {
                     Text = string.Join(", ", addrs.Take(4)) + (addrs.Count > 4 ? "  +" + (addrs.Count - 4) : ""),
@@ -157,7 +171,8 @@ namespace MihomoLauncher.Views
                 });
 
                 // Who wins and why.
-                string why = !RuleConflicts.Writes(g.Loser) ? Loc.T("Log_ConfWhoSilent", w, l)
+                string why = folderPartial ? Loc.T("Log_ConfWhoFolder", w, l)
+                           : !RuleConflicts.Writes(g.Loser) ? Loc.T("Log_ConfWhoSilent", w, l)
                            : Loc.T(programs ? "Log_ConfWhoProg" : "Log_ConfWho", w, l);
                 var whoLine = new TextBlock { FontSize = 12.5, Margin = new Thickness(0, 4, 0, 0), TextWrapping = TextWrapping.Wrap, Foreground = Theme.TextSecondary };
                 whoLine.Inlines.Add(new System.Windows.Documents.Run(Loc.T("Log_ConfWins") + " "));
@@ -208,6 +223,7 @@ namespace MihomoLauncher.Views
                     Margin = new Thickness(10, 10, 10, 0),
                     Padding = new Thickness(14, 10, 14, 12),
                     CornerRadius = new CornerRadius(8),
+                    Background = Theme.CardBg,   // a grouped block on the well: raised (2026-11-22)
                     BorderBrush = Theme.CardBorder,
                     BorderThickness = new Thickness(1),
                     Child = sp,
@@ -224,6 +240,8 @@ namespace MihomoLauncher.Views
                 case ConflictKind.Partial: return Loc.T("Log_ConfPartial", c.WinnerItem, w, c.LoserItem, l);
                 case ConflictKind.Keyword: return Loc.T("Log_ConfKeyword", c.WinnerItem, w, c.LoserItem, l);
                 case ConflictKind.Ip: return Loc.T("Log_ConfIp", c.LoserItem, l, c.WinnerItem, w);
+                case ConflictKind.FolderPartial: return Loc.T("Log_ConfFolderPartial", c.WinnerItem, w, c.LoserItem, l);
+                case ConflictKind.FilePartial: return Loc.T("Log_ConfFilePartial", c.WinnerItem, w, c.LoserItem, l);
                 default: return Loc.T("Log_ConfProgram", c.LoserItem);
             }
         }

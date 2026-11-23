@@ -9,7 +9,8 @@
                  WindowStartupLocation="CenterScreen"
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <ui:FluentWindow.Resources>
         <!-- Custom TabControl chrome: headers in a plain horizontal StackPanel (no TabPanel
              deformation, no WPF-UI selection indicator), content in a stretching host
@@ -188,17 +189,38 @@
                     <TextBlock Grid.Row="3" Text="{DynamicResource Set_NowViaTunnel}" FontSize="14" FontWeight="SemiBold" Margin="2,4,0,4" />
                     <ui:Card Grid.Row="4" Padding="6" Margin="0,0,0,8">
                         <Grid>
-                            <ListView x:Name="LstRoutes" MinHeight="90" SelectionMode="Single">
-                                <ListView.View>
-                                    <GridView>
-                                        <GridViewColumn Header="{DynamicResource Set_ColApp}" Width="180" DisplayMemberBinding="{Binding AppName}" />
-                                        <GridViewColumn Header="{DynamicResource Set_ColVariant}" Width="200" DisplayMemberBinding="{Binding SlotLabel}" />
-                                        <GridViewColumn Header="{DynamicResource Set_ColNode}" Width="170" DisplayMemberBinding="{Binding ProxyName}" />
-                                        <GridViewColumn Header="{DynamicResource Set_ColSite}" Width="180" DisplayMemberBinding="{Binding Target}" />
-                                        <GridViewColumn Header="{DynamicResource Set_ColStatus}" Width="110" DisplayMemberBinding="{Binding StatusLabel}" />
-                                    </GridView>
-                                </ListView.View>
-                            </ListView>
+                            <!-- Looks like the rules list (ListsWindow.GridApps, 2026-11-22): the shared styles
+                                 as they are. The old fixed widths (180/200/170/180/110) kept as shares of the
+                                 width, so the table fills the card and is never cut off at the window's
+                                 minimum width (the grid has no horizontal scroll bar, the ListView had). -->
+                            <!-- In a well (2026-11-22 colour standard), also inside the card; FrameClip makes
+                                 the frame the only outline. The well stays when the list is collapsed
+                                 (no routes): «нет маршрутов» is then written inside it. -->
+                            <Border MinHeight="90" CornerRadius="8"
+                                    Background="{x:Static svc:Theme.ListBg}"
+                                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                            <DataGrid x:Name="LstRoutes" MinHeight="88" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
+                                      Style="{StaticResource AppDataGridStyle}"
+                                      RowStyle="{StaticResource AppDataGridRowStyle}"
+                                      CellStyle="{StaticResource AppDataGridCellStyle}"
+                                      ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
+                                      CanUserSortColumns="False">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="{DynamicResource Set_ColApp}" Binding="{Binding AppName}" Width="180*"
+                                                        ElementStyle="{StaticResource TruncatedTextStyle}"
+                                                        CellStyle="{StaticResource FirstColumnCellStyle}"
+                                                        HeaderStyle="{StaticResource FirstColumnHeaderStyle}" />
+                                    <DataGridTextColumn Header="{DynamicResource Set_ColVariant}" Binding="{Binding SlotLabel}" Width="200*"
+                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
+                                    <DataGridTextColumn Header="{DynamicResource Set_ColNode}" Binding="{Binding ProxyName}" Width="170*"
+                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
+                                    <DataGridTextColumn Header="{DynamicResource Set_ColSite}" Binding="{Binding Target}" Width="180*"
+                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
+                                    <DataGridTextColumn Header="{DynamicResource Set_ColStatus}" Binding="{Binding StatusLabel}" Width="110*"
+                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                            </Border>
                             <TextBlock x:Name="LblNoRoutes"
                                        Text="{DynamicResource Set_NoRoutes}"
                                        FontSize="13" Opacity="0.6"
@@ -286,6 +308,7 @@
                                 <TextBlock Grid.Row="0" Grid.Column="0" Text="{DynamicResource Set_DnsPrimary}" FontSize="13"
                                            VerticalAlignment="Center" Margin="0,0,10,0" MinWidth="70" />
                                 <ui:TextBox x:Name="TxtDns1" Grid.Row="0" Grid.Column="1" FontSize="13"
+                                            svc:PasteButton.IsEnabled="True"
                                             PlaceholderText="{DynamicResource Set_DnsPlaceholder}"
                                             TextChanged="OnDnsTextChanged" LostFocus="OnDns1LostFocus" />
                                 <TextBlock x:Name="LblDns1" Grid.Row="1" Grid.Column="1" FontSize="12" Margin="2,3,0,8"
@@ -294,6 +317,7 @@
                                 <TextBlock x:Name="LblDns2Caption" Grid.Row="2" Grid.Column="0" Text="{DynamicResource Set_DnsSecondary}"
                                            FontSize="13" VerticalAlignment="Center" Margin="0,0,10,0" />
                                 <ui:TextBox x:Name="TxtDns2" Grid.Row="2" Grid.Column="1" FontSize="13"
+                                            svc:PasteButton.IsEnabled="True"
                                             PlaceholderText="{DynamicResource Set_DnsPlaceholder2}"
                                             TextChanged="OnDnsTextChanged" />
                                 <TextBlock x:Name="LblDns2" Grid.Row="3" Grid.Column="1" FontSize="12" Margin="2,3,0,8"
@@ -450,64 +474,8 @@
                 </ScrollViewer>
             </TabItem>
 
-            <!-- ============ TAB: Network (2026-11-14) — the tiles' card strip + Windows' own
-                 card priority (interface metrics, applied by the SYSTEM helper) ============ -->
-            <TabItem x:Name="TabNet" Header="{DynamicResource Set_TabNet}" Style="{StaticResource CardTabItemStyle}">
-                <ScrollViewer Margin="4,10,0,4" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="False">
-                <Grid Margin="0,0,10,0" MinHeight="{Binding ViewportHeight, RelativeSource={RelativeSource AncestorType=ScrollViewer}}">
-                    <ui:Card Padding="14" VerticalAlignment="Top">
-                        <StackPanel>
-                            <TextBlock Text="{DynamicResource Set_NicPrioTitle}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4" />
-                            <TextBlock Text="{DynamicResource Set_NicPrioDesc}"
-                                       FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
-                            <DataGrid x:Name="GridNics"
-                                      Style="{StaticResource AppDataGridStyle}"
-                                      RowStyle="{StaticResource AppDataGridRowStyle}"
-                                      CellStyle="{StaticResource AppDataGridCellStyle}"
-                                      ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
-                                      CanUserSortColumns="False" MinHeight="70">
-                                <DataGrid.Columns>
-                                    <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="Auto" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_NicColCard}" Binding="{Binding Name}" Width="Auto" MaxWidth="240"
-                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_NicColState}" Binding="{Binding State}" Width="*"
-                                                        ElementStyle="{StaticResource TruncatedTextStyle}" />
-                                    <DataGridTextColumn Header="{DynamicResource Set_NicColMetric}" Binding="{Binding MetricLabel}" Width="Auto" />
-                                    <!-- ▲▼ beside the drag (2026-11-15). A template column: GridRowDrag never starts from it. -->
-                                    <DataGridTemplateColumn Width="Auto">
-                                        <DataGridTemplateColumn.CellTemplate>
-                                            <DataTemplate>
-                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="2,0">
-                                                    <ui:Button Appearance="Transparent" Padding="0" Width="24" Height="22" Margin="0,0,2,0"
-                                                               BorderThickness="0" Cursor="Hand"
-                                                               IsEnabled="{Binding CanUp}" Click="OnNicUp"
-                                                               ToolTip="{DynamicResource Set_NicUpTip}">
-                                                        <ui:SymbolIcon Symbol="ChevronUp16" FontSize="13" />
-                                                    </ui:Button>
-                                                    <ui:Button Appearance="Transparent" Padding="0" Width="24" Height="22"
-                                                               BorderThickness="0" Cursor="Hand"
-                                                               IsEnabled="{Binding CanDown}" Click="OnNicDown"
-                                                               ToolTip="{DynamicResource Set_NicDownTip}">
-                                                        <ui:SymbolIcon Symbol="ChevronDown16" FontSize="13" />
-                                                    </ui:Button>
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </DataGridTemplateColumn.CellTemplate>
-                                    </DataGridTemplateColumn>
-                                </DataGrid.Columns>
-                            </DataGrid>
-                            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                                <ui:Button x:Name="BtnNicDefault" Content="{DynamicResource Set_NicDefault}" MinWidth="120" Click="OnNicDefault" />
-                            </StackPanel>
-                            <TextBlock x:Name="LblNicStatus" FontSize="12" Opacity="0.85" TextWrapping="Wrap" Margin="0,8,0,0"
-                                       Visibility="Collapsed" />
-                            <!-- The «показывать выбор карты / скорость» boxes are gone (2026-11-16): speed
-                                 is always shown, the card icon whenever there are two cards or more. -->
-                        </StackPanel>
-                    </ui:Card>
-                </Grid>
-                </ScrollViewer>
-            </TabItem>
+            <!-- The «Сеть» tab (card priority) moved out on 2026-11-23: its own dialog,
+                 NicPriorityDialog, opened from the menu of a tile's network-card chip. -->
 
             <!-- ============ TAB 5: Config (launcher-level options) ============ -->
             <TabItem Header="{DynamicResource Set_TabSettings}" Style="{StaticResource CardTabItemStyle}">
@@ -609,14 +577,15 @@
             </Grid>
         </Border>
 
-        <!-- Footer buttons -->
+        <!-- Footer buttons. «Выйти из программы» is the muted danger button (2026-11-22): a rare
+             action must not be the loudest thing in the window. -->
         <Border Grid.Row="2" Padding="20,8">
             <DockPanel>
                 <ui:Button x:Name="BtnExitAppFooter" Content="{DynamicResource Set_BtnExitApp}"
                            DockPanel.Dock="Left"
                            FontSize="14"
                            Padding="20,8"
-                           Appearance="Danger"
+                           Style="{StaticResource DangerButtonStyle}"
                            Click="OnExitApp" />
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <ui:Button x:Name="BtnSave" Content="{DynamicResource Set_BtnSave}" Margin="0,0,8,0" Appearance="Primary" FontSize="14" Padding="20,8" Click="OnSave" />
@@ -628,7 +597,7 @@
         <!-- Exit confirmation toast — overlays whole window incl. title bar; click on backdrop = cancel -->
         <Grid x:Name="ExitConfirmOverlay"
               Grid.Row="0" Grid.RowSpan="3"
-              Background="#80000000"
+              Background="{x:Static svc:Theme.OverlayBackdrop}"
               Visibility="Collapsed"
               MouseLeftButtonDown="OnExitOverlayBackdropClick"
               Panel.ZIndex="100">
@@ -636,13 +605,13 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Background="{x:Static svc:Theme.OverlayCardBg}"
-                    BorderBrush="{x:Static svc:Theme.CardBorder}"
+                    BorderBrush="{x:Static svc:Theme.PickerBorder}"
                     BorderThickness="1"
                     CornerRadius="10"
                     Padding="20,18"
                     MouseLeftButtonDown="OnExitToastClick">
                 <Border.Effect>
-                    <DropShadowEffect Color="#000000" BlurRadius="18" ShadowDepth="2" Opacity="0.35" />
+                    <DropShadowEffect Color="{x:Static svc:Theme.ShadowBase}" BlurRadius="18" ShadowDepth="2" Opacity="0.35" />
                 </Border.Effect>
                 <StackPanel>
                     <TextBlock Text="{DynamicResource Set_ExitConfirmTitle}"
@@ -659,7 +628,7 @@
                                    FontSize="13"
                                    Padding="16,6"
                                    Margin="0,0,8,0"
-                                   Appearance="Danger"
+                                   Style="{StaticResource DangerButtonStyle}"
                                    Click="OnExitConfirm" />
                         <ui:Button Content="{DynamicResource Set_BtnCancel}"
                                    FontSize="13"

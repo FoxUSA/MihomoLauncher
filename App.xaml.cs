@@ -77,16 +77,20 @@ namespace MihomoLauncher
             EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
                 new RoutedEventHandler((s, a) => { if (ReferenceEquals(a.OriginalSource, s)) UiHelpers.KeepOnScreen((Window)s); }));
 
-            // Force the dark theme for the whole app (title-bar buttons + Mica backdrop
-            // follow this, not just the merged ThemesDictionary).
-            try { Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark); } catch { }
+            // Force the dark theme for the whole app (title-bar buttons follow this, not just the
+            // merged ThemesDictionary). Backdrop None, said out loud: the call's default is Mica,
+            // and no window may be tinted by the wallpaper (2026-11-22 colour standard — every
+            // window is Theme.WindowBg, opaque).
+            try { Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark, Wpf.Ui.Controls.WindowBackdropType.None); } catch { }
 
-            // Calm, muted steel-blue accent instead of the loud default mint/teal — keeps
-            // Primary buttons (e.g. «Подключить») from shouting.
+            // The app's one accent (Theme.Accent) for the library too: primary buttons, checked
+            // boxes, switches, focus. Given as all four of the library's accent shades — with only
+            // the base colour it derives lighter, greyer variants for its fills, and the app had
+            // two blues side by side (2026-11-22). Hover still differs: the library dims the fill.
             try
             {
-                var accent = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#5E7CA8");
-                Wpf.Ui.Appearance.ApplicationAccentColorManager.Apply(accent, Wpf.Ui.Appearance.ApplicationTheme.Dark);
+                var accent = Theme.AccentColor;
+                Wpf.Ui.Appearance.ApplicationAccentColorManager.Apply(accent, accent, accent, accent);
             }
             catch { }
 

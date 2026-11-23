@@ -27,7 +27,7 @@
                          Minimum="0"
                          Maximum="100"
                          IsIndeterminate="True"
-                         Foreground="{x:Static svc:Theme.AccentBlue}"
+                         Foreground="{x:Static svc:Theme.Accent}"
                          Background="{x:Static svc:Theme.ListBg}"
                          BorderThickness="0" />
             <TextBlock x:Name="PercentText"

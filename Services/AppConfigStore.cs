@@ -301,6 +301,8 @@ namespace MihomoLauncher.Services
                 {
                     var migrated = MigrateOrReset(loaded);
                     EnsureAllTraffic(migrated.Apps);
+                    NormalizeCheckAddresses(migrated.Apps);
+                    NormalizeSlots(migrated.VpnSlots);
                     Save(migrated);
                     return migrated;
                 }
@@ -318,6 +320,10 @@ namespace MihomoLauncher.Services
                 if (NormalizeRules(loaded.Apps)) dirty = true;
                 if (EnsureAllTraffic(loaded.Apps)) dirty = true;
                 if (NormalizeDirectWithTicks(loaded)) dirty = true;
+                // After NormalizeRules: the check address is judged on the entry as the old connect
+                // saw it (legacy fields already folded in).
+                if (NormalizeCheckAddresses(loaded.Apps)) dirty = true;
+                if (NormalizeSlots(loaded.VpnSlots)) dirty = true;
                 if (dirty) Save(loaded);
                 return loaded;
             }
@@ -433,10 +439,12 @@ namespace MihomoLauncher.Services
                 if (a == null) continue;
                 if (a.Programs == null) a.Programs = new List<RuleProgram>();
                 if (a.Sites == null) a.Sites = new List<RuleSite>();
+                if (a.Folders == null) a.Folders = new List<RuleFolder>();
+                if (a.AutoIgnored == null) a.AutoIgnored = new List<string>();
                 if (a.IsAllTraffic) continue;   // built in, nothing to fold
 
                 // Already a rule (has contents) — just clear any stale legacy fields.
-                if (a.Programs.Count > 0 || a.Sites.Count > 0)
+                if (a.Programs.Count > 0 || a.Sites.Count > 0 || a.Folders.Count > 0)
                 {
                     if (ClearLegacy(a)) changed = true;
                     continue;
@@ -488,7 +496,7 @@ namespace MihomoLauncher.Services
             var order = e.VpnSlotOrder ?? new List<string>();
             var off = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
             if (order.Count == 0 && off.Count == 0) return false;
-            return (slots ?? Enumerable.Empty<VpnSlot>()).Any(s => s != null && s.Enabled && !off.Contains(s.Id));
+            return (slots ?? Enumerable.Empty<VpnSlot>()).Any(s => s != null && !off.Contains(s.Id));
         }
 
         // «Напрямую» on a tile with VPNs ticked keeps it a VPN tile, switched off (2026-11-16: «если
@@ -547,6 +555,7 @@ namespace MihomoLauncher.Services
             if (keep.IconPath != AppEntry.AllTrafficIcon) { keep.IconPath = AppEntry.AllTrafficIcon; changed = true; }
             if (keep.Programs == null || keep.Programs.Count > 0) { keep.Programs = new List<RuleProgram>(); changed = true; }
             if (keep.Sites == null || keep.Sites.Count > 0) { keep.Sites = new List<RuleSite>(); changed = true; }
+            if (keep.Folders == null || keep.Folders.Count > 0) { keep.Folders = new List<RuleFolder>(); changed = true; }
             if (!string.IsNullOrEmpty(keep.CheckUrl)) { keep.CheckUrl = ""; changed = true; }
             // «Глобально» (2026-11-12, removed the same week): drop it from a config that has it.
             if (apps.RemoveAll(a => a != null && a.IsGlobal) > 0) changed = true;
@@ -564,6 +573,73 @@ namespace MihomoLauncher.Services
             if (a.RuleItems != null && a.RuleItems.Count > 0) { a.RuleItems = new List<string>(); changed = true; }
             if (!string.IsNullOrEmpty(a.RuleFetchedUtc)) { a.RuleFetchedUtc = ""; changed = true; }
             if (a.Kind != AppEntryKind.Program) { a.Kind = AppEntryKind.Program; changed = true; }
+            return changed;
+        }
+
+        // «Не проверять» is gone (2026-11-23): the check address is the switch — filled = checked,
+        // empty = not checked. Until now the field filled itself (a known service guessed from the
+        // rule's name, a template's own site) and almost always sat under a ticked «Не проверять».
+        // Brought over so that no rule changes what it does:
+        //  - not checked, address filled → the address moves to HomeUrl. Routed exactly as before
+        //    and still what a template's tile opens (AppEntry.OwnUrl), only no longer in the field,
+        //    so the rule does not start being checked;
+        //  - checked, field empty → the address the old connect really probed goes in
+        //    (OldProbeUrl); there is none → it never was checked: SkipCheck = true, as it behaved.
+        // Idempotent (once SkipCheck == "CheckUrl is empty" nothing changes), so it runs on every
+        // load: a config written by an older version is brought over the same way.
+        // True if anything changed (caller saves).
+        internal static bool NormalizeCheckAddresses(List<AppEntry> apps)
+        {
+            if (apps == null) return false;
+            bool changed = false;
+            foreach (var a in apps)
+            {
+                if (a == null) continue;
+                if (a.HomeUrl == null) a.HomeUrl = "";
+                var check = (a.CheckUrl ?? "").Trim();
+                if (a.SkipCheck && check.Length > 0)
+                {
+                    a.HomeUrl = check;
+                    a.CheckUrl = "";
+                    changed = true;
+                    try { Log.Info("Правило «" + a.Name + "»: адрес " + check + " не проверялся — убран из поля проверки (маршрут и плитка как были)."); } catch { }
+                }
+                else if (!a.SkipCheck && check.Length == 0)
+                {
+                    var probed = OldProbeUrl(a);
+                    if (probed.Length > 0) a.CheckUrl = probed;
+                    else a.SkipCheck = true;   // nothing to probe: the old connect let it through unchecked
+                    changed = true;
+                }
+            }
+            return changed;
+        }
+
+        // What the connect before 2026-11-23 probed (MainWindow.ResolveCheckUrl of that time): the
+        // check address, else a URL in the legacy Path, else one in the legacy launch arguments.
+        internal static string OldProbeUrl(AppEntry a)
+        {
+            if (a == null) return "";
+            if (!string.IsNullOrWhiteSpace(a.CheckUrl)) return a.CheckUrl.Trim();
+            var p = (a.Path ?? "").Trim();
+            if (p.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || p.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return p;
+            return ExtractUrl(a.Arguments);
+        }
+
+        // Every VPN configuration is in use since 2026-11-23 (the «use when cycling» box is gone):
+        // one switched off in an older version comes back on. A rule that must not use it says so
+        // with its own numbers (DisabledVpnSlotIds), which a switched-off one kept untouched.
+        internal static bool NormalizeSlots(List<VpnSlot> slots)
+        {
+            bool changed = false;
+            foreach (var s in slots ?? new List<VpnSlot>())
+            {
+                if (s == null || s.Enabled) continue;
+                s.Enabled = true;
+                changed = true;
+                try { Log.Info("VPN-конфигурация «" + s.Name + "» была выключена — теперь используются все."); } catch { }
+            }
             return changed;
         }
 

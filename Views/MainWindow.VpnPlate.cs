@@ -326,7 +326,7 @@ namespace MihomoLauncher.Views
             var order = e.VpnSlotOrder ?? new List<string>();
             var disabled = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
             return (_config.VpnSlots ?? new List<VpnSlot>())
-                .Where(s => s != null && s.Enabled && !disabled.Contains(s.Id))
+                .Where(s => s != null && !disabled.Contains(s.Id))
                 .OrderBy(s => { int i = order.IndexOf(s.Id); return i < 0 ? int.MaxValue : i; })
                 .FirstOrDefault();
         }
@@ -364,7 +364,7 @@ namespace MihomoLauncher.Views
             bool changed = false;
             try
             {
-                var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
+                var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).ToList();
                 for (int i = 0; i < slots.Count; i++)
                 {
                     var slot = slots[i];
@@ -399,7 +399,7 @@ namespace MihomoLauncher.Views
             // stayed over the window: nothing in it could be clicked any more).
             if (PresentationSource.FromVisual(anchor) == null) return;
 
-            var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null && s.Enabled).ToList();
+            var slots = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).ToList();
             // Nothing to pick: no VPN to move to, and the tile is already where «Напрямую» would
             // put it (the built-in tiles still have «Блокировать»).
             if (slots.Count == 0 && !entry.IsBuiltIn && !entry.RequiresVpn)

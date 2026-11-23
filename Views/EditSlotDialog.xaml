@@ -2,13 +2,15 @@
                  xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:svc="clr-namespace:MihomoLauncher.Services"
                  Title="{DynamicResource Slot_Title}"
                  Width="640"
                  SizeToContent="Height"
                  ResizeMode="NoResize"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -26,9 +28,11 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
+                    <!-- Empty: a «paste» icon where the cross is (PasteButton), as if typed. -->
                     <ui:TextBox x:Name="TxtValue" Grid.Column="0" FontSize="13"
                                 AcceptsReturn="True" TextWrapping="NoWrap" MaxHeight="120"
                                 VerticalScrollBarVisibility="Auto"
+                                svc:PasteButton.IsEnabled="True"
                                 TextChanged="OnValueChanged" />
                     <ui:Button x:Name="BtnBrowse" Grid.Column="1" Content="{DynamicResource Slot_Browse}" Margin="8,0,0,0"
                                VerticalAlignment="Top" Click="OnBrowse" />
@@ -74,10 +78,8 @@
                                FontSize="11" Opacity="0.6" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
 
-                <CheckBox x:Name="ChkEnabled"
-                          Content="{DynamicResource Slot_UseInRotation}"
-                          FontSize="13"
-                          Margin="0,20,0,0" />
+                <!-- The «use when cycling through» box is gone (2026-11-23): every configuration is
+                     in use; which ones a rule takes is the rule's own numbering. -->
         </StackPanel>
 
         <Border Grid.Row="2" Padding="20,12">

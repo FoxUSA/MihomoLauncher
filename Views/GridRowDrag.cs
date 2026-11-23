@@ -219,7 +219,19 @@ namespace MihomoLauncher.Views
             return null;
         }
 
-        private static ImageSource Snapshot(FrameworkElement fe)
+        private static ImageSource Snapshot(FrameworkElement fe) => RowGhost.Snapshot(fe);
+
+        private sealed class RowGhostAdorner : RowGhost.Adorner
+        {
+            public RowGhostAdorner(UIElement adorned, ImageSource snap, double w, double h) : base(adorned, snap, w, h) { }
+        }
+    }
+
+    // The dragged row's picture, shared by GridRowDrag and the rule editor's auto rows
+    // (EditRuleDialog, 2026-11-22).
+    internal static class RowGhost
+    {
+        internal static ImageSource Snapshot(FrameworkElement fe)
         {
             double w = Math.Max(1, fe.ActualWidth), h = Math.Max(1, fe.ActualHeight);
             var dpi = VisualTreeHelper.GetDpi(fe);
@@ -234,20 +246,20 @@ namespace MihomoLauncher.Views
         }
 
         // The picture of the row under the cursor: with a shadow, not hit-testable.
-        private sealed class RowGhostAdorner : Adorner
+        internal class Adorner : System.Windows.Documents.Adorner
         {
             private readonly Border _box;
             private Point _topLeft;
 
-            public RowGhostAdorner(UIElement adorned, ImageSource snap, double w, double h) : base(adorned)
+            public Adorner(UIElement adorned, ImageSource snap, double w, double h) : base(adorned)
             {
                 IsHitTestVisible = false;
                 _box = new Border
                 {
                     Width = w, Height = h, Opacity = 0.95,
-                    Background = (Brush)Application.Current.TryFindResource("ControlFillColorSecondaryBrush")
-                                 ?? Brushes.Transparent,
-                    BorderBrush = Theme.AccentBlue, BorderThickness = new Thickness(1),
+                    // Floating, framed in the one accent: it is being moved (2026-11-22 standard).
+                    Background = Theme.OverlayCardBg,
+                    BorderBrush = Theme.Accent, BorderThickness = new Thickness(1),
                     Child = new Image { Source = snap, Width = w, Height = h },
                     Effect = new System.Windows.Media.Effects.DropShadowEffect
                     {

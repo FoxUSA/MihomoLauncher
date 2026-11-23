@@ -542,8 +542,14 @@ namespace MihomoLauncher.Services
                                                      IEnumerable<string> processNames,
                                                      IEnumerable<string> ipCidrs = null,
                                                      bool catchAll = false,
-                                                     CancellationToken ct = default)
+                                                     CancellationToken ct = default,
+                                                     IEnumerable<string> folders = null,
+                                                     IEnumerable<string> files = null)
         {
+            // folders: a tile's folder entries — a connection whose program runs from one of them.
+            // files: auto entries — a connection of exactly that program file (version bumps included).
+            var dirs = (folders ?? Enumerable.Empty<string>()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
+            var exact = (files ?? Enumerable.Empty<string>()).Where(f => !string.IsNullOrWhiteSpace(f)).ToList();
             // catchAll: also close whatever the final MATCH carried — «Весь трафик» names no
             // host or program, its connections are recognised by the rule that routed them.
             var hosts = (hostSuffixes ?? Enumerable.Empty<string>())
@@ -558,7 +564,7 @@ namespace MihomoLauncher.Services
             // template-backed rule left exactly those connections alive.
             var nets = (ipCidrs ?? Enumerable.Empty<string>())
                 .Select(ParseCidr).Where(n => n != null).ToList();
-            if (hosts.Count == 0 && procs.Count == 0 && nets.Count == 0 && !catchAll) return 0;
+            if (hosts.Count == 0 && procs.Count == 0 && nets.Count == 0 && dirs.Count == 0 && exact.Count == 0 && !catchAll) return 0;
 
             try
             {
@@ -588,6 +594,12 @@ namespace MihomoLauncher.Services
                     {
                         var dest = JsonField(conn, "destinationIP");
                         hit = dest.Length > 0 && nets.Any(n => n.Contains(dest));
+                    }
+                    if (!hit && (dirs.Count > 0 || exact.Count > 0))
+                    {
+                        var path = JsonField(conn, "processPath");
+                        hit = path.Length > 0 && (dirs.Any(d => MihomoConfigBuilder.InFolder(path, d))
+                                                  || exact.Any(f => MihomoConfigBuilder.IsSameFile(path, f)));
                     }
                     if (!hit && catchAll)
                         hit = JsonField(conn, "rule").Equals("Match", StringComparison.OrdinalIgnoreCase);

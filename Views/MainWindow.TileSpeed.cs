@@ -139,6 +139,8 @@ namespace MihomoLauncher.Views
         {
             var conns = await _mihomo.GetConnectionStatsAsync().ConfigureAwait(true);
             var now = DateTime.UtcNow;
+            // The same poll tells the rules' auto-tracking who went online (MainWindow.AutoTrack).
+            NoteAutoTrackConnections(conns);
             if (conns == null)
             {
                 // Engine down / restarting: nothing moves through it.
@@ -206,9 +208,17 @@ namespace MihomoLauncher.Views
             _speedMapDirty = false;
             var sites = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var other = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var folders = new List<KeyValuePair<string, string>>();
+            var autoFiles = new List<KeyValuePair<string, string>>();
             string match = null;
             foreach (var app in (_config?.Apps ?? new List<AppEntry>()).Where(a => a != null))
             {
+                foreach (var f in app.Folders ?? new List<RuleFolder>())
+                    if (f != null && !string.IsNullOrWhiteSpace(f.Path))
+                        folders.Add(new KeyValuePair<string, string>(f.Path, app.Id));
+                foreach (var p in app.Programs ?? new List<RuleProgram>())
+                    if (MihomoConfigBuilder.AutoFileRegex(p).Length > 0)
+                        autoFiles.Add(new KeyValuePair<string, string>(p.Path, app.Id));
                 var rules = new List<RuleDef>();
                 try { MihomoConfigBuilder.AddAppRules(rules, app, app.Id); } catch { continue; }
                 foreach (var r in rules)
@@ -222,7 +232,14 @@ namespace MihomoLauncher.Views
             _speedSiteRules = sites;
             _speedOtherRules = other;
             _speedMatchTile = match;
+            // The deeper folder first, as in the config (stable: equal depth keeps the tile order).
+            _speedFolders = folders.OrderByDescending(f => MihomoConfigBuilder.NormalizeFolder(f.Key).Length).ToList();
+            _speedAutoFiles = autoFiles;
         }
+
+        private List<KeyValuePair<string, string>> _speedFolders = new List<KeyValuePair<string, string>>();
+        // Auto entries by their exact file (in tile order, as in the config).
+        private List<KeyValuePair<string, string>> _speedAutoFiles = new List<KeyValuePair<string, string>>();
 
         // "DOMAIN-SUFFIX" (config) and "DomainSuffix" (engine) → "DOMAINSUFFIX"; IP-CIDR6 is IPCIDR to the engine.
         private static string RuleKey(string type, string value)
@@ -248,9 +265,18 @@ namespace MihomoLauncher.Views
             // its traffic arrives as MATCH and was counted to «Всё остальное» (Claude, 2026-11-16).
             tile = HostTile(c, _speedSiteRules);
             if (tile != null) return tile;
+            // An auto-tracked file sits right below the sites, above every program by name.
+            if (!string.IsNullOrEmpty(c.ProcessPath))
+                foreach (var f in _speedAutoFiles ?? new List<KeyValuePair<string, string>>())
+                    if (MihomoConfigBuilder.IsSameFile(c.ProcessPath, f.Key)) return f.Value;
             if (c.Process.Length > 0 && _speedOtherRules.TryGetValue(RuleKey("PROCESS-NAME", c.Process), out tile)) return tile;
             tile = HostTile(c, _speedOtherRules);
             if (tile != null) return tile;
+            // A tile's folder (PROCESS-PATH-REGEX, below every program in the config): by the
+            // program's full path — the case a subscription's SUB-RULE or MATCH carried it.
+            if (!string.IsNullOrEmpty(c.ProcessPath))
+                foreach (var f in _speedFolders ?? new List<KeyValuePair<string, string>>())
+                    if (MihomoConfigBuilder.InFolder(c.ProcessPath, f.Key)) return f.Value;
             return match ? _speedMatchTile : null;
         }
 

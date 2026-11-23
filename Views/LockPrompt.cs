@@ -35,7 +35,7 @@ namespace MihomoLauncher.Views
                     {
                         Text = Loc.T("Lock_Wrong"),
                         FontSize = 12.5,
-                        Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0x48, 0x4D)),
+                        Foreground = Theme.AccentRed,   // trouble: the app's red, not a brighter one of its own
                         Margin = new Thickness(0, 6, 0, 0),
                     });
                 var okText = Loc.T("Lock_BtnOpen");

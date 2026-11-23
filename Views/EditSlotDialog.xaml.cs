@@ -37,12 +37,10 @@ namespace MihomoLauncher.Views
             {
                 TxtName.Text = existing.Name;
                 TxtValue.Text = existing.Value ?? "";
-                ChkEnabled.IsChecked = existing.Enabled;
                 TxtInterval.Text = (existing.UpdateIntervalHours > 0 ? existing.UpdateIntervalHours : 48).ToString();
             }
             else
             {
-                ChkEnabled.IsChecked = true;
                 TxtInterval.Text = "48";
                 // A link already copied is almost always the one about to be pasted.
                 try
@@ -268,7 +266,6 @@ namespace MihomoLauncher.Views
 
             int hours;
             if (!int.TryParse((TxtInterval.Text ?? "").Trim(), out hours) || hours <= 0) hours = 48;
-            bool enabled = ChkEnabled.IsChecked == true;
             var taken = new List<string>(_taken);
             var results = new List<VpnSlot>();
 
@@ -285,7 +282,7 @@ namespace MihomoLauncher.Views
                     Name = name,
                     Kind = info.Kind,
                     Value = info.Value,
-                    Enabled = enabled,
+                    Enabled = true,   // always (2026-11-23): no configuration is switched off
                     UpdateIntervalHours = hours,
                     SubNode = PickedNode(info.Kind, info.Value),
                 });

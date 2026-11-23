@@ -1,0 +1,91 @@
+<ui:FluentWindow x:Class="MihomoLauncher.Views.NicPriorityDialog"
+                 xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                 xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                 xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+                 xmlns:svc="clr-namespace:MihomoLauncher.Services"
+                 Title="{DynamicResource Nic_DlgTitle}"
+                 Width="780"
+                 SizeToContent="Height"
+                 ResizeMode="NoResize"
+                 WindowStartupLocation="CenterOwner"
+                 ExtendsContentIntoTitleBar="True"
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
+    <!-- Windows' own card priority (interface metrics), moved out of Settings' «Сеть» tab on
+         2026-11-23 and opened from the menu of a tile's network-card chip. Same text, table and
+         behaviour as the tab had; «Применить» here does what Settings' «Сохранить» did for it. -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Nic_DlgTitle}" />
+
+        <StackPanel Grid.Row="1" Margin="20,4,20,0">
+            <TextBlock Text="{DynamicResource Set_NicPrioTitle}" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Text="{DynamicResource Set_NicPrioDesc}"
+                       FontSize="12" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,8" />
+            <!-- In a well, like every table (2026-11-22). The rows are the machine's cards — a few:
+                 the table shows them all (no scroll bar) and the window is sized to it. -->
+            <Border CornerRadius="8"
+                    Background="{x:Static svc:Theme.ListBg}"
+                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                <DataGrid x:Name="GridNics" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
+                          Style="{StaticResource AppDataGridStyle}"
+                          RowStyle="{StaticResource AppDataGridRowStyle}"
+                          CellStyle="{StaticResource AppDataGridCellStyle}"
+                          ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
+                          VerticalScrollBarVisibility="Disabled"
+                          CanUserSortColumns="False" MinHeight="70">
+                    <DataGrid.Columns>
+                        <!-- First column draws the table's left edge, like the model's checkbox column. -->
+                        <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="Auto" MinWidth="34"
+                                            CellStyle="{StaticResource FirstColumnCellStyle}"
+                                            HeaderStyle="{StaticResource FirstColumnHeaderStyle}" />
+                        <DataGridTextColumn Header="{DynamicResource Set_NicColCard}" Binding="{Binding Name}" Width="Auto" MinWidth="120" MaxWidth="240"
+                                            ElementStyle="{StaticResource TruncatedTextStyle}" />
+                        <DataGridTextColumn Header="{DynamicResource Set_NicColState}" Binding="{Binding State}" Width="*"
+                                            ElementStyle="{StaticResource TruncatedTextStyle}" />
+                        <DataGridTextColumn Header="{DynamicResource Set_NicColMetric}" Binding="{Binding MetricLabel}" Width="Auto" MinWidth="110" />
+                        <!-- ▲▼ beside the drag (2026-11-15). A template column: GridRowDrag never starts from it. -->
+                        <DataGridTemplateColumn Width="Auto" MinWidth="60">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="2,0">
+                                        <ui:Button Appearance="Transparent" Padding="0" Width="24" Height="22" Margin="0,0,2,0"
+                                                   BorderThickness="0" Cursor="Hand"
+                                                   IsEnabled="{Binding CanUp}" Click="OnNicUp"
+                                                   ToolTip="{DynamicResource Set_NicUpTip}">
+                                            <ui:SymbolIcon Symbol="ChevronUp16" FontSize="13" />
+                                        </ui:Button>
+                                        <ui:Button Appearance="Transparent" Padding="0" Width="24" Height="22"
+                                                   BorderThickness="0" Cursor="Hand"
+                                                   IsEnabled="{Binding CanDown}" Click="OnNicDown"
+                                                   ToolTip="{DynamicResource Set_NicDownTip}">
+                                            <ui:SymbolIcon Symbol="ChevronDown16" FontSize="13" />
+                                        </ui:Button>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <ui:Button x:Name="BtnNicDefault" Content="{DynamicResource Set_NicDefault}" MinWidth="120" Click="OnNicDefault" />
+            </StackPanel>
+            <TextBlock x:Name="LblNicStatus" FontSize="12" Opacity="0.85" TextWrapping="Wrap" Margin="0,8,0,0"
+                       Visibility="Collapsed" />
+        </StackPanel>
+
+        <Border Grid.Row="2" Padding="20,12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button x:Name="BtnApply" Content="{DynamicResource Set_BtnApply}" Margin="0,0,8,0"
+                           Appearance="Primary" FontSize="14" Padding="20,8" Click="OnApply" />
+                <ui:Button x:Name="BtnClose" Content="{DynamicResource Dlg_Close}" FontSize="14" Padding="20,8" Click="OnClose" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</ui:FluentWindow>

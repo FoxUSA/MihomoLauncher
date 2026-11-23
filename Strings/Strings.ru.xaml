@@ -15,7 +15,7 @@
     <sys:String x:Key="Main_FootRoutesRestored">Маршруты туннеля восстановлены — трафик снова идёт через VPN.</sys:String>
     <sys:String x:Key="Main_FootEngineLost">VPN-движок не отвечает и не запускается. Нажмите ⟳ на плитке или переустановите движок.</sys:String>
     <sys:String x:Key="Main_KillTimerHelpTitle">Remote desktop session</sys:String>
-    <sys:String x:Key="Main_KillTimerHelpBody">Режим для удалённой настройки (RDP, AnyDesk и т. п.). Пока он включён:&#10;&#10;• через 60 секунд после включения VPN-движок mihomo останавливается, и дальше — каждые 60 секунд, пока он запущен. Если неверный VPN-конфиг оборвёт связь, доступ вернётся не позже чем через минуту;&#10;• удалённый рабочий стол Windows (RDP) пропускается мимо туннеля и всех блокировок — и из локальной сети, и с внешнего адреса, даже когда на «Всё остальное» стоит «Блокировать». Новое подключение проходит, пока движок остановлен, дальше держится и при работающем движке.&#10;&#10;Без режима у RDP нет никаких особых правил: он идёт по плиткам, как всё остальное. Включайте на время удалённой настройки, по окончании — выключайте. По умолчанию выключен.</sys:String>
+    <sys:String x:Key="Main_KillTimerHelpBody" xml:space="preserve">Режим для удалённой настройки (RDP, AnyDesk и т. п.). Пока он включён:&#10;&#10;• через 60 секунд после включения VPN-движок mihomo останавливается, и дальше — каждые 60 секунд, пока он запущен. Если неверный VPN-конфиг оборвёт связь, доступ вернётся не позже чем через минуту;&#10;• удалённый рабочий стол Windows (RDP) пропускается мимо туннеля и всех блокировок — и из локальной сети, и с внешнего адреса, даже когда на «Всё остальное» стоит «Блокировать». Новое подключение проходит, пока движок остановлен, дальше держится и при работающем движке.&#10;&#10;Без режима у RDP нет никаких особых правил: он идёт по плиткам, как всё остальное. Включайте на время удалённой настройки, по окончании — выключайте. По умолчанию выключен.</sys:String>
     <sys:String x:Key="Set_FirewallLabel">Блокировать программы средствами Windows, когда туннель недоступен</sys:String>
     <sys:String x:Key="Set_FirewallHint">Кил-свитч внутри движка работает, только пока движок жив. Эта защита живёт в брандмауэре Windows: программы из правил с кил-свитчем не смогут выйти в интернет мимо туннеля — даже если движок упал, перезапускается или утилита закрыта. Локальная сеть, принтеры и удалённый рабочий стол не затрагиваются никогда.</sys:String>
     <sys:String x:Key="Set_FirewallOff">Защита выключена: если движок остановится, программы выйдут в интернет напрямую.</sys:String>
@@ -58,7 +58,7 @@
     <sys:String x:Key="Main_NicIpNoneTip">Через эту карту ip.byfox.dev не ответил — проверю снова через минуту.</sys:String>
     <sys:String x:Key="Main_NicIpLocal">Адрес в сети: {0}</sys:String>
     <sys:String x:Key="Main_NicIpOrg">Провайдер: {0}</sys:String>
-    <sys:String x:Key="Main_NicIpTip">Внешний IP карты (без VPN), город и страна. Обновляется раз в 10 мин и при смене сети.&#10;This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.</sys:String>
+    <sys:String x:Key="Main_NicIpTip" xml:space="preserve">Внешний IP карты (без VPN), город и страна. Обновляется раз в 10 мин и при смене сети.&#10;This product includes GeoLite2 data created by MaxMind, available from https://www.maxmind.com.</sys:String>
     <sys:String x:Key="Main_QuotedName">«{0}»</sys:String>
     <sys:String x:Key="Main_TileDirect">без VPN</sys:String>
     <sys:String x:Key="Main_TileReconnecting">переподключаю…</sys:String>
@@ -67,6 +67,7 @@
     <sys:String x:Key="Main_TileNotWorking">не работает</sys:String>
     <sys:String x:Key="Main_TileStopped">отключено</sys:String>
     <sys:String x:Key="Main_TipEditRule">Изменить правило</sys:String>
+    <sys:String x:Key="Main_TipAutoAdded">Добавлено автоматически: {0}</sys:String>
     <sys:String x:Key="Main_TipDeleteTile">Удалить плитку</sys:String>
     <sys:String x:Key="Main_DelTileTitle">Удалить плитку «{0}»?</sys:String>
     <sys:String x:Key="Main_DelTileBody">Правило удалится вместе с плиткой. Его программы и сайты пойдут как «Всё остальное».</sys:String>
@@ -99,8 +100,7 @@
     <sys:String x:Key="Main_TipNicDead">Ни одна из выбранных карт сейчас не работает — трафик плитки не уходит</sys:String>
     <sys:String x:Key="Main_TipNicBackup">Основная карта не работает — трафик идёт через запасную</sys:String>
     <sys:String x:Key="Main_NicLockedTip">Плитка привязана к карте («Привязка к сетевой карте» в настройках плитки): без неё трафик плитки не уходит, на другую карту не переходит</sys:String>
-    <sys:String x:Key="Main_NicLockedTitle">Плитка привязана к сетевой карте</sys:String>
-    <sys:String x:Key="Main_NicLockedMsg">Плитка привязана к карте «{0}» и на другую не переходит.&#10;&#10;Чтобы сменить карту, выключите «Привязка к сетевой карте» в настройках плитки (шестерёнка).</sys:String>
+    <sys:String x:Key="Main_NicPickerLocked">Карта закреплена в настройках плитки</sys:String>
     <sys:String x:Key="Main_TileNoCard">нет карты {0}</sys:String>
     <sys:String x:Key="Main_TileNoCardShort">нет карты</sys:String>
     <sys:String x:Key="Main_TileNoNet">нет сети</sys:String>
@@ -114,9 +114,9 @@
     <sys:String x:Key="Main_FootWaitingForConnect">Подключу «{0}», как только закончится текущее подключение…</sys:String>
     <sys:String x:Key="Main_FootLaunching">Запускаю «{0}»…</sys:String>
     <sys:String x:Key="Main_OpenFailTitle">Не получилось открыть</sys:String>
-    <sys:String x:Key="Main_OpenFailBody">«{0}» не открылась.&#10;&#10;Причина: {1}</sys:String>
-    <sys:String x:Key="Main_NoVariantsTitle">Нет вариантов</sys:String>
-    <sys:String x:Key="Main_NoVariantsBody">В настройках не добавлено ни одного VPN-варианта.</sys:String>
+    <sys:String x:Key="Main_OpenFailBody" xml:space="preserve">«{0}» не открылась.&#10;&#10;Причина: {1}</sys:String>
+    <sys:String x:Key="Main_NoVariantsTitle">Нет VPN-конфигураций</sys:String>
+    <sys:String x:Key="Main_NoVariantsBody">В настройках не добавлено ни одной VPN-конфигурации.</sys:String>
     <sys:String x:Key="Main_DetailStartingEngine">Запускаю VPN-движок…</sys:String>
     <sys:String x:Key="Main_EngineNotSetUpTitle">VPN-движок не настроен</sys:String>
     <sys:String x:Key="Main_EngineNotSetUpBody">Откройте «Настройки» → «Настроить mihomo» (один раз, с правами администратора).</sys:String>
@@ -135,23 +135,23 @@
     <sys:String x:Key="Main_EngineNoStartQueued">Windows отложила запуск движка — так бывает, когда батарея почти разряжена или сразу после обновления Windows. Нажмите «Переустановить движок»: утилита перейдёт на запуск через службу Windows, и такого больше не будет. Или подключите зарядку и подождите минуту.</sys:String>
     <sys:String x:Key="Main_EngineNoStartSafeMode">Движок mihomo не отвечает. Скорее всего мешает включённый «Remote desktop session»: он останавливает движок каждые 60 секунд. Выключите его на главном экране и попробуйте снова.</sys:String>
     <sys:String x:Key="Main_DetailCheckingVariants">Проверяю, какие подключения отвечают…</sys:String>
-    <sys:String x:Key="Main_DetailConnectingVariant">Подключаю вариант {0} из {1}: {2}</sys:String>
-    <sys:String x:Key="Main_FootVariantSkipped">Вариант «{0}» пропущен: {1}</sys:String>
-    <sys:String x:Key="Main_FootVariantApplyFail">Не удалось применить вариант «{0}».</sys:String>
-    <sys:String x:Key="Main_FootVariantNotUp">Вариант «{0}» не поднялся.</sys:String>
+    <sys:String x:Key="Main_DetailConnectingVariant">Подключаю VPN-конфигурацию {0} из {1}: {2}</sys:String>
+    <sys:String x:Key="Main_FootVariantSkipped">VPN-конфигурация «{0}» пропущена: {1}</sys:String>
+    <sys:String x:Key="Main_FootVariantApplyFail">Не удалось применить VPN-конфигурацию «{0}».</sys:String>
+    <sys:String x:Key="Main_FootVariantNotUp">VPN-конфигурация «{0}» не поднялась.</sys:String>
     <sys:String x:Key="Main_DetailProbingSites">Проверяю сайты через «{0}»…</sys:String>
     <sys:String x:Key="Main_FootVpnOff">VPN отключён.</sys:String>
     <sys:String x:Key="Main_FootReconnectingApp">Переподключаю «{0}»…</sys:String>
     <sys:String x:Key="Main_EngineNotRunningTitle">VPN-движок не запущен</sys:String>
     <sys:String x:Key="Main_EngineNotRunningBody">Движок mihomo не отвечает. Откройте «Настройки» → «Mihomo».</sys:String>
-    <sys:String x:Key="Main_FootTryingVariant">«{0}»: пробую вариант {1} — {2}…</sys:String>
+    <sys:String x:Key="Main_FootTryingVariant">«{0}»: пробую VPN-конфигурацию {1} — {2}…</sys:String>
     <sys:String x:Key="Main_FootApplyFail">Не удалось применить «{0}».</sys:String>
     <sys:String x:Key="Main_FootProbingApp">«{0}»: проверяю сайт через «{1}»…</sys:String>
     <sys:String x:Key="Main_FootReconnected">«{0}» переподключён.</sys:String>
     <sys:String x:Key="Main_FootReconnectFailed">«{0}» подключить не удалось.</sys:String>
     <sys:String x:Key="Main_ConnectFailedTitle">«{0}» не подключено</sys:String>
     <sys:String x:Key="Main_ConnectFailedManyTitle">Не подключено: {0}</sys:String>
-    <sys:String x:Key="Main_VariantsUnreadableBody">Эти VPN-варианты не удалось прочитать:&#10;&#10;{0}&#10;&#10;Исправьте их в «Настройки» → «Основное» (например, укажите новый путь к файлу .conf).</sys:String>
+    <sys:String x:Key="Main_VariantsUnreadableBody" xml:space="preserve">Эти VPN-конфигурации не удалось прочитать:&#10;&#10;{0}&#10;&#10;Исправьте их в «Настройки» → «Основное» (например, укажите новый путь к файлу .conf).</sys:String>
     <sys:String x:Key="Main_EngineNeededTitle">Нужен VPN-движок</sys:String>
     <sys:String x:Key="Main_EngineNeededBodySetup">VPN-движок mihomo скачан, но не настроен. Настроить сейчас? Потребуются права администратора.</sys:String>
     <sys:String x:Key="Main_EngineNeededBodyInstall">VPN-движок mihomo ещё не установлен. Скачать последнюю версию и настроить сейчас?</sys:String>
@@ -173,7 +173,7 @@
     <sys:String x:Key="Main_FootEngineInstalled">VPN-движок установлен и запущен.</sys:String>
     <sys:String x:Key="Main_FootAppDisconnected">«{0}» отключён.</sys:String>
     <sys:String x:Key="Main_TipBuiltInHelp">Что это за плитка?</sys:String>
-    <sys:String x:Key="AllTraffic_Help">Всё, что не входит ни в одну другую плитку, идёт через VPN этой плитки. Пока других плиток нет — это весь трафик. Стоит после всех плиток. Сайты и шаблоны любой плитки главнее программ: YouTube из своей плитки пойдёт по ней и в Chrome. Если один адрес есть в двух плитках — главнее та, что левее.&#10;&#10;Kill-switch работает всегда: включён, а VPN этой плитки не работает (или плитка выключена) — у этого трафика нет интернета.&#10;&#10;«Блокировать» на плашке: пока плитка запущена, всё, что не входит в другие плитки, заблокировано.</sys:String>
+    <sys:String x:Key="AllTraffic_Help" xml:space="preserve">Всё, что не входит ни в одну другую плитку, идёт через VPN этой плитки. Пока других плиток нет — это весь трафик. Стоит после всех плиток. Сайты и шаблоны любой плитки главнее программ: YouTube из своей плитки пойдёт по ней и в Chrome. Если один адрес есть в двух плитках — главнее та, что левее.&#10;&#10;Kill-switch работает всегда: включён, а VPN этой плитки не работает (или плитка выключена) — у этого трафика нет интернета.&#10;&#10;«Блокировать» на плашке: пока плитка запущена, всё, что не входит в другие плитки, заблокировано.</sys:String>
     <sys:String x:Key="Lock_Title">Пароль доступа</sys:String>
     <sys:String x:Key="Lock_Ask">Введите пароль доступа.</sys:String>
     <sys:String x:Key="Lock_Wrong">Неверный пароль.</sys:String>
@@ -204,12 +204,12 @@
     <sys:String x:Key="AllTraffic_KillTip">Вкл: VPN плитки не работает или она выключена — у остального трафика нет интернета. Выкл: в это время он идёт напрямую.</sys:String>
     <sys:String x:Key="Main_FootAllTrafficOn">Всё остальное идёт через VPN {0}. Плитки со своими настройками работают как раньше.</sys:String>
     <sys:String x:Key="Main_FootAllTrafficOff">Всё остальное снова идёт напрямую. Через VPN — только плитки, которые включены.</sys:String>
-    <sys:String x:Key="Main_FootAllTrafficFailed">Пустить всё остальное через VPN не удалось — ни один вариант не ответил.</sys:String>
+    <sys:String x:Key="Main_FootAllTrafficFailed">Пустить всё остальное через VPN не удалось — ни одна VPN-конфигурация не ответила.</sys:String>
     <sys:String x:Key="Main_UpdateLineLauncher">• Лаунчер: {0} → {1}</sys:String>
     <sys:String x:Key="Main_UpdateLineEngine">• VPN-движок mihomo: {0} → {1}</sys:String>
     <sys:String x:Key="Main_UpdateLineGeo">• База геолокации (страны/города): {0}</sys:String>
-    <sys:String x:Key="Main_UpdateBodyTail">&#10;&#10;Обновить сейчас? Программа скачает новые файлы.</sys:String>
-    <sys:String x:Key="Main_UpdateBodyTailRestart">&#10;&#10;Обновить сейчас? Программа скачает новые файлы и перезапустится.</sys:String>
+    <sys:String x:Key="Main_UpdateBodyTail" xml:space="preserve">&#10;&#10;Обновить сейчас? Программа скачает новые файлы.</sys:String>
+    <sys:String x:Key="Main_UpdateBodyTailRestart" xml:space="preserve">&#10;&#10;Обновить сейчас? Программа скачает новые файлы и перезапустится.</sys:String>
     <sys:String x:Key="Main_UpdateAvailableTitle">Доступно обновление</sys:String>
     <sys:String x:Key="Main_UpdateNow">Обновить</sys:String>
     <sys:String x:Key="Main_UpdateTitle">Обновление</sys:String>
@@ -225,11 +225,10 @@
     <sys:String x:Key="Main_ClosingForUpdate">Закрываю программу для установки обновления…</sys:String>
     <sys:String x:Key="Main_FootUpdateDone">Обновление завершено.</sys:String>
     <sys:String x:Key="Main_UpdateFailTitle">Не удалось обновить</sys:String>
-    <sys:String x:Key="Main_UpdateFailBody">Обновление не завершилось.&#10;&#10;Причина: {0}</sys:String>
+    <sys:String x:Key="Main_UpdateFailBody" xml:space="preserve">Обновление не завершилось.&#10;&#10;Причина: {0}</sys:String>
     <sys:String x:Key="Set_Title">Настройки</sys:String>
     <sys:String x:Key="Set_TabMain">Основное</sys:String>
     <sys:String x:Key="Set_TabSettings">Config</sys:String>
-    <sys:String x:Key="Set_TabNet">Сеть</sys:String>
     <sys:String x:Key="Main_TipTileSpeed">↓ загрузка / ↑ отдача, Мбит/с — весь трафик плитки через ядро (VPN или напрямую), без LAN. Полоса: красная &lt;1, жёлтая 1–10, зелёная 10–50, синяя 50+. Клик — скорость и кто куда ходит: сейчас и за 1–24 ч.</sys:String>
     <sys:String x:Key="Main_SpeedMbit">Мбит/с</sys:String>
     <sys:String x:Key="Main_SpeedTitle">{0} — скорость</sys:String>
@@ -360,6 +359,8 @@
     <sys:String x:Key="Set_NicFailed">Не удалось: {0}</sys:String>
     <sys:String x:Key="Set_NicNoHelper">Нужна служба утилиты — нажмите «Переустановить движок» на вкладке Mihomo.</sys:String>
     <sys:String x:Key="Set_NicTimeout">служба утилиты не ответила за 25 секунд (если утилита только что обновлена — перезапустите её и попробуйте снова)</sys:String>
+    <sys:String x:Key="Nic_DlgTitle">Приоритет сетевых адаптеров</sys:String>
+    <sys:String x:Key="Nic_DlgMenu">Приоритет сетевых адаптеров…</sys:String>
     <sys:String x:Key="Set_BtnAdd">+ Добавить</sys:String>
     <sys:String x:Key="Set_BtnEdit">Изменить</sys:String>
     <sys:String x:Key="Set_BtnDelete">Удалить</sys:String>
@@ -367,19 +368,15 @@
     <sys:String x:Key="Set_BtnDown">Ниже</sys:String>
     <sys:String x:Key="Set_BtnRefresh">Обновить</sys:String>
     <sys:String x:Key="Set_BtnRefreshLists">Обновить шаблоны URL</sys:String>
-    <sys:String x:Key="Set_VpnVariants">VPN-варианты</sys:String>
+    <sys:String x:Key="Set_VpnVariants">VPN-конфигурации</sys:String>
     <sys:String x:Key="Set_Rules">Правила</sys:String>
     <sys:String x:Key="Set_ColName">Название</sys:String>
     <sys:String x:Key="Set_ColType">Тип</sys:String>
     <sys:String x:Key="Set_ColValue">Значение</sys:String>
-    <sys:String x:Key="Set_ColEnabled">Вкл</sys:String>
-    <sys:String x:Key="Set_ColSlotStatus">Проверка</sys:String>
-    <sys:String x:Key="Set_SlotAnswers">отвечает</sys:String>
-    <sys:String x:Key="Set_SlotNoAnswer">не отвечает</sys:String>
     <sys:String x:Key="Set_ColLaunchedFromTile">Запускается с плитки</sys:String>
     <sys:String x:Key="Set_ColPath">Путь</sys:String>
     <sys:String x:Key="Set_ConfigFileTitle">Файл настроек лаунчера</sys:String>
-    <sys:String x:Key="Set_ConfigFileDesc">Где хранится конфигурация лаунчера (программы, ссылки, VPN-варианты). Можно указать свой путь — например, чтобы держать настройки в облачной папке.</sys:String>
+    <sys:String x:Key="Set_ConfigFileDesc">Где хранятся настройки лаунчера (программы, ссылки, VPN-конфигурации). Можно указать свой путь — например, чтобы держать настройки в облачной папке.</sys:String>
     <sys:String x:Key="Set_BtnBrowse">Обзор...</sys:String>
     <sys:String x:Key="Set_Autostart">Запускать при включении компьютера</sys:String>
     <sys:String x:Key="Set_AutostartHint">При автозапуске окно не открывается: программа сворачивается в трей (значок у часов) и сразу подключается сама.</sys:String>
@@ -393,7 +390,7 @@
     <sys:String x:Key="Set_EngineStatus">Состояние движка</sys:String>
     <sys:String x:Key="Set_NowViaTunnel">Сейчас через VPN-туннель:</sys:String>
     <sys:String x:Key="Set_ColApp">Приложение</sys:String>
-    <sys:String x:Key="Set_ColVariant">Вариант</sys:String>
+    <sys:String x:Key="Set_ColVariant">VPN-конфигурация</sys:String>
     <sys:String x:Key="Set_ColNode">Узел (proxy)</sys:String>
     <sys:String x:Key="Set_ColSite">Сайт</sys:String>
     <sys:String x:Key="Set_ColStatus">Статус</sys:String>
@@ -435,8 +432,8 @@
     <sys:String x:Key="Set_NoLists">Нет шаблонов URL</sys:String>
     <sys:String x:Key="Set_NoListsDesc">Ни в одном правиле нет шаблона URL.</sys:String>
     <sys:String x:Key="Set_ListsRefreshed">Обновлено шаблонов URL: {0} из {1} ({2} диапазон(ов)).</sys:String>
-    <sys:String x:Key="Set_DeleteVariantsMany">Удалить выбранные варианты ({0})?</sys:String>
-    <sys:String x:Key="Set_DeleteVariantTitle">Удалить вариант?</sys:String>
+    <sys:String x:Key="Set_DeleteVariantsMany">Удалить выбранные VPN-конфигурации ({0})?</sys:String>
+    <sys:String x:Key="Set_DeleteVariantTitle">Удалить VPN-конфигурацию?</sys:String>
     <sys:String x:Key="Set_NotFilled">Не заполнено</sys:String>
     <sys:String x:Key="Set_SpecifyMihomoPath">Укажите путь к mihomo.exe.</sys:String>
     <sys:String x:Key="Set_ConfigNotCreated">config.yaml ещё не создан (нажмите «Настроить mihomo»).</sys:String>
@@ -448,6 +445,8 @@
     <sys:String x:Key="Set_No">Нет</sys:String>
     <sys:String x:Key="Set_On">Вкл</sys:String>
     <sys:String x:Key="Set_Off">Выкл</sys:String>
+    <sys:String x:Key="Lst_ColLock" xml:space="preserve">Привязка&#10;к карте</sys:String>
+    <sys:String x:Key="Lst_ColAuto" xml:space="preserve">Авто-&#10;добавление</sys:String>
     <sys:String x:Key="Set_RouteUp">работает ✓</sys:String>
     <sys:String x:Key="Set_RouteDown">отключён ✗</sys:String>
     <sys:String x:Key="Set_KindClashSub">Clash подписка</sys:String>
@@ -457,12 +456,11 @@
     <sys:String x:Key="Rule_LockNicTip">Привязать плитку к карте, через которую она идёт сейчас. Выдернули кабель или выключили карту — трафик плитки не уходит вообще, а не переходит на Wi-Fi или другую карту. Программы плитки закрыты брандмауэром и при остановленном движке; плитку из одних сайтов при остановленном движке не защищает ничего.</sys:String>
     <sys:String x:Key="Rule_LockNicNoneTitle">Не к чему привязать</sys:String>
     <sys:String x:Key="Rule_LockNicNone">Сейчас плитка не идёт ни через одну рабочую сетевую карту — привязывать не к чему. Подключите карту и включите снова.</sys:String>
-    <sys:String x:Key="Rule_SkipCheck">Не проверять</sys:String>
-    <sys:String x:Key="Rule_SkipCheckTip">Подключать через первый поднявшийся VPN, без проверки сайта. Снимите — утилита выберет вариант по адресу проверки.</sys:String>
-    <sys:String x:Key="Rule_CheckUrlPlaceholder">Сайт для проверки подключения, https://…</sys:String>
-    <sys:String x:Key="Rule_AutoIcon">Иконка с сервера</sys:String>
+    <sys:String x:Key="Rule_CheckUrlPlaceholder">Сайт для проверки подключения (пусто — без проверки), https://…</sys:String>
+    <sys:String x:Key="Rule_CheckUrlTip">Адрес заполнен — правило подключается только через ту VPN-конфигурацию, с которой этот сайт открывается. Пусто — без проверки: через первую поднявшуюся.</sys:String>
     <sys:String x:Key="Rule_Browse">Обзор...</sys:String>
-    <sys:String x:Key="Rule_IconPathPlaceholder">путь к своей иконке .png/.ico</sys:String>
+    <sys:String x:Key="Rule_IconPathPlaceholder">иконка с сервера — или путь к своей .png/.ico</sys:String>
+    <sys:String x:Key="Rule_IconPathTip">Пусто — иконка с сервера. Укажите файл .png/.ico — будет своя.</sys:String>
     <sys:String x:Key="Rule_WhatIncluded">Что входит в правило</sys:String>
     <sys:String x:Key="Rule_ColTile">Плитка</sys:String>
     <sys:String x:Key="Rule_TileTip">Запускать/открывать с плитки (можно отметить только один). У шаблона откроется адрес проверки.</sys:String>
@@ -476,16 +474,34 @@
     <sys:String x:Key="Rule_AddTemplate">Шаблон URL</sys:String>
     <sys:String x:Key="Rule_AddApp">Приложение</sys:String>
     <sys:String x:Key="Rule_AddProcess">Процесс</sys:String>
+    <sys:String x:Key="Rule_AddFolder">Папка</sys:String>
+    <sys:String x:Key="Rule_AddFolderTip">Добавить целую папку одной строкой: все программы из неё и из её подпапок идут по этому правилу — и те, что появятся потом.</sys:String>
+    <sys:String x:Key="Rule_PickFolderTitle">Выберите папку</sys:String>
+    <sys:String x:Key="Rule_FolderTip">Все программы из этой папки и её подпапок идут по этому правилу. С галочкой «Плитка» плитка открывает папку.</sys:String>
+    <sys:String x:Key="Rule_FolderTooWideTitle">Слишком общая папка</sys:String>
+    <sys:String x:Key="Rule_FolderTooWide">«{0}» — корень диска или папка Windows: по правилу пошли бы все программы компьютера. Выберите папку одной программы.</sys:String>
+    <sys:String x:Key="Rule_DupFolder">Папка «{0}» уже есть в этом правиле.</sys:String>
+    <sys:String x:Key="Rule_AutoTrack">Авто-добавление программ</sys:String>
+    <sys:String x:Key="Rule_AutoTrackTip">Помощники программ этого правила, которые выходят в интернет (запущенные ими процессы и программы из их папки), добавляются в правило сами — в раздел «Добавлено автоматически». Только программы, сайты не добавляются. Выключите — слежение остановится, уже добавленное останется.</sys:String>
+    <sys:String x:Key="Rule_AutoSection">Добавлено автоматически</sys:String>
+    <sys:String x:Key="Rule_IgnoredSection">Не добавлять автоматически</sys:String>
+    <sys:String x:Key="Rule_IgnoredTip">Эта программа не добавляется в эту плитку автоматически. ✕ — снять запрет: в следующий раз её снова можно будет добавить.</sys:String>
+    <sys:String x:Key="Rule_AutoFromChild">Добавлено автоматически: её запустила {0}. Перетащите строку вверх — станет обычной; ✕ — убрать и больше не добавлять.</sys:String>
+    <sys:String x:Key="Rule_AutoFromDir">Добавлено автоматически: лежит в папке программы {0}. Перетащите строку вверх — станет обычной; ✕ — убрать и больше не добавлять.</sys:String>
     <sys:String x:Key="Rule_UseVpn">Использовать VPN</sys:String>
-    <sys:String x:Key="Rule_VpnOrderHint">Клик по квадратику ставит номер приоритета: 1 — первый вариант, 2 — запасной. Повторный клик убирает номер. Пустой квадратик — этот VPN не используется.</sys:String>
-    <sys:String x:Key="Rule_AllowedVpn">Какие VPN-варианты можно использовать</sys:String>
-    <sys:String x:Key="Rule_NoVpnVariants">Нет включённых VPN-вариантов — включите их в настройках.</sys:String>
+    <sys:String x:Key="Rule_VpnOrderHint">Клик по квадратику ставит номер приоритета: 1 — первая VPN-конфигурация, 2 — запасная. Повторный клик убирает номер. Пустой квадратик — эта конфигурация не используется.</sys:String>
+    <sys:String x:Key="Rule_AllowedVpn">VPN-конфигурации</sys:String>
+    <sys:String x:Key="Rule_SlotsAll">Отметить все</sys:String>
+    <sys:String x:Key="Rule_SlotsNone">Снять все</sys:String>
+    <sys:String x:Key="Rule_NoVpnVariants">Нет VPN-конфигураций — добавьте их в настройках.</sys:String>
 
     <!-- Живой лог движка: что заблокировано и почему -->
     <sys:String x:Key="Log_Title">Что заблокировано и почему</sys:String>
     <sys:String x:Key="Log_TabConflicts">Конфликт URL</sys:String>
     <sys:String x:Key="Log_HintConflicts">Где две плитки претендуют на один адрес или программу. Сайты и шаблоны любой плитки главнее программ; между двумя плитками с одним адресом работает та, что левее.</sys:String>
     <sys:String x:Key="Log_TipConflicts">Живой лог. Есть конфликт адресов между плитками: {0} — вкладка «Конфликт URL».</sys:String>
+    <sys:String x:Key="Log_ConfHarmlessRoute">Сейчас без разницы: «{0}» и «{1}» идут одним путём. Станет важно, если поменять VPN, карту или kill-switch одной из них.</sys:String>
+    <sys:String x:Key="Log_ConfHarmlessPartial">Обычно так и задумано: более точный адрес из «{0}» забирает свою часть у более общего из «{1}».</sys:String>
     <sys:String x:Key="Log_ConfNone">Конфликтов нет: ни один адрес и ни одна программа не встречаются в двух плитках.</sys:String>
     <sys:String x:Key="Log_ConfWins">Работает</sys:String>
     <sys:String x:Key="Log_ConfWho">она левее «{1}», а у «{1}» эти адреса не сработают.</sys:String>
@@ -501,6 +517,10 @@
     <sys:String x:Key="Log_ConfWhenOff">Пока «{0}» выключена (kill-switch у неё выключен), эти адреса идут по «{1}».</sys:String>
     <sys:String x:Key="Log_ConfFix">Чтобы работала правая плитка: уберите адрес из левой или переставьте плитки.</sys:String>
     <sys:String x:Key="Log_ConfFixProg">Оставьте программу в одной плитке.</sys:String>
+    <sys:String x:Key="Log_ConfFolderPartial">{0} из «{1}» лежит в папке {2} из «{3}» и идёт по «{1}»</sys:String>
+    <sys:String x:Key="Log_ConfWhoFolder">она точнее: найденный файл программы, программа или вложенная папка сильнее более общей записи из «{1}», где бы ни стояли плитки.</sys:String>
+    <sys:String x:Key="Log_ConfHarmlessFolder">Так и задумано: более точная запись из «{0}» (найденный файл, программа или вложенная папка) сильнее более общей из «{1}» и забирает свою часть.</sys:String>
+    <sys:String x:Key="Log_ConfFilePartial">этот самый файл {0} (найден автоматически) идёт по «{1}»; остальные копии {2} — по «{3}»</sys:String>
     <sys:String x:Key="Log_WhyAllBlock">Заблокировала плитка «{0}»: выбрано «Блокировать», а адрес не входит ни в одну плитку.</sys:String>
     <sys:String x:Key="Log_WhyAllKill">Kill-switch плитки «{0}»: её VPN не подключён, а адрес не входит ни в одну плитку.</sys:String>
     <sys:String x:Key="Log_Tip">Живой лог: что движок блокирует и почему</sys:String>
@@ -535,7 +555,7 @@
     <sys:String x:Key="Log_VerdictFirewallOpen">Защита снята</sys:String>
     <sys:String x:Key="Log_WhyFirewallBlocking">Туннеля сейчас нет, поэтому программы из правил с кил-свитчем отрезаны от интернета самим брандмауэром Windows — движок тут уже ни при чём, и в журнале движка этих попыток не будет. Локальная сеть и удалённый рабочий стол работают как обычно.</sys:String>
     <sys:String x:Key="Log_WhyFirewallLifted">Туннель снова несёт трафик — блокировка брандмауэра больше ничего не задерживает.</sys:String>
-    <sys:String x:Key="Log_WhyKillSwitch">Запретил kill-switch правила «{0}»: {1}. Правилу не подключён ни один VPN-вариант, поэтому оно закрыто наглухо.</sys:String>
+    <sys:String x:Key="Log_WhyKillSwitch">Запретил kill-switch правила «{0}»: {1}. Правилу не подключена ни одна VPN-конфигурация, поэтому оно закрыто наглухо.</sys:String>
     <sys:String x:Key="Log_WhyTileBlock">Заблокировала плитка «{0}»: выбрано «Блокировать» — {1}.</sys:String>
     <sys:String x:Key="Log_WhyBlockedRule">Запретило правило «{0}»: {1}.</sys:String>
     <sys:String x:Key="Log_WhyBlockedBare">Запретило правило движка {0} → REJECT. В настройках лаунчера такого правила нет — возможно, оно осталось от прошлой конфигурации.</sys:String>
@@ -560,6 +580,7 @@
     <sys:String x:Key="Rule_TypeTemplate">Шаблон</sys:String>
     <sys:String x:Key="Rule_TypeSite">Сайт</sys:String>
     <sys:String x:Key="Rule_TypeProg">Прог.</sys:String>
+    <sys:String x:Key="Rule_TypeFolder">Папка</sys:String>
     <sys:String x:Key="Rule_TplRanges">{0} · {1} диапазон(ов)</sys:String>
     <sys:String x:Key="Rule_TplRangesNoName">шаблон · {0} диапазон(ов)</sys:String>
     <sys:String x:Key="Rule_TplLoading">загружаю список «{0}»…</sys:String>
@@ -573,11 +594,11 @@
     <sys:String x:Key="Rule_NotFilled">Не заполнено</sys:String>
     <sys:String x:Key="Rule_NeedName">Укажите название правила.</sys:String>
     <sys:String x:Key="Rule_BadUrlTitle">Неверный адрес</sys:String>
-    <sys:String x:Key="Rule_BadUrlList">Проверьте адрес сайта (нужен вид example.com):&#10;• {0}</sys:String>
+    <sys:String x:Key="Rule_BadUrlList" xml:space="preserve">Проверьте адрес сайта (нужен вид example.com):&#10;• {0}</sys:String>
     <sys:String x:Key="Rule_EmptyTitle">Пусто</sys:String>
     <sys:String x:Key="Rule_NeedOneItem">Добавьте хотя бы один сайт или программу.</sys:String>
     <sys:String x:Key="Rule_BadCheckUrl">Адрес для проверки подключения введён неверно (нужен вид example.com).</sys:String>
-    <sys:String x:Key="Slot_Title">VPN-вариант</sys:String>
+    <sys:String x:Key="Slot_Title">VPN-конфигурация</sys:String>
     <sys:String x:Key="Slot_Name">Название</sys:String>
     <sys:String x:Key="Slot_SourceType">Тип источника</sys:String>
     <sys:String x:Key="Slot_KindWireGuard">WireGuard .conf (файл)</sys:String>
@@ -595,11 +616,10 @@
     <sys:String x:Key="Slot_NodeDefault">По умолчанию — {0}</sys:String>
     <sys:String x:Key="Slot_NodeDefaultUnknown">По умолчанию (как в подписке)</sys:String>
     <sys:String x:Key="Slot_NodeGone">{0} — нет в подписке, сейчас по умолчанию</sys:String>
-    <sys:String x:Key="Slot_UseInRotation">Использовать этот вариант при переборе</sys:String>
     <sys:String x:Key="Slot_Save">Сохранить</sys:String>
     <sys:String x:Key="Slot_Cancel">Отмена</sys:String>
-    <sys:String x:Key="Slot_TitleAdd">Добавить VPN-вариант</sys:String>
-    <sys:String x:Key="Slot_TitleEdit">Изменить VPN-вариант</sys:String>
+    <sys:String x:Key="Slot_TitleAdd">Добавить VPN-конфигурацию</sys:String>
+    <sys:String x:Key="Slot_TitleEdit">Изменить VPN-конфигурацию</sys:String>
     <sys:String x:Key="Slot_VlessLink">VLESS-ссылка</sys:String>
     <sys:String x:Key="Slot_HintVless">Вставьте ссылку вида vless://uuid@host:port?...#name</sys:String>
     <sys:String x:Key="Slot_SubUrl">URL подписки</sys:String>
@@ -609,20 +629,21 @@
     <sys:String x:Key="Slot_PickConfTitle">Выберите файл WireGuard .conf</sys:String>
     <sys:String x:Key="Slot_PickConfFilter">WireGuard конфиг (*.conf)|*.conf|Все файлы (*.*)|*.*</sys:String>
     <sys:String x:Key="Slot_NotFilled">Не заполнено</sys:String>
-    <sys:String x:Key="Slot_NeedName">Укажите название варианта.</sys:String>
+    <sys:String x:Key="Slot_NeedName">Укажите название VPN-конфигурации.</sys:String>
     <sys:String x:Key="Slot_NeedValue">Укажите путь к .conf или ссылку.</sys:String>
     <sys:String x:Key="Slot_Source">Ссылка или файл</sys:String>
     <sys:String x:Key="Slot_HintAny">Вставьте ссылку — тип и название определятся сами: vless://, vmess://, trojan://, ss://, ssr://, hysteria2://, hysteria://, tuic://, anytls://, socks5://, подписка http(s)://, или выберите файл WireGuard .conf. Можно вставить несколько ссылок — по одной на строку.</sys:String>
     <sys:String x:Key="Slot_Detected">Определено: {0}</sys:String>
-    <sys:String x:Key="Slot_DetectedMany">Будет добавлено вариантов: {0} ({1}). Названия возьмутся из ссылок.</sys:String>
+    <sys:String x:Key="Slot_DetectedMany">Будет добавлено VPN-конфигураций: {0} ({1}). Названия возьмутся из ссылок.</sys:String>
     <sys:String x:Key="Slot_DetectedBad">Не распознано строк: {0}.</sys:String>
     <sys:String x:Key="Slot_NotRecognized">Не распознано — такой ссылки лаунчер не знает.</sys:String>
     <sys:String x:Key="Slot_NotRecognizedTitle">Ссылка не распознана</sys:String>
-    <sys:String x:Key="Slot_NotRecognizedList">Эти строки не похожи ни на одну поддерживаемую ссылку:&#10;• {0}</sys:String>
-    <sys:String x:Key="Slot_OneWhenEditing">При изменении варианта — только одна ссылка. Чтобы добавить несколько, нажмите «Добавить».</sys:String>
+    <sys:String x:Key="Slot_NotRecognizedList" xml:space="preserve">Эти строки не похожи ни на одну поддерживаемую ссылку:&#10;• {0}</sys:String>
+    <sys:String x:Key="Slot_OneWhenEditing">При изменении VPN-конфигурации — только одна ссылка. Чтобы добавить несколько, нажмите «Добавить».</sys:String>
     <sys:String x:Key="Svc_ShareLinkUnknown">ссылка не распознана (поддерживаются vmess, trojan, ss, ssr, hysteria, tuic, anytls, socks5)</sys:String>
     <sys:String x:Key="Dlg_Copy">Копировать</sys:String>
     <sys:String x:Key="Dlg_Close">Закрыть</sys:String>
+    <sys:String x:Key="Ctl_Paste">Вставить</sys:String>
     <sys:String x:Key="Dlg_TemplatesClashTitle">Шаблоны — Clash</sys:String>
     <sys:String x:Key="Dlg_TemplatesHint">Готовые списки сайтов и IP для сервисов: зеркало blackmatrix7 и шаблоны byFox на api.byfox.dev. Списки обновляются сами. Нажмите «?», чтобы прочитать, что входит в шаблон.</sys:String>
     <sys:String x:Key="Dlg_SearchByName">Поиск по названию…</sys:String>
@@ -701,9 +722,9 @@
     <sys:String x:Key="Upd_BlockedFile">Файл «{0}» сейчас занят</sys:String>
     <sys:String x:Key="Upd_BlockedFileBy">Файл «{0}» сейчас занят: {1}</sys:String>
     <sys:String x:Key="Upd_HolderService">служба {0}</sys:String>
-    <sys:String x:Key="Upd_BlockedDialog">Обновление не установлено — ничего не изменилось, запущена прежняя версия.&#10;&#10;{0}, поэтому его нельзя заменить.&#10;&#10;Перезагрузите компьютер и обновите ещё раз.</sys:String>
-    <sys:String x:Key="Upd_InstallFailedStatus">Не удалось установить обновление:&#10;{0}</sys:String>
-    <sys:String x:Key="Upd_InstallFailedDialog">Не удалось установить обновление.&#10;&#10;{0}&#10;&#10;Попробуйте ещё раз или переустановите программу.</sys:String>
+    <sys:String x:Key="Upd_BlockedDialog" xml:space="preserve">Обновление не установлено — ничего не изменилось, запущена прежняя версия.&#10;&#10;{0}, поэтому его нельзя заменить.&#10;&#10;Перезагрузите компьютер и обновите ещё раз.</sys:String>
+    <sys:String x:Key="Upd_InstallFailedStatus" xml:space="preserve">Не удалось установить обновление:&#10;{0}</sys:String>
+    <sys:String x:Key="Upd_InstallFailedDialog" xml:space="preserve">Не удалось установить обновление.&#10;&#10;{0}&#10;&#10;Попробуйте ещё раз или переустановите программу.</sys:String>
     <sys:String x:Key="Upd_Downloading">Скачиваю обновление…</sys:String>
     <sys:String x:Key="Upd_Extracting">Распаковываю обновление…</sys:String>
     <sys:String x:Key="Upd_PreparingInstaller">Готовлю установщик обновления…</sys:String>
@@ -722,8 +743,8 @@
     <sys:String x:Key="Upd_RelaunchingApp">Запускаю обновлённую программу…</sys:String>
     <sys:String x:Key="Upd_ErrCatalogNotDownloaded">Каталог шаблонов не скачался.</sys:String>
     <!-- DNS for direct traffic (Settings → «DNS», main-screen button, log search) -->
-    <sys:String x:Key="Main_DnsTipOwn">Свой DNS для прямого трафика: {0}.&#10;Нажмите — открыть настройки DNS.</sys:String>
-    <sys:String x:Key="Main_DnsTipNone">Свой DNS для прямого трафика не задан — прямой трафик резолвит DNS компьютера.&#10;Нажмите — настроить.</sys:String>
+    <sys:String x:Key="Main_DnsTipOwn" xml:space="preserve">Свой DNS для прямого трафика: {0}.&#10;Нажмите — открыть настройки DNS.</sys:String>
+    <sys:String x:Key="Main_DnsTipNone" xml:space="preserve">Свой DNS для прямого трафика не задан — прямой трафик резолвит DNS компьютера.&#10;Нажмите — настроить.</sys:String>
     <sys:String x:Key="Set_DnsTitle">Свой DNS для прямого трафика</sys:String>
     <sys:String x:Key="Set_DnsSourceTitle">Чей DNS использовать</sys:String>
     <sys:String x:Key="Set_DnsSourceOwn">Свои — указанные ниже</sys:String>
@@ -990,6 +1011,7 @@
     <sys:String x:Key="Svc_SetupCancelledNeedAdmin">Настройка отменена (нужны права администратора).</sys:String>
     <sys:String x:Key="Svc_Empty">Пусто</sys:String>
     <sys:String x:Key="Svc_RuleNothingToLaunch">В правиле нет ни программы, ни сайта для запуска.</sys:String>
+    <sys:String x:Key="Svc_FolderMissing">Папка не найдена: {0}</sys:String>
     <sys:String x:Key="Svc_PathNotSet">Путь не задан</sys:String>
     <sys:String x:Key="Svc_EmptyAddress">Пустой адрес.</sys:String>
     <sys:String x:Key="Svc_EmptyResponse">Пустой ответ (HTTP {0}).</sys:String>
@@ -999,16 +1021,16 @@
     <sys:String x:Key="Svc_Timeout">Превышено время ожидания.</sys:String>
     <sys:String x:Key="Svc_NoResponse">Нет ответа: {0}</sys:String>
     <sys:String x:Key="Svc_EmptyRuleListAddress">Пустой адрес списка правил.</sys:String>
-    <sys:String x:Key="Svc_ErrorButContinue">Произошла ошибка, но программа продолжит работать.&#10;&#10;{0}</sys:String>
+    <sys:String x:Key="Svc_ErrorButContinue" xml:space="preserve">Произошла ошибка, но программа продолжит работать.&#10;&#10;{0}</sys:String>
     <sys:String x:Key="Main_Routing">Routing</sys:String>
     <sys:String x:Key="Main_RoutingTip">Таблица: какое правило через какой VPN и в каком порядке</sys:String>
     <sys:String x:Key="Main_VpnListTip">Список VPN: добавить, изменить, удалить</sys:String>
     <sys:String x:Key="Main_RulesListTip">Правила: программы и сайты — добавить, изменить, удалить</sys:String>
     <sys:String x:Key="Vpn_Title">VPN по правилам</sys:String>
-    <sys:String x:Key="Vpn_Hint">Клик по квадратику ставит номер: 1 — первый вариант, 2 — запасной и так далее. Повторный клик убирает номер, остальные пересчитываются. Пустой квадратик — этот VPN для правила не используется вообще.</sys:String>
+    <sys:String x:Key="Vpn_Hint">Клик по квадратику ставит номер: 1 — первая VPN-конфигурация, 2 — запасная и так далее. Повторный клик убирает номер, остальные пересчитываются. Пустой квадратик — этот VPN для правила не используется вообще.</sys:String>
     <sys:String x:Key="Vpn_Save">Сохранить</sys:String>
     <sys:String x:Key="Vpn_Cancel">Отмена</sys:String>
-    <sys:String x:Key="Vpn_NoVariants">Нет включённых VPN-вариантов — добавьте их в настройках.</sys:String>
+    <sys:String x:Key="Vpn_NoVariants">Нет VPN-конфигураций — добавьте их в настройках.</sys:String>
     <sys:String x:Key="Vpn_NoRules">Нет правил с выходом через VPN.</sys:String>
     <sys:String x:Key="Vpn_CellOnTip">Клик — убрать этот VPN из правила</sys:String>
     <sys:String x:Key="Vpn_CellOffTip">Клик — добавить этот VPN следующим по приоритету</sys:String>

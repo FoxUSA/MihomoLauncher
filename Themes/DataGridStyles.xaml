@@ -1,5 +1,12 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:svc="clr-namespace:MihomoLauncher.Services">
+
+    <!-- Colours: the table tokens of Services/Theme.cs (2026-11-22 standard) — the well is the
+         surface the grid sits on (ListBg), header TableHeaderBg, inner hairlines TableLine, rows
+         TableRowAlt / TableRowHover / TableRowSelected with TextPrimary. No library brush and no
+         SystemColors: the system highlight was a bright blue, and the library's fills are
+         semi-transparent, so the same table looked different in every window. -->
 
     <!-- Базовый DataGrid: отточенный вариант из addWG (ReSeeder). -->
     <Style x:Key="AppDataGridStyle" TargetType="DataGrid">
@@ -16,7 +23,7 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="AlternationCount" Value="2"/>
         <Setter Property="RowBackground" Value="Transparent"/>
-        <Setter Property="AlternatingRowBackground" Value="{DynamicResource ControlFillColorDefaultBrush}"/>
+        <Setter Property="AlternatingRowBackground" Value="{x:Static svc:Theme.TableRowAlt}"/>
         <Setter Property="RowHeaderWidth" Value="0"/>
         <Setter Property="HeadersVisibility" Value="Column"/>
         <Setter Property="CanUserResizeRows" Value="False"/>
@@ -24,24 +31,30 @@
         <Setter Property="HorizontalAlignment" Value="Stretch"/>
         <Setter Property="ColumnWidth" Value="Auto"/>
         <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
-        <Setter Property="VerticalScrollBarVisibility" Value="Visible"/>
+        <!-- Auto, not Visible (2026-11-23): an always-shown bar left an empty lane at the right of
+             every table that did not scroll — no header, no row background. Shown only when the
+             rows do not fit; EmptyGridHeader and the star columns follow it in and out. -->
+        <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
         <Setter Property="ClipboardCopyMode" Value="IncludeHeader"/>
+        <!-- With no rows the star columns would fall back to their MinWidth and the header
+             squeezed to the left (2026-11-23) — see Services/EmptyGridHeader. -->
+        <Setter Property="svc:EmptyGridHeader.Fill" Value="True"/>
     </Style>
 
     <Style x:Key="AppDataGridRowStyle" TargetType="DataGridRow">
-        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
+        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="MinHeight" Value="24"/>
         <Style.Triggers>
             <Trigger Property="AlternationIndex" Value="1">
-                <Setter Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}"/>
+                <Setter Property="Background" Value="{x:Static svc:Theme.TableRowAlt}"/>
             </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
-                <Setter Property="Background" Value="{DynamicResource ControlFillColorSecondaryBrush}"/>
+                <Setter Property="Background" Value="{x:Static svc:Theme.TableRowHover}"/>
             </Trigger>
             <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.HighlightBrushKey}}"/>
-                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                <Setter Property="Background" Value="{x:Static svc:Theme.TableRowSelected}"/>
+                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -70,7 +83,7 @@
                 <ControlTemplate TargetType="DataGridCell">
                     <Border Padding="{TemplateBinding Padding}"
                             Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                            BorderBrush="{x:Static svc:Theme.TableLine}"
                             BorderThickness="0,0,1,1">
                         <ContentPresenter VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                     </Border>
@@ -80,7 +93,7 @@
         <Style.Triggers>
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.HighlightTextBrushKey}}"/>
+                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}"/>
             </Trigger>
         </Style.Triggers>
     </Style>
@@ -90,8 +103,8 @@
         <Setter Property="Height" Value="34"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
-        <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}"/>
-        <Setter Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}"/>
+        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}"/>
+        <Setter Property="Background" Value="{x:Static svc:Theme.TableHeaderBg}"/>
         <Setter Property="HorizontalContentAlignment" Value="Left"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
         <Setter Property="SeparatorVisibility" Value="Collapsed"/>
@@ -102,7 +115,7 @@
                     <Grid>
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
-                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                BorderBrush="{x:Static svc:Theme.TableLine}"
                                 BorderThickness="0,1,1,1"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
@@ -115,10 +128,10 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlFillColorTertiaryBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableRowHover}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableHeaderBg}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -132,7 +145,7 @@
                 <ControlTemplate TargetType="DataGridCell">
                     <Border Padding="{TemplateBinding Padding}"
                             Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                            BorderBrush="{x:Static svc:Theme.TableLine}"
                             BorderThickness="1,0,1,1">
                         <ContentPresenter VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
                     </Border>
@@ -148,7 +161,7 @@
                     <Grid>
                         <Border x:Name="Bd"
                                 Background="{TemplateBinding Background}"
-                                BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                                BorderBrush="{x:Static svc:Theme.TableLine}"
                                 BorderThickness="1,1,1,1"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
@@ -161,10 +174,10 @@
                     </Grid>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlFillColorTertiaryBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableRowHover}"/>
                         </Trigger>
                         <Trigger Property="IsPressed" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlFillColorDefaultBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableHeaderBg}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -191,7 +204,7 @@
                 <ControlTemplate TargetType="DataGridColumnHeader">
                     <Border x:Name="Bd"
                             Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                            BorderBrush="{x:Static svc:Theme.TableLine}"
                             BorderThickness="1,1,1,1"
                             Padding="0">
                         <ContentPresenter HorizontalAlignment="Center"
@@ -200,7 +213,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="Bd" Property="Background" Value="{DynamicResource ControlFillColorTertiaryBrush}"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableRowHover}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -217,7 +230,7 @@
                 <ControlTemplate TargetType="DataGridCell">
                     <Border Padding="0"
                             Background="{TemplateBinding Background}"
-                            BorderBrush="{DynamicResource ControlStrokeColorDefaultBrush}"
+                            BorderBrush="{x:Static svc:Theme.TableLine}"
                             BorderThickness="1,0,1,1">
                         <ContentPresenter HorizontalAlignment="Center"
                                           VerticalAlignment="Center"/>
@@ -230,7 +243,8 @@
     <!-- Чекбокс в ячейках/шапке таблицы (из addWG). -->
     <Style x:Key="DataGridCheckBoxStyle" TargetType="CheckBox">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="BorderBrush" Value="{DynamicResource ControlStrokeColorDefaultBrush}"/>
+        <!-- PickerBorder, not the hairline: an empty box has to be seen on the well. -->
+        <Setter Property="BorderBrush" Value="{x:Static svc:Theme.PickerBorder}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
         <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -247,7 +261,7 @@
                             SnapsToDevicePixels="True">
                         <Path x:Name="Glyph"
                               Data="M2,7 L6,11 L13,4"
-                              Stroke="{DynamicResource TextFillColorPrimaryBrush}"
+                              Stroke="{x:Static svc:Theme.TextPrimary}"
                               StrokeThickness="2"
                               StrokeLineJoin="Round"
                               StrokeStartLineCap="Round"
@@ -256,8 +270,11 @@
                               SnapsToDevicePixels="True"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <!-- Checked = the accent, like every other checked box in the app. -->
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="Glyph" Property="Visibility" Value="Visible"/>
+                            <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.Accent}"/>
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{x:Static svc:Theme.Accent}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

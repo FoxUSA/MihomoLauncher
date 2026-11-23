@@ -18,16 +18,44 @@ namespace MihomoLauncher.Services
             return b;
         }
 
+        // ===== The colour standard (2026-11-22: «у каждого окна свой набор цветов») =====
+        // One neutral charcoal with a slight cool tint — the tiles' palette — so the coloured state
+        // accents read against it. Every surface is OPAQUE: no window uses Mica (it tinted the same
+        // window differently over different wallpapers), and the library's own semi-transparent
+        // card / popup / window brushes are redirected to these (App.xaml, direct entries).
+        //   window WindowBg · raised CardBg · recessed well ListBg · floating OverlayCardBg with
+        //   PickerBorder · outline CardBorder (1 px, radius 8).
+        // One interactive blue (Accent) for hover borders, selection, focus, primary buttons,
+        // checked boxes and switches; green / amber / red / violet / blue-grey mean STATE only.
+
         // ----- Surfaces -----
-        public static readonly SolidColorBrush WindowBg = B("#FF1B1B1F");   // solid fallback behind Mica
-        public static readonly SolidColorBrush CardBg = B("#FF2A2A30");
+        public static readonly SolidColorBrush WindowBg = B("#FF1B1B1F");   // every window's background
+        public static readonly SolidColorBrush CardBg = B("#FF2A2A30");     // cards, tiles, panels, ui:Card
         public static readonly SolidColorBrush CardBgHover = B("#FF34343C");
-        public static readonly SolidColorBrush CardBorder = B("#FF3C3C46");
+        public static readonly SolidColorBrush CardBorder = B("#FF3C3C46"); // the outline of cards, wells, frames
         public static readonly SolidColorBrush CardBorderHover = B("#FF5E82C4");
 
-        // ----- Tables (native ListView / GridView) -----
-        public static readonly SolidColorBrush ListBg = B("#FF1F1F24");      // recessed surface
-        public static readonly SolidColorBrush SelectionBg = B("#4D5E82C4"); // accent, semi-transparent
+        // ----- The one accent -----
+        public static readonly Color AccentColor = (Color)ColorConverter.ConvertFromString("#FF5E82C4");
+        public static readonly SolidColorBrush Accent = B("#FF5E82C4");
+        // The accent at 30 % over the well, made opaque: a selected table row, and the main
+        // window's action buttons (they were #323D51 — the same colour within a hair).
+        public static readonly SolidColorBrush AccentSoft = B("#FF323D54");
+        public static readonly SolidColorBrush AccentSoftHover = B("#FF3E4B64");
+
+        // ----- Tables (DataGrid, the code-drawn tables, the implicit ListView style) -----
+        public static readonly SolidColorBrush ListBg = B("#FF1F1F24");      // recessed well: tables, lists, viewers
+        public static readonly SolidColorBrush SelectionBg = B("#4D5E82C4"); // accent, semi-transparent (pills, chips)
+        public static readonly SolidColorBrush TableHeaderBg = B("#FF26262C");
+        public static readonly SolidColorBrush TableLine = B("#FF303038");    // inner hairlines, quieter than the outline
+        public static readonly SolidColorBrush TableRowAlt = B("#FF232329");
+        public static readonly SolidColorBrush TableRowHover = B("#FF2B2B33");
+        public static readonly SolidColorBrush TableRowSelected = AccentSoft; // with TextPrimary, focused or not
+
+        // ----- Buttons: default, primary (library + Accent), «add» (AccentGreen text), danger -----
+        // Danger is muted on purpose: a rare action must not be the loudest thing in the window.
+        public static readonly SolidColorBrush DangerBg = B("#FF7D3A3A");
+        public static readonly SolidColorBrush DangerBgHover = B("#FF914444");
 
         // ----- Tiles -----
         public static readonly SolidColorBrush TileBg = B("#FF2A2A30");
@@ -75,6 +103,14 @@ namespace MihomoLauncher.Services
         // The log button's icon while tiles conflict: red, but dimmed — a hint, not an alarm.
         public static readonly SolidColorBrush ConflictIcon = B("#FFB06A64");
         public static readonly SolidColorBrush AccentAmber = B("#FFD9BC8C");
+        // The "auto-tracking added something" notice: the tile's gear, the tile's frame and the
+        // frame of the new rows in the rule editor. The plain AccentAmber again: once the whole
+        // tile is framed, a brighter amber was no longer needed (2026-11-22).
+        public static readonly SolidColorBrush NoticeAmber = B("#FFD9BC8C");
+        // The tile's frame for the same notice: the same amber at 55 %. 1 px is 1.5 px at 150 %
+        // scaling, and solid it read as a thick line («тоньше бордюр»); see GuardBorder for the
+        // same trick on the chips.
+        public static readonly SolidColorBrush NoticeTileBorder = B("#8CD9BC8C");
         public static readonly SolidColorBrush AccentBlue = B("#FFAAB9D6");
         public static readonly SolidColorBrush AccentGrey = B("#FF8A909A");
 
@@ -128,10 +164,66 @@ namespace MihomoLauncher.Services
         // ----- Overlays (in-window dialogs) -----
         public static readonly SolidColorBrush OverlayScrim = B("#1B1B1F");        // connecting overlay (opaque-ish dark)
         public static readonly SolidColorBrush OverlayBackdrop = B("#99000000");   // dimmed backdrop for dialog overlays
+        // Floating: dropdowns, context menus, tooltips, flyouts, in-window dialogs — border PickerBorder.
         public static readonly SolidColorBrush OverlayCardBg = B("#FF2C2C33");
         public static readonly SolidColorBrush OverlayBody = B("#FFC9C9D2");
 
         // ----- Shadow -----
         public static readonly Color ShadowColor = (Color)ColorConverter.ConvertFromString("#66000000");
+        // Drop shadows under floating cards (their Opacity sets the strength).
+        public static readonly Color ShadowBase = Colors.Black;
+
+        // ----- Text on coloured fills -----
+        // The main window's action buttons and the VPN priority squares: a cool white.
+        public static readonly SolidColorBrush TextOnAction = B("#FFEAF1FF");
+        // Initials on a monogram / badge, the chart's peak markers: plain white on saturated colour.
+        public static readonly SolidColorBrush TextOnColor = B("#FFFFFFFF");
+
+        // ----- Main window: the action row (named 2026-11-22; values as they were) -----
+        public static readonly SolidColorBrush ActionDangerHover = B("#FF6E3A3A");   // «ВЫКЛ» under the pointer
+        // The RDP safe-mode box: the same fill as the «APP» / «DNS» buttons beside it (= AccentSoft).
+        // Its old dark wine #3A2F36 sat unnoticed on Mica, but on the solid window background it
+        // read as a red button (2026-11-22: «такой же как у кнопок»).
+        public static readonly SolidColorBrush SafeModeBg = B("#FF323D54");
+        // Its text: the same as on the «APP» / «DNS» buttons (= TextOnAction), not the old pink.
+        public static readonly SolidColorBrush SafeModeCountdown = B("#FFEAF1FF");
+        public static readonly SolidColorBrush SafeModeLabel = B("#FFEAF1FF");
+        // Its switch when on: the red accent at 60 % — dull, like the violet guard switches.
+        public static readonly SolidColorBrush SafeModeSwitchFill = B("#99D98C84");
+        public static readonly SolidColorBrush SafeModeSwitchFillHover = B("#BFD98C84");
+        public static readonly SolidColorBrush EngineBtnBg = B("#FF6E5A33");         // «install the engine» — attention
+        public static readonly SolidColorBrush EngineBtnHover = B("#FF80683B");
+        public static readonly SolidColorBrush EngineBtnText = B("#FFF3E7CC");
+        // A tile chip's bin under the pointer.
+        public static readonly SolidColorBrush ChipDangerBgHover = B("#FF5C3030");
+        public static readonly SolidColorBrush ChipDangerBorderHover = B("#FF804444");
+
+        // ----- VPN priority squares (rule editor, routing matrix) -----
+        public static readonly SolidColorBrush RankOnBg = B("#FF3C6149");       // a VPN in use: green = ok
+        public static readonly SolidColorBrush RankOnBorder = B("#FF588A69");
+        public static readonly SolidColorBrush RankOffBorder = B("#FF555F77");
+        // The matrix's kill-switch cell when on: violet = protection on (was a brown no other
+        // place used). AccentViolet at ~35 % over CardBg, framed with GuardBorder.
+        public static readonly SolidColorBrush GuardCellBg = B("#FF564C77");
+        public static readonly SolidColorBrush AccentViolet = B("#FFA78BFA");
+
+        // ----- Identity colours: a tile's monogram, a company badge in DNS statistics -----
+        public static readonly Color[] MonogramColors =
+        {
+            Color.FromRgb(0x3F, 0x6F, 0xD8), Color.FromRgb(0x2F, 0x9A, 0x6B), Color.FromRgb(0xC2, 0x6A, 0x2E),
+            Color.FromRgb(0x87, 0x5C, 0xCF), Color.FromRgb(0xC0, 0x4B, 0x5C), Color.FromRgb(0x2A, 0x8E, 0xA8),
+            Color.FromRgb(0x9C, 0x7C, 0x2C), Color.FromRgb(0x5E, 0x6B, 0x84),
+        };
+        public static readonly SolidColorBrush BadgeGreyBg = B("#FF3A3A42");    // a «?» / country badge
+
+        // ----- Lists drawn on a card (DNS statistics): stripes and rules over CardBg -----
+        public static readonly SolidColorBrush ListStripeOnCard = B("#0AFFFFFF");
+        public static readonly SolidColorBrush ListLineOnCard = B("#1CFFFFFF");
+
+        // ----- The speed chart -----
+        public static readonly SolidColorBrush ChartGrid = B("#12FFFFFF");
+        public static readonly SolidColorBrush ChartZeroLine = B("#38FFFFFF");
+        public static readonly SolidColorBrush ChartGuide = B("#46FFFFFF");    // a peak's drop line, the pointer's line
+        public static readonly Color ChartUpColor = (Color)ColorConverter.ConvertFromString("#FFC9CBD6");
     }
 }

@@ -66,11 +66,11 @@ namespace MihomoLauncher.Views
             footer.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var note = new TextBlock { FontSize = 12, Foreground = Theme.TextMuted, VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
             footer.Children.Add(note);
-            // A real button like «Закрыть» (same size), red as a destructive action.
+            // A real button like «Закрыть» (same size): the muted danger role (App.xaml), a destructive action.
             var clear = new Wpf.Ui.Controls.Button
             {
                 Content = Loc.T("Main_SpeedClear"),
-                Appearance = Wpf.Ui.Controls.ControlAppearance.Danger,
+                Style = (Style)Application.Current.FindResource("DangerButtonStyle"),
                 FontSize = 14,
                 Padding = new Thickness(20, 8, 20, 8),
                 Margin = new Thickness(0, 0, 8, 0),
@@ -274,10 +274,11 @@ namespace MihomoLauncher.Views
             return (pct > 0 ? "▲ " : "▼ ") + Math.Round(Math.Abs(pct)).ToString("0", CultureInfo.CurrentCulture) + "%";
         }
 
+        // A grouped block: the raised surface (2026-11-22 standard; was the badge grey).
         private static Border SpeedPanel(UIElement child, Thickness padding) => new Border
         {
-            Background = Theme.BadgeNeutralBg,
-            BorderBrush = Theme.BadgeNeutralBorder,
+            Background = Theme.CardBg,
+            BorderBrush = Theme.CardBorder,
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = padding,
@@ -480,7 +481,7 @@ namespace MihomoLauncher.Views
                 double Yu(double v) => mid + Math.Min(1, Math.Max(0, v) / topU) * (bottom - mid);
 
                 // Grid + scale: half and full on the download side, full on the upload side, zero.
-                var gridPen = new Pen(new SolidColorBrush(Color.FromArgb(18, 255, 255, 255)), 1);
+                var gridPen = new Pen(Theme.ChartGrid, 1);
                 void GridLine(double y, string label)
                 {
                     y = Math.Round(y) + 0.5;
@@ -492,7 +493,7 @@ namespace MihomoLauncher.Views
                 GridLine(Yd(topD / 2), Num(topD / 2));
                 GridLine(Yu(topU), Num(topU));
                 double zy = Math.Round(mid) + 0.5;
-                dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(56, 255, 255, 255)), 1), new Point(L, zy), new Point(W - R, zy));
+                dc.DrawLine(new Pen(Theme.ChartZeroLine, 1), new Point(L, zy), new Point(W - R, zy));
                 var z = Txt("0", 10.5, Theme.TextMuted);
                 dc.DrawText(z, new Point(L - 8 - z.Width, zy - z.Height / 2));
                 dc.DrawText(Txt(Loc.T("Main_SpeedAxisDown"), 10.5, Theme.TextSecondary), new Point(L + 6, T + 1));
@@ -517,7 +518,7 @@ namespace MihomoLauncher.Views
                 {
                     dc.DrawGeometry(ClassGradient(mid, T, topD, 60), null, Smooth(down, T, mid, true, mid));
                     dc.DrawGeometry(null, new Pen(ClassGradient(mid, T, topD, 255), 1.8) { LineJoin = PenLineJoin.Round }, Smooth(down, T, mid, false, mid));
-                    var upColor = Color.FromRgb(0xC9, 0xCB, 0xD6);
+                    var upColor = Theme.ChartUpColor;
                     dc.DrawGeometry(new SolidColorBrush(Color.FromArgb(30, upColor.R, upColor.G, upColor.B)), null, Smooth(up, mid, bottom, true, mid));
                     dc.DrawGeometry(null, new Pen(new SolidColorBrush(Color.FromArgb(200, upColor.R, upColor.G, upColor.B)), 1.3) { LineJoin = PenLineJoin.Round }, Smooth(up, mid, bottom, false, mid));
 
@@ -527,7 +528,7 @@ namespace MihomoLauncher.Views
                     {
                         if (i < 0 || bps <= 0) return;
                         var p = isDown ? down[i] : up[i];
-                        dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), 1), new Point(p.X, zy), p);
+                        dc.DrawLine(new Pen(Theme.ChartGuide, 1), new Point(p.X, zy), p);
                         var dia = new StreamGeometry();
                         using (var c = dia.Open())
                         {
@@ -579,11 +580,11 @@ namespace MihomoLauncher.Views
                     int i = Math.Min(n - 1, (int)((_hoverX - L) / bw));
                     var s = _slots[i];
                     double x = X(i);
-                    dc.DrawLine(new Pen(new SolidColorBrush(Color.FromArgb(70, 255, 255, 255)), 1), new Point(x, T), new Point(x, bottom));
+                    dc.DrawLine(new Pen(Theme.ChartGuide, 1), new Point(x, T), new Point(x, bottom));
                     if (s.Secs > 0)
                     {
                         double dm = Mb(s.Down, s.Secs);
-                        dc.DrawEllipse(SpeedBrush(Math.Max(0.006, dm)), new Pen(Brushes.White, 1.5), new Point(x, Yd(dm)), 3.5, 3.5);
+                        dc.DrawEllipse(SpeedBrush(Math.Max(0.006, dm)), new Pen(Theme.TextOnColor, 1.5), new Point(x, Yd(dm)), 3.5, 3.5);
                     }
                     string time = s.Start.ToString("HH:mm") + (_per > 1 ? "–" + s.Start.AddMinutes(_per).ToString("HH:mm") : "");
                     string text = s.Secs <= 0 ? time + " · " + Loc.T("Main_SpeedNoDataShort")
@@ -593,7 +594,8 @@ namespace MihomoLauncher.Views
                     double bx = Math.Max(2, Math.Min(W - t.Width - 14, x + 10));
                     double by = mid + 4;
                     var r = new Rect(bx, by, t.Width + 12, t.Height + 6);
-                    dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromArgb(235, 0x15, 0x15, 0x18)), new Pen(Theme.PickerBorder, 1), r, 5, 5);
+                    // Floating, like every tooltip (2026-11-22): OverlayCardBg + PickerBorder (it was a near-black #151518).
+                    dc.DrawRoundedRectangle(Theme.OverlayCardBg, new Pen(Theme.PickerBorder, 1), r, 5, 5);
                     dc.DrawText(t, new Point(bx + 6, by + 3));
                 }
                 dc.Pop();

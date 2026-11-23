@@ -12,10 +12,11 @@
                  ResizeMode="CanResize"
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
 
     <ui:FluentWindow.Resources>
-        <!-- Top action buttons: one shared base colour (#323D51, like the Settings tabs);
+        <!-- Top action buttons: one shared base colour (Theme.AccentSoft, like a selected row);
              on hover each fades in its OWN muted accent carried in Tag (green for connect,
              red for disconnect, a slightly lighter shade for settings) — never bright.
              Hand cursor only here (a real button). -->
@@ -23,8 +24,8 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Background" Value="#FF323D51" />
-            <Setter Property="Foreground" Value="#FFEAF1FF" />
+            <Setter Property="Background" Value="{x:Static svc:Theme.AccentSoft}" />
+            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextOnAction}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ui:Button}">
@@ -218,10 +219,10 @@
                                    FontSize="14"
                                    FontWeight="SemiBold"
                                    Padding="14,8"
-                                   Tag="#FF6E3A3A"
+                                   Tag="{x:Static svc:Theme.ActionDangerHover}"
                                    Click="OnDisconnect">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="PlugDisconnected24" Foreground="#EAF1FF" />
+                                <ui:SymbolIcon Symbol="PlugDisconnected24" Foreground="{x:Static svc:Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -234,11 +235,11 @@
                                    Content="{DynamicResource Main_Routing}"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="#FF3E4B64"
+                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
                                    ToolTip="{DynamicResource Main_RoutingTip}"
                                    Click="OnOpenVpnMatrix">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="Globe24" Foreground="#EAF1FF" />
+                                <ui:SymbolIcon Symbol="Globe24" Foreground="{x:Static svc:Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -251,11 +252,11 @@
                                    Content="VPN"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="#FF3E4B64"
+                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
                                    ToolTip="{DynamicResource Main_VpnListTip}"
                                    Click="OnOpenVpnList">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="ShieldKeyhole24" Foreground="#EAF1FF" />
+                                <ui:SymbolIcon Symbol="ShieldKeyhole24" Foreground="{x:Static svc:Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -266,11 +267,11 @@
                                    Content="APP"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="#FF3E4B64"
+                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
                                    ToolTip="{DynamicResource Main_RulesListTip}"
                                    Click="OnOpenRulesList">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="Apps24" Foreground="#EAF1FF" />
+                                <ui:SymbolIcon Symbol="Apps24" Foreground="{x:Static svc:Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -282,10 +283,10 @@
                                    Content="DNS"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="#FF3E4B64"
+                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
                                    Click="OnOpenDns">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon x:Name="IcoDns" Symbol="GlobeShield24" Foreground="#EAF1FF" />
+                                <ui:SymbolIcon x:Name="IcoDns" Symbol="GlobeShield24" Foreground="{x:Static svc:Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -294,27 +295,38 @@
                              so a bad VPN config can't lock you out over RDP/AnyDesk. Off by
                              default. The same switch lives in Settings and the install prompt. -->
                         <Border x:Name="KillTimerBox"
-                                Background="#FF3A2F36"
+                                Background="{x:Static svc:Theme.SafeModeBg}"
                                 CornerRadius="6"
                                 Padding="10,0"
                                 VerticalAlignment="Stretch">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <!-- On: a dull red switch (2026-11-22) — the engine is being stopped
+                                     every minute, which is worth seeing, but not shouting. -->
                                 <ui:ToggleSwitch x:Name="SwitchSafeMode" VerticalAlignment="Center"
-                                                 Checked="OnSafeModeToggle" Unchecked="OnSafeModeToggle" />
+                                                 Checked="OnSafeModeToggle" Unchecked="OnSafeModeToggle">
+                                    <ui:ToggleSwitch.Resources>
+                                        <x:Static x:Key="ToggleSwitchFillOn" Member="svc:Theme.SafeModeSwitchFill" />
+                                        <x:Static x:Key="ToggleSwitchFillOnPointerOver" Member="svc:Theme.SafeModeSwitchFillHover" />
+                                        <x:Static x:Key="ToggleSwitchFillOnPressed" Member="svc:Theme.SafeModeSwitchFill" />
+                                        <x:Static x:Key="ToggleSwitchStrokeOn" Member="svc:Theme.SafeModeSwitchFill" />
+                                        <x:Static x:Key="ToggleSwitchStrokeOnPointerOver" Member="svc:Theme.SafeModeSwitchFillHover" />
+                                        <x:Static x:Key="ToggleSwitchStrokeOnPressed" Member="svc:Theme.SafeModeSwitchFill" />
+                                    </ui:ToggleSwitch.Resources>
+                                </ui:ToggleSwitch>
                                 <!-- Off: the switch + its name. On: the switch + the countdown only
                                      (UpdateKillTimerUi) — both at once didn't fit the row. -->
                                 <TextBlock x:Name="KillCountdown" Text="1:00" VerticalAlignment="Center"
                                            FontSize="14" FontWeight="SemiBold" Margin="8,0,4,0"
                                            Visibility="Collapsed"
-                                           Foreground="#FFEAD0D0" />
+                                           Foreground="{x:Static svc:Theme.SafeModeCountdown}" />
                                 <TextBlock x:Name="KillLabel" Text="{DynamicResource Main_KillTimerLabel}" VerticalAlignment="Center"
-                                           FontSize="12.5" Margin="8,0,0,0" Foreground="#FFD7A8A8" />
+                                           FontSize="12.5" Margin="8,0,0,0" Foreground="{x:Static svc:Theme.SafeModeLabel}" />
                                 <Border x:Name="KillHelpHit" Width="22" Height="22" CornerRadius="11"
                                         Background="Transparent" Cursor="Hand" Margin="4,0,0,0"
                                         ToolTip="{DynamicResource Main_KillTimerHelpTip}"
                                         MouseLeftButtonUp="OnKillTimerHelp">
                                     <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="15"
-                                                   Foreground="#FFAAB9D6"
+                                                   Foreground="{x:Static svc:Theme.AccentBlue}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                             </StackPanel>
@@ -333,13 +345,13 @@
                                FontSize="13"
                                FontWeight="SemiBold"
                                Padding="12,8"
-                               Background="#FF6E5A33"
-                               Foreground="#FFF3E7CC"
-                               Tag="#FF80683B"
+                               Background="{x:Static svc:Theme.EngineBtnBg}"
+                               Foreground="{x:Static svc:Theme.EngineBtnText}"
+                               Tag="{x:Static svc:Theme.EngineBtnHover}"
                                Content="{DynamicResource Main_InstallEngineBtn}"
                                Click="OnInstallEngineClick">
                         <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="ArrowDownload24" Foreground="#FFF3E7CC" />
+                            <ui:SymbolIcon Symbol="ArrowDownload24" Foreground="{x:Static svc:Theme.EngineBtnText}" />
                         </ui:Button.Icon>
                     </ui:Button>
 
@@ -386,15 +398,17 @@
                      latency to each VPN server in use, how often the kill-switch / DNS cut
                      something + the latest such cut. Each line is there only when it has
                      something to say; with nothing at all the plate is gone. Click = the log. -->
+                <!-- A well (2026-11-22 standard): it was a blue-grey of its own that no other
+                     surface used — ListBg and the outline are the same within a hair. -->
                 <Border x:Name="StatsStrip"
                         Grid.Row="2"
                         Margin="14,7.5,14,14"
                         Visibility="Collapsed"
                         Padding="12,7"
                         CornerRadius="7"
-                        Background="#FF1E2027"
+                        Background="{x:Static svc:Theme.ListBg}"
                         BorderThickness="1"
-                        BorderBrush="#FF2C303A"
+                        BorderBrush="{x:Static svc:Theme.CardBorder}"
                         MouseLeftButtonUp="OnStatsClick">
                         <StackPanel x:Name="StatsLines">
                             <Border x:Name="TopBanner" Visibility="Collapsed">
@@ -469,7 +483,7 @@
                                  Visibility="Collapsed"
                                  HorizontalAlignment="Center"
                                  Margin="0,0,0,24"
-                                 Foreground="{x:Static svc:Theme.AccentBlue}"
+                                 Foreground="{x:Static svc:Theme.Accent}"
                                  Background="{x:Static svc:Theme.ListBg}"
                                  BorderThickness="0" />
                     <ui:Button x:Name="BtnCancel"

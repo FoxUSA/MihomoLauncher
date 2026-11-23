@@ -30,7 +30,6 @@ namespace MihomoLauncher.Views
         {
             InitializeComponent();
             LstApps.ItemsSource = _rows;
-            UiHelpers.FillLastGridColumn(LstApps);
             Loaded += async (s, e) => await LoadAppsAsync();
         }
 

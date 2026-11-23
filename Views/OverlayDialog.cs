@@ -73,11 +73,13 @@ namespace MihomoLauncher.Views
                 MaxWidth = width,   // narrower window: the card gives way (2026-11-21)
                 Margin = new Thickness(12),
                 Background = Services.Theme.OverlayCardBg,
+                BorderBrush = Services.Theme.PickerBorder,   // floating: the same frame as menus and pickers
+                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
                 HorizontalAlignment = HorizontalAlignment.Stretch,   // = MaxWidth, centred; less if the window is narrower
                 VerticalAlignment = VerticalAlignment.Center,
-                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
+                Effect = new DropShadowEffect { Color = Services.Theme.ShadowBase, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
             };
 
             var sp = new StackPanel();
@@ -118,11 +120,11 @@ namespace MihomoLauncher.Views
             var okBtn = new Button
             {
                 Content = okText,
-                Appearance = okAppearance,
                 FontSize = 14,
                 Padding = new Thickness(20, 8, 20, 8),
                 Margin = buttonHost != null && cancelText == null ? new Thickness(0) : new Thickness(0, 0, 8, 0),
             };
+            SetRole(okBtn, okAppearance);
             okBtn.Click += (s, e) => Close(true);
             btnRow.Children.Add(okBtn);
 
@@ -159,6 +161,16 @@ namespace MihomoLauncher.Views
             return tcs.Task;
         }
 
+        // A button's role (2026-11-22): «Danger» is the app's muted danger button (App.xaml,
+        // DangerButtonStyle), not the library's loud red; the other appearances are the library's.
+        private static Style DangerStyle => (Style)Application.Current.FindResource("DangerButtonStyle");
+
+        private static void SetRole(Button b, Wpf.Ui.Controls.ControlAppearance a)
+        {
+            if (a == Wpf.Ui.Controls.ControlAppearance.Danger) b.Style = DangerStyle;
+            else b.Appearance = a;
+        }
+
         // Three answers (2026-11-17, deleting a tab with tiles): the main (safe) button, a red one
         // standing apart on the left, and cancel. 1 = main, 2 = red, 0 = cancel. Enter = main,
         // Esc / the backdrop = cancel — never the red one by accident.
@@ -179,11 +191,13 @@ namespace MihomoLauncher.Views
                 MaxWidth = 460,
                 Margin = new Thickness(12),
                 Background = Services.Theme.OverlayCardBg,
+                BorderBrush = Services.Theme.PickerBorder,   // floating: the same frame as menus and pickers
+                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
                 HorizontalAlignment = HorizontalAlignment.Stretch,   // = MaxWidth, centred; less if the window is narrower
                 VerticalAlignment = VerticalAlignment.Center,
-                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
+                Effect = new DropShadowEffect { Color = Services.Theme.ShadowBase, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
             };
             var sp = new StackPanel();
             sp.Children.Add(new TextBlock
@@ -208,7 +222,7 @@ namespace MihomoLauncher.Views
             var row = new DockPanel { LastChildFill = false };
             var danger = new Button
             {
-                Content = dangerText, Appearance = Wpf.Ui.Controls.ControlAppearance.Danger,
+                Content = dangerText, Style = DangerStyle,
                 FontSize = 14, Padding = new Thickness(16, 8, 16, 8),
             };
             danger.Click += (s, e) => Done(2);
@@ -257,11 +271,13 @@ namespace MihomoLauncher.Views
                 MaxWidth = 400,
                 Margin = new Thickness(12),
                 Background = Services.Theme.OverlayCardBg,
+                BorderBrush = Services.Theme.PickerBorder,   // floating: the same frame as menus and pickers
+                BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(12),
                 Padding = new Thickness(22, 20, 22, 18),
                 HorizontalAlignment = HorizontalAlignment.Stretch,   // = MaxWidth, centred; less if the window is narrower
                 VerticalAlignment = VerticalAlignment.Center,
-                Effect = new DropShadowEffect { Color = Colors.Black, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
+                Effect = new DropShadowEffect { Color = Services.Theme.ShadowBase, BlurRadius = 18, ShadowDepth = 2, Opacity = 0.35 },
             };
 
             var sp = new StackPanel();

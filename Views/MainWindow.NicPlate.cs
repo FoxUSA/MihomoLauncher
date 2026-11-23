@@ -99,15 +99,11 @@ namespace MihomoLauncher.Views
                 new Thickness(5, 31, 0, 0), HorizontalAlignment.Left, tip, !clickable,
                 async () =>
                 {
-                    // Pinned in the rule's settings: the card can't be changed here — said, not ignored.
-                    if (entry.LockNic)
-                    {
-                        await OverlayDialog.MessageAsync(this, Loc.T("Main_NicLockedTitle"),
-                            Loc.T("Main_NicLockedMsg", NetCards.Clean(entry.Interfaces).FirstOrDefault() ?? "")).ConfigureAwait(true);
-                        return;
-                    }
+                    // Pinned in the rule's settings (2026-11-23): the menu still opens — its card rows
+                    // are inactive, but «Приоритет сетевых адаптеров» must stay reachable. Nothing in it
+                    // changes the tile then, so no password here (the priority dialog asks on «Применить»).
                     // Which card a tile goes out through is a routing change — behind the access password.
-                    if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
+                    if (!entry.LockNic && !await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
                     ShowNicPicker(entry, chip);
                 },
                 color, entry.LockNic);
@@ -376,14 +372,9 @@ namespace MihomoLauncher.Views
             {
                 e.Handled = true;   // never the tile's launch
                 if (!clickable) return;
-                if (entry.LockNic)
-                {
-                    await OverlayDialog.MessageAsync(this, Loc.T("Main_NicLockedTitle"),
-                        Loc.T("Main_NicLockedMsg", NetCards.Clean(entry.Interfaces).FirstOrDefault() ?? "")).ConfigureAwait(true);
-                    return;
-                }
+                // Pinned: the menu opens with its card rows inactive, without the password (see MakeNicChip).
                 // Which card a tile goes out through is a routing change — behind the access password.
-                if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
+                if (!entry.LockNic && !await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
                 ShowNicPicker(entry, plate);
             };
             if (clickable)
@@ -422,7 +413,11 @@ namespace MihomoLauncher.Views
 
             var list = new StackPanel { Margin = new Thickness(4) };
 
-            Border Row(UIElement inner, bool current, Action onClick)
+            // «Привязка к сетевой карте» is on (2026-11-23): the card rows are shown as they are, but
+            // inactive — the card is changed only in the tile's settings. The rest of the menu works.
+            bool locked = entry.LockNic;
+
+            Border Row(UIElement inner, bool current, Action onClick, bool active = true)
             {
                 var cell = new Border
                 {
@@ -430,9 +425,15 @@ namespace MihomoLauncher.Views
                     Padding = new Thickness(10, 4, 10, 4),
                     CornerRadius = new CornerRadius(4),
                     Background = current ? Theme.PickerRowCurrent : Brushes.Transparent,
-                    Cursor = Cursors.Hand,
+                    Cursor = active ? Cursors.Hand : Cursors.Arrow,
                     Child = inner,
                 };
+                if (!active)
+                {
+                    // The app's disabled look: dimmed, no hover, no click.
+                    cell.Opacity = 0.5;
+                    return cell;
+                }
                 var rest = cell.Background;
                 cell.MouseEnter += (s, e) => cell.Background = Theme.PickerRowHover;
                 cell.MouseLeave += (s, e) => cell.Background = rest;
@@ -448,6 +449,17 @@ namespace MihomoLauncher.Views
 
                 // No «По умолчанию» row any more (2026-11-14): untick every card and Windows decides;
                 // the card it decides for is marked «по умолчанию» in the list.
+                // Pinned: one muted line on top says why the cards below don't react.
+                if (locked)
+                    list.Children.Add(new TextBlock
+                    {
+                        Text = Loc.T("Main_NicPickerLocked"),
+                        FontSize = 11.5,
+                        Foreground = Theme.TextMuted,
+                        TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = 300,
+                        Margin = new Thickness(10, 6, 10, 4),
+                    });
                 if (all.Count == 0)
                     list.Children.Add(new TextBlock
                     {
@@ -478,7 +490,7 @@ namespace MihomoLauncher.Views
                             Text = rank > 0 ? rank.ToString() : "",
                             FontSize = 12.5,
                             FontWeight = FontWeights.SemiBold,
-                            Foreground = Brushes.White,
+                            Foreground = Theme.TextOnColor,
                             HorizontalAlignment = HorizontalAlignment.Center,
                             VerticalAlignment = VerticalAlignment.Center,
                         },
@@ -487,33 +499,37 @@ namespace MihomoLauncher.Views
                     var name = card.Name;
                     // The box ticks / unticks (1, 2… order) and keeps the menu open; a click anywhere
                     // else on the row picks just this card and closes the menu (2026-11-14).
-                    box.Cursor = Cursors.Hand;
-                    box.ToolTip = Loc.T("Main_NicBoxTip");
-                    // Under the mouse the box lights up by itself (blue frame + tint), so it reads as
-                    // its own action — «отметить по порядку» — not as the row's quick pick.
-                    var boxBg = box.Background;
-                    var boxBd = box.BorderBrush;
-                    var blue = (Theme.AccentBlue as SolidColorBrush)?.Color ?? Colors.DodgerBlue;
-                    box.MouseEnter += (s, e) =>
+                    // Pinned: the box only shows the choice — no tooltip, hover or tick.
+                    if (!locked)
                     {
-                        box.BorderBrush = Theme.AccentBlue;
-                        box.BorderThickness = new Thickness(2);
-                        box.Background = new SolidColorBrush(Color.FromArgb(rank > 0 ? (byte)0xCC : (byte)0x40, blue.R, blue.G, blue.B));
-                    };
-                    box.MouseLeave += (s, e) =>
-                    {
-                        box.BorderBrush = boxBd;
-                        box.BorderThickness = new Thickness(1);
-                        box.Background = boxBg;
-                    };
-                    box.MouseLeftButtonUp += (s, e) =>
-                    {
-                        e.Handled = true;
-                        int at = order.FindIndex(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
-                        if (at >= 0) order.RemoveAt(at);
-                        else order.Add(name);
-                        Render();
-                    };
+                        box.Cursor = Cursors.Hand;
+                        box.ToolTip = Loc.T("Main_NicBoxTip");
+                        // Under the mouse the box lights up by itself (blue frame + tint), so it reads as
+                        // its own action — «отметить по порядку» — not as the row's quick pick.
+                        var boxBg = box.Background;
+                        var boxBd = box.BorderBrush;
+                        var blue = Theme.AccentBlue.Color;
+                        box.MouseEnter += (s, e) =>
+                        {
+                            box.BorderBrush = Theme.AccentBlue;
+                            box.BorderThickness = new Thickness(2);
+                            box.Background = new SolidColorBrush(Color.FromArgb(rank > 0 ? (byte)0xCC : (byte)0x40, blue.R, blue.G, blue.B));
+                        };
+                        box.MouseLeave += (s, e) =>
+                        {
+                            box.BorderBrush = boxBd;
+                            box.BorderThickness = new Thickness(1);
+                            box.Background = boxBg;
+                        };
+                        box.MouseLeftButtonUp += (s, e) =>
+                        {
+                            e.Handled = true;
+                            int at = order.FindIndex(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+                            if (at >= 0) order.RemoveAt(at);
+                            else order.Add(name);
+                            Render();
+                        };
+                    }
                     var names = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                     var title = new StackPanel { Orientation = Orientation.Horizontal };
                     title.Children.Add(new TextBlock
@@ -562,10 +578,26 @@ namespace MihomoLauncher.Views
                         order.Clear();
                         order.Add(name);
                         popup.IsOpen = false;
-                    });
-                    names.ToolTip = Loc.T("Main_NicRowTip");   // the name part only: the box has its own
+                    }, !locked);
+                    if (!locked) names.ToolTip = Loc.T("Main_NicRowTip");   // the name part only: the box has its own
                     list.Children.Add(rowCell);
                 }
+
+                // Last, under a line (2026-11-23): Windows' own card priority — the dialog that was
+                // Settings' «Сеть» tab. The menu closes first (its card choice is applied as on any
+                // close), then the dialog opens over the main window.
+                list.Children.Add(new Border { Height = 1, Background = Theme.PickerBorder, Margin = new Thickness(6, 4, 6, 4) });
+                list.Children.Add(Row(new TextBlock
+                {
+                    Text = Loc.T("Nic_DlgMenu"),
+                    FontSize = 13,
+                    Foreground = Theme.TextPrimary,
+                    VerticalAlignment = VerticalAlignment.Center,
+                }, false, () =>
+                {
+                    popup.IsOpen = false;
+                    Dispatcher.BeginInvoke(new Action(OpenNicPriority), System.Windows.Threading.DispatcherPriority.Background);
+                }));
             }
             Render();
 
@@ -604,6 +636,10 @@ namespace MihomoLauncher.Views
                 if (_vpnPicker == popup) _vpnPicker = null;
                 FlushPickerRebuild();
 
+                // Pinned: nothing here may change the tile's cards — not even the «default card =
+                // no choice» clean-up below, which would drop a pin on the card Windows uses.
+                if (locked) return;
+
                 // Just the default card and nothing after it is the default choice — stored as such.
                 if (IsJustDefaultCard(order)) order.Clear();
                 if (order.SequenceEqual(original, StringComparer.OrdinalIgnoreCase)) return;
@@ -617,6 +653,23 @@ namespace MihomoLauncher.Views
 
             _vpnPicker = popup;
             popup.IsOpen = true;
+        }
+
+        // «Приоритет сетевых адаптеров» (Windows' card metrics), modal over the main window. A new
+        // order changes which card is "Windows' own" — the chips are redrawn when it was applied.
+        private void OpenNicPriority()
+        {
+            try
+            {
+                var dlg = new NicPriorityDialog(_config) { Owner = this };
+                dlg.ShowDialog();
+                if (dlg.Applied)
+                {
+                    _netCardsCache = null;
+                    RebuildTiles();
+                }
+            }
+            catch (Exception ex) { Log.Error("nic-priority-dialog", ex); }
         }
     }
 }

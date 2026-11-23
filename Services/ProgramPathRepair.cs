@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -26,6 +26,13 @@ namespace MihomoLauncher.Services
 
         private static string Shape(string segment) => VersionRun.Replace(segment ?? "", "#").ToLowerInvariant();
 
+        // A path segment that carries a dotted version ("app-1.15.0", "csdevkit-3.40.215-win32-x64"):
+        // the folder rule's regexp (MihomoConfigBuilder.FolderRegex) and the watchers (FolderWatch)
+        // use the same notion as the repair below.
+        public static bool LooksVersioned(string segment) => LooksLikeVersion.IsMatch(segment ?? "");
+
+        public static MatchCollection VersionRuns(string segment) => VersionRun.Matches(segment ?? "");
+
         private static int[] VersionOf(string segment)
             => Regex.Matches(segment ?? "", @"\d+").Cast<Match>()
                     .Select(m => int.TryParse(m.Value, out var n) ? n : int.MaxValue).ToArray();
@@ -39,14 +46,14 @@ namespace MihomoLauncher.Services
 
         // The newest existing variant of `path`, or null when `path` is already the newest one
         // (or nothing better can be found).
-        public static string FindNewer(string path)
+        public static string FindNewer(string path, bool directory = false)
         {
             if (string.IsNullOrWhiteSpace(path)) return null;
             string full;
             try { full = Path.GetFullPath(path.Trim()); } catch { return null; }
             var root = Path.GetPathRoot(full) ?? "";
             var segments = full.Substring(root.Length).Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries);
-            bool exists = File.Exists(full);
+            bool exists = directory ? Directory.Exists(full) : File.Exists(full);
 
             // Closest-to-the-file segment first: "app-1.15\Gemini.exe" is fixed at "app-1.15"
             // without touching anything above it.
@@ -65,7 +72,7 @@ namespace MihomoLauncher.Services
                 string[] siblings;
                 try
                 {
-                    siblings = isLeaf ? Directory.GetFiles(parent) : Directory.GetDirectories(parent);
+                    siblings = isLeaf && !directory ? Directory.GetFiles(parent) : Directory.GetDirectories(parent);
                 }
                 catch { continue; }   // e.g. WindowsApps: not listable for a normal user
 
@@ -79,10 +86,10 @@ namespace MihomoLauncher.Services
                     var name = Path.GetFileName(sib);
                     if (Shape(name) != shape) continue;
                     var candidate = isLeaf ? sib : Path.Combine(sib, rest);
-                    if (!File.Exists(candidate)) continue;
+                    if (directory ? !Directory.Exists(candidate) : !File.Exists(candidate)) continue;
                     var ver = VersionOf(name);
                     DateTime t;
-                    try { t = File.GetLastWriteTimeUtc(candidate); } catch { t = DateTime.MinValue; }
+                    try { t = directory ? Directory.GetLastWriteTimeUtc(candidate) : File.GetLastWriteTimeUtc(candidate); } catch { t = DateTime.MinValue; }
                     int cmp = bestVer == null ? 1 : CompareVersions(ver, bestVer);
                     if (cmp > 0 || (cmp == 0 && t > bestTime)) { best = candidate; bestVer = ver; bestTime = t; }
                 }
@@ -123,16 +130,46 @@ namespace MihomoLauncher.Services
             return fixes;
         }
 
-        // Any configured program whose file is missing — cheap enough to ask every tick.
+        // Folder entries (2026-11-22): one whose folder is gone moves to its newest sibling of the
+        // same shape ("…\csdevkit-3.40.215-win32-x64" → "…\csdevkit-3.41.0-win32-x64"). Only a
+        // missing folder is moved: an existing one is what the person picked, and the engine's
+        // regexp already covers its next version (MihomoConfigBuilder.FolderRegex).
+        public static List<Fix> RepairFolders(AppConfig cfg)
+        {
+            var fixes = new List<Fix>();
+            if (cfg?.Apps == null) return fixes;
+            foreach (var rule in cfg.Apps)
+                foreach (var f in rule?.Folders ?? Enumerable.Empty<RuleFolder>())
+                {
+                    if (f == null || string.IsNullOrWhiteSpace(f.Path)) continue;
+                    try { if (Directory.Exists(f.Path)) continue; } catch { continue; }
+                    string newer;
+                    try { newer = FindNewer(f.Path, directory: true); } catch { newer = null; }
+                    if (newer == null) continue;
+                    fixes.Add(new Fix { Rule = rule.Name, OldPath = f.Path, NewPath = newer });
+                    f.Path = newer;
+                }
+            return fixes;
+        }
+
+        // Any configured program whose file is missing (or folder entry whose folder is) — cheap
+        // enough to ask every tick.
         public static bool AnyMissing(AppConfig cfg)
         {
             if (cfg?.Apps == null) return false;
             foreach (var rule in cfg.Apps)
+            {
                 foreach (var prog in rule?.Programs ?? Enumerable.Empty<RuleProgram>())
                 {
                     if (prog == null || string.IsNullOrWhiteSpace(prog.Path) || prog.IsStoreApp) continue;
                     try { if (!File.Exists(prog.Path)) return true; } catch { }
                 }
+                foreach (var f in rule?.Folders ?? Enumerable.Empty<RuleFolder>())
+                {
+                    if (f == null || string.IsNullOrWhiteSpace(f.Path)) continue;
+                    try { if (!Directory.Exists(f.Path)) return true; } catch { }
+                }
+            }
             return false;
         }
     }

@@ -169,13 +169,26 @@ namespace MihomoLauncher.Views
             if (_cfg.Apps.IndexOf(entry) < 0) return;
             int sel = GridApps.SelectedIndex;
             var dlg = new EditRuleDialog(entry, _cfg.VpnSlots) { Owner = this };
-            if (dlg.ShowDialog() != true || dlg.Result == null) return;
+            if (dlg.ShowDialog() != true || dlg.Result == null)
+            {
+                // Cancelled: the amber rows (new auto entries) have been seen — only that flag is
+                // written, the discarded edit stays discarded.
+                try
+                {
+                    (System.Windows.Application.Current?.MainWindow as MainWindow)?.AutoNewSeen(entry.Id);
+                }
+                catch (Exception ex) { Log.Error("auto-new-seen-list", ex); }
+                return;
+            }
             var edited = dlg.Result;
             await CommitAsync(() =>
             {
                 int idx = _cfg.Apps.IndexOf(entry);   // looked up again: the list may have moved meanwhile
                 if (idx >= 0) _cfg.Apps[idx] = edited;
             }).ConfigureAwait(true);
+            // Saved: the editor's result carries no AutoNew; the amber gear goes back to normal.
+            try { (System.Windows.Application.Current?.MainWindow as MainWindow)?.AutoNewSeen(edited.Id); }
+            catch (Exception ex) { Log.Error("auto-new-seen-list", ex); }
             RefreshAppRows();
             GridApps.SelectedIndex = sel;
         }
@@ -546,17 +559,29 @@ namespace MihomoLauncher.Views
             public AppEntry Entry { get; }
             public string Name { get; }
             public string DisplayPath { get; }
-            public string VpnLabel { get; }
-            public string KillSwitchLabel { get; }
+            // The four state columns (2026-11-23: «всё положительное должно выделяться»): each a
+            // StateCell, drawn by ONE template in ListsWindow.xaml — a positive value in its state
+            // colour, the rest muted. Rebuilt with the row (RefreshAppRows after every edit).
+            public StateCell Vpn { get; }
+            public StateCell KillSwitch { get; }
+            public StateCell LockNic { get; }
+            public StateCell AutoTrack { get; }
 
             public AppRow(AppEntry e)
             {
                 Entry = e;
                 Name = e.Name;
                 DisplayPath = PathSummary(e);
-                VpnLabel = e.RequiresVpn ? Loc.T("Set_Yes") : Loc.T("Set_No");
+                // Green = connected / ok.
+                Vpn = new StateCell(e.RequiresVpn, Loc.T(e.RequiresVpn ? "Set_Yes" : "Set_No"), Theme.AccentGreen);
                 // Kill-switch has its own independent status, shown regardless of the VPN toggle.
-                KillSwitchLabel = e.KillSwitch ? Loc.T("Set_On") : Loc.T("Set_Off");
+                // It and the card lock are protection: the guard switches' violet.
+                KillSwitch = new StateCell(e.KillSwitch, Loc.T(e.KillSwitch ? "Set_On" : "Set_Off"), Theme.AccentViolet);
+                LockNic = new StateCell(e.LockNic, Loc.T(e.LockNic ? "Set_On" : "Set_Off"), Theme.AccentViolet);
+                // «Всё остальное» has no programs to follow: «—», like its «Путь».
+                AutoTrack = e.IsAllTraffic
+                    ? new StateCell(false, "—", Theme.AccentBlue)
+                    : new StateCell(e.AutoTrack, Loc.T(e.AutoTrack ? "Set_On" : "Set_Off"), Theme.AccentBlue);
             }
 
             // The ADDRESS of the one item the tile launches — full exe path, the AUMID when a
@@ -575,8 +600,11 @@ namespace MihomoLauncher.Views
 
                 var prog = progs.FirstOrDefault(p => p.Launch);
                 var site = sites.FirstOrDefault(s => s.Launch);
+                var folder = (e.Folders ?? new List<RuleFolder>()).FirstOrDefault(f => f != null && f.Launch && !string.IsNullOrWhiteSpace(f.Path));
+                if (prog == null && site == null && folder != null) return folder.Path.Trim();
                 if (prog == null && site == null)
                 {
+                    progs = progs.Where(p => !p.Auto).ToList();
                     if (progs.Count > 0) prog = progs[0];
                     else if (sites.Count > 0) site = sites[0];
                 }
@@ -602,8 +630,6 @@ namespace MihomoLauncher.Views
             public string Name { get; }
             public string KindLabel { get; }
             public string ValueLabel { get; }
-            public string EnabledLabel { get; }
-            public string StatusLabel { get; }
 
             public SlotRow(VpnSlot s, int number)
             {
@@ -620,17 +646,28 @@ namespace MihomoLauncher.Views
                 }
                 // Full value; the column's text style trims it when it genuinely doesn't fit.
                 ValueLabel = s.Value ?? "";
-                EnabledLabel = s.Enabled ? "✓" : "—";   // glyphs, no localization
-
-                // What the last connect learned about this variant. Blank until something has
-                // actually checked it.
-                switch (SlotHealth.Get(s.Id))
-                {
-                    case SlotState.Alive: StatusLabel = Loc.T("Set_SlotAnswers"); break;
-                    case SlotState.Dead: StatusLabel = Loc.T("Set_SlotNoAnswer"); break;
-                    default: StatusLabel = ""; break;
-                }
+                // No «Вкл» column any more (2026-11-23): every configuration is in use. No «Проверка»
+                // column either (2026-11-23, the owner's call): SlotHealth still orders the connect's
+                // sweep, it is just not shown here.
             }
         }
+    }
+
+    // One yes/no cell of the rules list: the text, whether it is the positive value, and the
+    // colour that value has in the standard (Theme). Drawn by the StateCell template of
+    // ListsWindow.xaml: positive — that colour, SemiBold; otherwise TextMuted, normal weight
+    // (TextSecondary on the selected row, where TextMuted would sink into TableRowSelected).
+    public sealed class StateCell
+    {
+        public StateCell(bool on, string text, System.Windows.Media.Brush onBrush)
+        {
+            On = on;
+            Text = text ?? "";
+            OnBrush = onBrush;
+        }
+
+        public bool On { get; }
+        public string Text { get; }
+        public System.Windows.Media.Brush OnBrush { get; }
     }
 }

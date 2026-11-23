@@ -251,7 +251,7 @@ namespace MihomoLauncher.Views
             var cross = new Path
             {
                 Data = Geometry.Parse("M0,0 L7,7 M7,0 L0,7"),
-                Stroke = Brushes.White, StrokeThickness = 1.3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Stroke = Theme.TextOnColor, StrokeThickness = 1.3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
             var close = new Border

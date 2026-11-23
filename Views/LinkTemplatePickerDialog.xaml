@@ -9,7 +9,8 @@
                  ResizeMode="CanResize"
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

@@ -98,8 +98,26 @@ namespace MihomoLauncher.Views
             cols = Math.Max(1, cols);
             int count = _config.Apps.Count(a => a != null && a.HasTileTarget && TileTabs.OnTab(_config, a, tab));
             if (count == 0) return cols == 1 ? 2 : 1;
+            // The «new rule» tile counted only in a free place of the last row: on another tab it
+            // may also start a row of its own (ShowsAddTile), but only inside «Основная»'s height —
+            // which OpenTabTileRows takes anyway, so that row never makes the window taller.
             int items = count + (count % cols != 0 ? 1 : 0);
             return (items + cols - 1) / cols;
+        }
+
+        // Does the «new rule» outline go at the end of this tab's tiles (2026-11-23)? Whenever it
+        // fits without making the window taller: a free place in the last row; or, on a tab other
+        // than «Основная» (its tiles area is at least «Основная»'s height — RebuildTiles' MinHeight),
+        // a new row that still lies inside that height. Only a full last row with no spare height
+        // gets none — «Основная» itself never has spare height, so there it is as before.
+        // Re-asked on every rebuild, which a column change (SyncTileGrid) and a resize both cause.
+        private bool ShowsAddTile(TileTab tab, int count, int cols)
+        {
+            cols = Math.Max(1, cols);
+            if (count == 0 || count % cols != 0) return true;
+            var main = _config.Tabs != null && _config.Tabs.Count > 0 ? _config.Tabs[0] : null;
+            if (main == null || tab == null || tab.Id == TileTabs.MainId) return false;
+            return count / cols + 1 <= TabTileRows(main, cols);
         }
 
         private double TileRowHeight => TileHeight + 7;

@@ -72,8 +72,25 @@ namespace MihomoLauncher.Services
             if (app == null) return null;
             try
             {
+                // Never an auto-added helper's icon — unless the person ticked «Плитка» on it.
                 var progs = (app.Programs ?? new System.Collections.Generic.List<Models.RuleProgram>())
-                    .Where(p => p != null).OrderBy(p => p.Launch ? 0 : 1).ToList();
+                    .Where(p => p != null && (!p.Auto || p.Launch)).OrderBy(p => p.Launch ? 0 : 1).ToList();
+                // A folder with «Плитка» and nothing better: the system's folder icon (2026-11-22).
+                var tileFolder = (app.Folders ?? new System.Collections.Generic.List<Models.RuleFolder>())
+                    .FirstOrDefault(f => f != null && f.Launch && !string.IsNullOrWhiteSpace(f.Path));
+                if (tileFolder != null && !progs.Any(p => p.Launch))
+                {
+                    var key = "folder:" + tileFolder.Path;
+                    ImageSource cached;
+                    if (!_fallbackCache.TryGetValue(key, out cached))
+                    {
+                        BitmapSource img = null;
+                        try { if (Directory.Exists(tileFolder.Path)) img = ShellIcon.ForFile(tileFolder.Path); } catch { }
+                        cached = img != null ? (ImageSource)TrimTransparent(img) : null;
+                        _fallbackCache[key] = cached;
+                    }
+                    if (cached != null) return cached;
+                }
                 foreach (var p in progs)
                 {
                     var key = !string.IsNullOrWhiteSpace(p.Aumid) ? "aumid:" + p.Aumid : "file:" + p.Path;

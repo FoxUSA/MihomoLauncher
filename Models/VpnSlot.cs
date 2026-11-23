@@ -23,6 +23,10 @@ namespace MihomoLauncher.Models
         public string Name { get; set; } = "";
         public VpnSlotKind Kind { get; set; } = VpnSlotKind.WireGuardConf;
         public string Value { get; set; } = "";
+        // Always true since 2026-11-23: the «Использовать этот вариант при переборе» box is gone and
+        // every configuration takes part (a rule says which ones it uses with its own numbers).
+        // Kept so old config.xml files load; the loader turns a stored false into true
+        // (AppConfigStore.NormalizeSlots) and nothing reads it to skip a configuration.
         public bool Enabled { get; set; } = true;
 
         // ClashSub only: how often (hours) mihomo re-downloads the subscription

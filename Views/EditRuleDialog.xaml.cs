@@ -31,10 +31,12 @@ namespace MihomoLauncher.Views
         // Rows stay in the Settings order; each one carries its own rank, and a click renumbers
         // the whole set, so every row has to be able to push its new number to the UI.
         private ObservableCollection<SlotAllowChoice> _allowChoices = new ObservableCollection<SlotAllowChoice>();
-        // Variants switched off in Settings: not shown, but carried over on save so switching a
-        // variant back on restores what this rule had said about it.
-        private List<string> _hiddenDisabledIds = new List<string>();
-        private List<string> _hiddenRankedIds = new List<string>();
+        // (The lists of configurations "switched off in Settings" are gone with that switch,
+        // 2026-11-23: every configuration has its row here.)
+
+        // The rule's own address, never checked and not shown (AppEntry.HomeUrl): carried over as it
+        // was, and set to a template's site when a template is added — the job the check field did.
+        private string _homeUrl = "";
 
         public EditRuleDialog(AppEntry existing, List<VpnSlot> slots = null)
         {
@@ -44,13 +46,21 @@ namespace MihomoLauncher.Views
             Bar.Title = Title;
 
             ItemsGrid.ItemsSource = _items;
+            SetupAutoRows();
             BuildAllowSlotChoices(slots, existing);
 
             if (existing != null)
             {
                 TxtName.Text = existing.Name;
-                TxtCheckUrl.Text = existing.CheckUrl ?? "";
-                TxtIcon.Text = existing.IconPath ?? "";
+                // The field shows what is CHECKED (2026-11-23: filled = checked). The loader keeps
+                // SkipCheck equal to "no check address"; should an entry still hold an address under
+                // SkipCheck, it is shown empty and kept as the rule's own address, not checked.
+                bool unchecked_ = existing.SkipCheck && !string.IsNullOrWhiteSpace(existing.CheckUrl);
+                TxtCheckUrl.Text = unchecked_ ? "" : (existing.CheckUrl ?? "");
+                _homeUrl = unchecked_ ? existing.CheckUrl.Trim() : (existing.HomeUrl ?? "");
+                // Empty field = the server's icon (2026-11-23, the switch is gone): a server icon's
+                // cached file is not shown as if the person had picked it.
+                TxtIcon.Text = existing.AutoIcon ? "" : (existing.IconPath ?? "");
                 ChkKillSwitch.IsChecked = existing.KillSwitch;
                 if (existing.LockNic)
                 {
@@ -60,19 +70,25 @@ namespace MihomoLauncher.Views
                     _lockQuiet = false;
                     TxtLockNic.Text = _lockCard ?? "";
                 }
-                ChkSkipCheck.IsChecked = existing.SkipCheck;
-                ChkAutoIcon.IsChecked = existing.AutoIcon;
+                ChkAutoTrack.IsChecked = existing.AutoTrack;
 
-                foreach (var p in existing.Programs ?? new List<RuleProgram>())
+                // What the person added first, what auto-tracking added last (its own section).
+                foreach (var p in (existing.Programs ?? new List<RuleProgram>()).Where(p => p != null && !p.Auto))
                     _items.Add(ItemRow.FromProgram(p));
+                foreach (var f in existing.Folders ?? new List<RuleFolder>())
+                    if (f != null) _items.Add(ItemRow.FromFolder(f));
                 foreach (var s in existing.Sites ?? new List<RuleSite>())
                     _items.Add(ItemRow.FromSite(s));
+                foreach (var p in (existing.Programs ?? new List<RuleProgram>()).Where(p => p != null && p.Auto))
+                    _items.Add(ItemRow.FromProgram(p));
+                // Third section: what this rule refuses to auto-add (AppEntry.AutoIgnored).
+                foreach (var ban in existing.AutoIgnored ?? new List<string>())
+                    if (!string.IsNullOrWhiteSpace(ban)) _items.Add(ItemRow.FromBan(ban));
             }
             else
             {
                 ChkKillSwitch.IsChecked = true;
-                ChkSkipCheck.IsChecked = true;
-                ChkAutoIcon.IsChecked = true;
+                ChkAutoTrack.IsChecked = true;
             }
 
             AdoptItems();
@@ -83,19 +99,17 @@ namespace MihomoLauncher.Views
                 UpdateEmptyHint();
             };
             UpdateEmptyHint();
-            UpdateIconMode();
-
-            TxtName.LostFocus += (s, e) => AutoFillCheckUrl();
 
             // «Сохранить» only when something differs: the table rows, the VPN ranks + the fields.
             _saveGuard = SaveGuard.Attach(this, BtnSave, () =>
                 SaveGuard.Join(_items, o =>
                 {
                     var r = (ItemRow)o;
-                    return (r.IsSite ? "S|" : "P|") + r.Url + "|" + r.ClashRuleUrl + "|" + r.Name + "|" + r.Path
-                         + "|" + r.Arguments + "|" + r.Aumid + "|" + (r.Launch ? "1" : "0");
+                    return (r.IsSite ? "S|" : r.IsFolder ? "F|" : "P|") + r.Url + "|" + r.ClashRuleUrl + "|" + r.Name + "|" + r.Path
+                         + "|" + r.Arguments + "|" + r.Aumid + "|" + (r.Launch ? "1" : "0") + (r.IsAuto ? "|A" : "") + (r.IsIgnored ? "|I" : "");
                 })
-                + "#" + SaveGuard.Join(_allowChoices, o => ((SlotAllowChoice)o).Id + ":" + ((SlotAllowChoice)o).Rank),
+                + "#" + SaveGuard.Join(_allowChoices, o => ((SlotAllowChoice)o).Id + ":" + ((SlotAllowChoice)o).Rank)
+                + "#" + _homeUrl,
                 // A new rule: on as soon as it has a name or anything in the table.
                 existing == null
                     ? (Func<bool>)(() => !string.IsNullOrWhiteSpace(TxtName.Text) || _items.Count > 0)
@@ -110,6 +124,7 @@ namespace MihomoLauncher.Views
                 RowIcon.Visibility = Visibility.Collapsed;
                 RowItems.Visibility = Visibility.Collapsed;
                 RowAddButtons.Visibility = Visibility.Collapsed;
+                ChkAutoTrack.Visibility = Visibility.Collapsed;   // it has no programs to follow
                 ChkKillSwitch.ToolTip = Loc.T("AllTraffic_KillTip");
                 System.Windows.Controls.Grid.SetRow(RowVpn, 1);
                 MinHeight = 300;
@@ -178,7 +193,7 @@ namespace MihomoLauncher.Views
         // program > address > template, the first of the best kind.
         private void GiveTileToBest()
         {
-            var best = _items.OrderByDescending(i => i.TileRank).FirstOrDefault();
+            var best = _items.Where(i => !i.IsAuto && !i.IsIgnored).OrderByDescending(i => i.TileRank).FirstOrDefault();
             if (best != null) best.Launch = true;
         }
 
@@ -210,24 +225,14 @@ namespace MihomoLauncher.Views
         private void BuildAllowSlotChoices(List<VpnSlot> slots, AppEntry existing)
         {
             _allowChoices = new ObservableCollection<SlotAllowChoice>();
-            _hiddenDisabledIds = new List<string>();
-            _hiddenRankedIds = new List<string>();
             var disabled = new HashSet<string>(existing?.DisabledVpnSlotIds ?? new List<string>());
             var order = existing?.VpnSlotOrder ?? new List<string>();
             if (slots != null)
             {
                 foreach (var s in slots)
                 {
+                    // Every configuration has its row (2026-11-23: none is switched off any more).
                     if (s == null) continue;
-                    if (!s.Enabled)
-                    {
-                        // Switched off in Settings -> it never takes part in the search, so there's
-                        // nothing to allow here. Keep whatever the rule already said about it, so
-                        // the choice comes back untouched when the variant is switched on again.
-                        if (disabled.Contains(s.Id)) _hiddenDisabledIds.Add(s.Id);
-                        if (order.Contains(s.Id)) _hiddenRankedIds.Add(s.Id);
-                        continue;
-                    }
                     // No "№n" prefix any more: that number is the variant's place in the GLOBAL
                     // Settings list, and here the order is this rule's own — two numberings on
                     // one line contradict each other. The name alone, exactly as it was typed.
@@ -247,6 +252,27 @@ namespace MihomoLauncher.Views
 
             AllowSlots.ItemsSource = _allowChoices;
             LblNoAllowSlots.Visibility = _allowChoices.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            BtnAllSlots.Visibility = _allowChoices.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+            UpdateAllSlotsButton();
+        }
+
+        // «Отметить все» / «Снять все» (2026-11-23): nothing numbered → number every configuration
+        // 1..N in the order they are shown; anything numbered → clear every number. The same model
+        // as a click on a square (Renumber over the "used" list), so the rest of the editor — the
+        // save, the «Сохранить» guard — sees exactly what N clicks would have made.
+        private void OnAllSlots(object sender, RoutedEventArgs e)
+        {
+            e.Handled = true;
+            bool any = _allowChoices.Any(c => c.Rank > 0);
+            Renumber(any ? new List<string>() : _allowChoices.Select(c => c.Id).ToList());
+        }
+
+        // The button says what a click would do; called from Renumber, so it follows every change.
+        private void UpdateAllSlotsButton()
+        {
+            if (BtnAllSlots == null) return;
+            BtnAllSlots.SetResourceReference(System.Windows.Controls.ContentControl.ContentProperty,
+                _allowChoices.Any(c => c.Rank > 0) ? "Rule_SlotsNone" : "Rule_SlotsAll");
         }
 
         // A click either gives this variant the next free number or takes its number away; the
@@ -273,6 +299,7 @@ namespace MihomoLauncher.Views
                 int i = used.IndexOf(c.Id);
                 c.Rank = i < 0 ? 0 : i + 1;
             }
+            UpdateAllSlotsButton();
         }
 
         public class SlotAllowChoice : INotifyPropertyChanged
@@ -297,18 +324,10 @@ namespace MihomoLauncher.Views
 
             // Brushes, not colour strings: a string would only reach Background/BorderBrush
             // through the binding engine’s type converter, and a typo there fails silently at
-            // runtime instead of at build time. Frozen so every row can share the one instance.
-            private static readonly System.Windows.Media.Brush OnFill = Freeze(0x3C, 0x61, 0x49);
-            private static readonly System.Windows.Media.Brush OnEdge = Freeze(0x58, 0x8A, 0x69);
-            private static readonly System.Windows.Media.Brush OffEdge = Freeze(0x55, 0x5F, 0x77);
-
-            private static System.Windows.Media.Brush Freeze(byte r, byte g, byte b)
-            {
-                var br = new System.Windows.Media.SolidColorBrush(
-                    System.Windows.Media.Color.FromRgb(r, g, b));
-                br.Freeze();
-                return br;
-            }
+            // runtime instead of at build time. The same squares as the routing matrix (Theme).
+            private static readonly System.Windows.Media.Brush OnFill = Theme.RankOnBg;
+            private static readonly System.Windows.Media.Brush OnEdge = Theme.RankOnBorder;
+            private static readonly System.Windows.Media.Brush OffEdge = Theme.RankOffBorder;
 
             public System.Windows.Media.Brush BoxFill
             {
@@ -370,19 +389,62 @@ namespace MihomoLauncher.Views
             public string Arguments { get; set; } = "";
             public string Aumid { get; set; } = "";
 
+            // A folder entry (2026-11-22): one row for the whole folder, Path = the folder.
+            public bool IsFolder { get; set; }
+            // Added by auto-tracking — lives in the second section; why it was added.
+            private bool _isAuto;
+            public bool IsAuto
+            {
+                get => _isAuto;
+                set
+                {
+                    if (_isAuto == value) return;
+                    _isAuto = value;
+                    OnPropertyChanged(); OnPropertyChanged(nameof(Section)); OnPropertyChanged(nameof(LaunchVisibility));
+                    OnPropertyChanged(nameof(NameTip)); OnPropertyChanged(nameof(PathTip));
+                }
+            }
+            public string AutoFrom { get; set; } = "";
+            // The editor's two sections (the grid groups by this): "manual" / "auto".
+            public string Section => IsIgnored ? "ignored" : IsAuto ? "auto" : "manual";
+
+            // Third section (2026-11-22): a file this rule refuses to auto-add — not an entry of the
+            // rule, no routing line; muted, no «Плитка», not draggable. ✕ lifts the ban.
+            public bool IsIgnored { get; set; }
+            // What AppEntry.AutoIgnored holds for it: the full path, or a bare exe name (older configs).
+            public string BanKey { get; set; } = "";
+
+            // Tooltips: an auto row says why it is there and what can be done with it.
+            public string AutoTip
+            {
+                get
+                {
+                    var from = AutoFrom ?? "";
+                    return from.StartsWith("folder:", StringComparison.OrdinalIgnoreCase)
+                        ? Loc.T("Rule_AutoFromDir", from.Substring(7))
+                        : Loc.T("Rule_AutoFromChild", from.Length > 0 ? from : "?");
+                }
+            }
+            public string NameTip => IsIgnored ? Loc.T("Rule_IgnoredTip") : IsAuto ? AutoTip : IsFolder ? Loc.T("Rule_FolderTip") : DisplayName;
+            public string PathTip => IsIgnored ? Loc.T("Rule_IgnoredTip") : IsAuto ? AutoTip : ProgTitle;
+
             // A template is a site that carries a Clash rule-list URL; its table cell shows the
             // template path (read-only), a plain site shows an editable URL box.
             public bool IsTemplate => IsSite && !string.IsNullOrWhiteSpace(ClashRuleUrl);
             // «Плитка» on any row again (2026-11-13): a rule of nothing but templates had no tile at
             // all. A template's tile opens the rule's check address (AppLauncher.LaunchUrl).
-            public Visibility LaunchVisibility => Visibility.Visible;
-            // Who gets the tile automatically when a row is added: program > address > template.
-            internal int TileRank => !IsSite ? 3 : IsTemplate ? 1 : 2;
+            // Not on an auto row: a helper is started by its own program, never from the tile.
+            // Auto rows have it too (2026-11-22) and stay auto when ticked.
+            public Visibility LaunchVisibility => IsIgnored ? Visibility.Collapsed : Visibility.Visible;
+            // Who gets the tile automatically when a row is added: program / folder > address >
+            // template; an auto row never.
+            internal int TileRank => IsAuto || IsIgnored ? 0 : !IsSite ? 3 : IsTemplate ? 1 : 2;
             public Visibility SiteVisibility => (IsSite && !IsTemplate) ? Visibility.Visible : Visibility.Collapsed;
             public Visibility TemplatePathVisibility => IsTemplate ? Visibility.Visible : Visibility.Collapsed;
             public Visibility ProgVisibility => IsSite ? Visibility.Collapsed : Visibility.Visible;
             public Visibility TemplateVisibility => string.IsNullOrEmpty(TemplateLabel) ? Visibility.Collapsed : Visibility.Visible;
-            public string TypeLabel => IsTemplate ? Loc.T("Rule_TypeTemplate") : IsSite ? Loc.T("Rule_TypeSite") : (string.IsNullOrEmpty(Aumid) ? Loc.T("Rule_TypeProg") : "Store");
+            public string TypeLabel => IsTemplate ? Loc.T("Rule_TypeTemplate") : IsSite ? Loc.T("Rule_TypeSite")
+                : IsFolder ? Loc.T("Rule_TypeFolder") : (string.IsNullOrEmpty(Aumid) ? Loc.T("Rule_TypeProg") : "Store");
             public Brush TypeChipBg => IsSite ? Theme.BannerInfoBg : (string.IsNullOrEmpty(Aumid) ? Theme.BannerOkBg : Theme.BannerWarnBg);
             public string ProgTitle => string.IsNullOrWhiteSpace(Name)
                 ? System.IO.Path.GetFileNameWithoutExtension(Path ?? "") : Name;
@@ -406,6 +468,13 @@ namespace MihomoLauncher.Views
                         return u;
                     }
                     if (!string.IsNullOrEmpty(Aumid)) return string.IsNullOrWhiteSpace(Name) ? ProgTitle : Name;
+                    if (IsFolder)
+                    {
+                        if (!string.IsNullOrWhiteSpace(Name)) return Name;
+                        var trimmed = (Path ?? "").TrimEnd('\\', '/');
+                        var leaf = System.IO.Path.GetFileName(trimmed);
+                        return string.IsNullOrEmpty(leaf) ? trimmed : leaf;
+                    }
                     var file = System.IO.Path.GetFileName(Path ?? "");
                     return string.IsNullOrEmpty(file) ? ProgTitle : file;
                 }
@@ -436,6 +505,31 @@ namespace MihomoLauncher.Views
             {
                 IsSite = false, Launch = p.Launch, Name = p.Name ?? "", Path = p.Path ?? "",
                 Arguments = p.Arguments ?? "", Aumid = p.Aumid ?? "",
+                IsAuto = p.Auto, AutoFrom = p.AutoFrom ?? "", IsAutoNew = p.Auto && p.AutoNew,
+            };
+
+            // Added by auto-tracking and not seen yet: outlined in amber this one time (the flag is
+            // never written back — ToProgram leaves AutoNew off, a cancel clears it in MainWindow).
+            public bool IsAutoNew { get; set; }
+
+            // A ban: a full path (shown with it) or an old bare exe name (shown without a path).
+            public static ItemRow FromBan(string ban)
+            {
+                var b = (ban ?? "").Trim();
+                bool isPath = b.IndexOf('\\') >= 0 || b.IndexOf('/') >= 0;
+                string name = b;
+                if (isPath) { try { name = System.IO.Path.GetFileName(b); } catch { name = b; } }
+                return new ItemRow { IsSite = false, IsIgnored = true, BanKey = b, Name = name, Path = isPath ? b : "" };
+            }
+
+            public static ItemRow FromFolder(RuleFolder f) => new ItemRow
+            {
+                IsSite = false, IsFolder = true, Launch = f.Launch, Name = f.Name ?? "", Path = f.Path ?? "",
+            };
+
+            public RuleFolder ToFolder() => new RuleFolder
+            {
+                Launch = Launch, Name = Name ?? "", Path = MihomoConfigBuilder.NormalizeFolder(Path),
             };
 
             public RuleSite ToSite() => new RuleSite
@@ -448,6 +542,7 @@ namespace MihomoLauncher.Views
             {
                 Launch = Launch, Name = Name ?? "", Path = (Path ?? "").Trim(),
                 Arguments = Arguments ?? "", Aumid = Aumid ?? "",
+                Auto = IsAuto, AutoFrom = IsAuto ? (AutoFrom ?? "") : "",
             };
 
             public event PropertyChangedEventHandler PropertyChanged;
@@ -475,6 +570,10 @@ namespace MihomoLauncher.Views
         private void OnRemoveItem(object sender, RoutedEventArgs e)
         {
             if (!((sender as FrameworkElement)?.DataContext is ItemRow row)) return;
+            // ✕ on a row of the third section lifts the ban: the file may be auto-added again.
+            // ✕ on an auto row moves it there at once: no longer an entry of the rule, a ban
+            // (AppEntry.AutoIgnored) — never auto-added to THIS rule again.
+            if (row.IsAuto) { IgnoreAuto(row); return; }
             _items.Remove(row);
             // The ticked row deleted: the tick moves to what is left, the tile stays.
             if (row.Launch && !_items.Any(i => i.Launch)) GiveTileToBest();
@@ -487,6 +586,14 @@ namespace MihomoLauncher.Views
         {
             e.Handled = true;
             if (!((sender as FrameworkElement)?.DataContext is ItemRow row)) return;
+            // An auto row can be dragged from here: it opens on release, if it was not dragged.
+            if (row.IsAuto) { _openOnUp = row; return; }
+            if (row.IsIgnored) return;   // a ban: nothing to open, only its ✕
+            OpenRow(row);
+        }
+
+        private void OpenRow(ItemRow row)
+        {
             try
             {
                 if (row.IsTemplate)
@@ -561,9 +668,11 @@ namespace MihomoLauncher.Views
             // Guard against a duplicate slipping through (e.g. stale list).
             if (already.Contains(svc.ClashUrl ?? "")) return;
             if (string.IsNullOrWhiteSpace(TxtName.Text) && !string.IsNullOrWhiteSpace(svc.Name)) TxtName.Text = svc.Name;
-            // The template's own check site goes into the «проверка подключения» row — overwritten
-            // each time a template is added (the template path itself lives in the table row below).
-            if (!string.IsNullOrWhiteSpace(svc.CheckUrl)) TxtCheckUrl.Text = svc.CheckUrl;
+            // The template's own site becomes the rule's own address (HomeUrl): routed with the rule
+            // and what the tile opens — overwritten each time a template is added, as the check
+            // field was. NOT the check field any more (2026-11-23: nothing is put there by itself —
+            // a filled field means "checked").
+            if (!string.IsNullOrWhiteSpace(svc.CheckUrl)) _homeUrl = svc.CheckUrl.Trim();
 
             var row = new ItemRow
             {
@@ -597,7 +706,7 @@ namespace MihomoLauncher.Views
         private HashSet<string> ProgramSet(Func<ItemRow, string> pick)
         {
             return new HashSet<string>(
-                _items.Where(i => !i.IsSite).Select(i => (pick(i) ?? "").Trim()).Where(v => v.Length > 0),
+                _items.Where(i => !i.IsSite && !i.IsFolder && !i.IsIgnored).Select(i => (pick(i) ?? "").Trim()).Where(v => v.Length > 0),
                 StringComparer.OrdinalIgnoreCase);
         }
 
@@ -643,9 +752,15 @@ namespace MihomoLauncher.Views
         {
             // The same program twice in one rule does nothing but clutter the table: same Store
             // app (AUMID) or same exe path — say so and add nothing (2026-11-14).
-            var dup = _items.FirstOrDefault(i => !i.IsSite && (
+            var dup = _items.FirstOrDefault(i => !i.IsSite && !i.IsFolder && !i.IsIgnored && (
                 (!string.IsNullOrWhiteSpace(aumid) && string.Equals((i.Aumid ?? "").Trim(), aumid.Trim(), StringComparison.OrdinalIgnoreCase)) ||
                 (!string.IsNullOrWhiteSpace(path) && string.Equals((i.Path ?? "").Trim(), path.Trim(), StringComparison.OrdinalIgnoreCase))));
+            // Picked by hand what auto-tracking had already added: it simply becomes a manual entry.
+            if (dup != null && dup.IsAuto)
+            {
+                MakeManual(dup, _items.Count(i => !i.IsAuto && !i.IsIgnored));
+                return;
+            }
             if (dup != null)
             {
                 ItemsGrid.ScrollIntoView(dup);
@@ -664,7 +779,7 @@ namespace MihomoLauncher.Views
             try { fromFile = System.IO.Path.GetFileNameWithoutExtension(path ?? ""); } catch { }
             var label = !string.IsNullOrWhiteSpace(fromFile) ? fromFile : (name ?? "").Trim();
             if (string.IsNullOrWhiteSpace(TxtName.Text) && label.Length > 0) TxtName.Text = label;
-            AutoFillCheckUrl(path);
+            // No check address guessed from the program any more (2026-11-23): filled = checked.
         }
 
         // Add a row and scroll the table to it so the newest item is always visible.
@@ -672,28 +787,16 @@ namespace MihomoLauncher.Views
         {
             bool take = TakesTile(row);
             row.Owner = this;
-            _items.Add(row);
+            // Above the auto section: what the person adds is always in the first one.
+            int firstAuto = _items.IndexOf(_items.FirstOrDefault(i => i.IsAuto || i.IsIgnored));
+            if (firstAuto >= 0 && !row.IsAuto) _items.Insert(firstAuto, row);
+            else _items.Add(row);
             if (take) row.Launch = true;   // the setter clears the previous holder
             ItemsGrid.UpdateLayout();
             ItemsGrid.ScrollIntoView(row);
         }
 
-        // ---------- Icon / VPN toggles ----------
-
-        private void OnAutoIconToggled(object sender, RoutedEventArgs e) => UpdateIconMode();
-
-        // Auto on  → the manual «Обзор» + path are dimmed (server icon is used).
-        // Auto off → the manual controls are active and the «Иконка с сервера» label dims.
-        private void UpdateIconMode()
-        {
-            bool auto = ChkAutoIcon.IsChecked == true;
-            if (IconManualPanel != null)
-            {
-                IconManualPanel.IsEnabled = !auto;
-                IconManualPanel.Opacity = auto ? 0.4 : 1.0;
-            }
-            if (LblAutoIcon != null) LblAutoIcon.Opacity = auto ? 1.0 : 0.4;
-        }
+        // ---------- Icon ----------
 
         private void OnBrowseIcon(object sender, RoutedEventArgs e)
         {
@@ -703,13 +806,6 @@ namespace MihomoLauncher.Views
                 Filter = Loc.T("Rule_PickIconFilter"),
             };
             if (ofd.ShowDialog(this) == true) TxtIcon.Text = ofd.FileName;
-        }
-
-        private void AutoFillCheckUrl(string pathHint = null)
-        {
-            if (!string.IsNullOrWhiteSpace(TxtCheckUrl.Text)) return;
-            var guess = KnownServices.GuessCheckUrl(TxtName.Text, pathHint ?? "");
-            if (!string.IsNullOrEmpty(guess)) TxtCheckUrl.Text = guess;
         }
 
         // ---------- Save / Cancel ----------
@@ -743,23 +839,23 @@ namespace MihomoLauncher.Views
                         KillSwitchBeforeDirect = _editing.KillSwitchBeforeDirect,
                         AutoConnect = _editing.AutoConnect,
                         SkipCheck = _editing.SkipCheck,
+                        CheckUrl = _editing.CheckUrl ?? "",
+                        HomeUrl = _editing.HomeUrl ?? "",
                         AutoIcon = false,
                         Block = _editing.Block,
                         IconPath = _editing.IconPath,
                         KillSwitch = ChkKillSwitch.IsChecked == true,
                         LockNic = ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard),
                         Interfaces = SavedInterfaces(),
-                        DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id)
-                            .Concat(_hiddenDisabledIds).ToList(),
+                        DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id).ToList(),
                         VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
-                            .Select(c => c.Id).Concat(_hiddenRankedIds).ToList(),
+                            .Select(c => c.Id).ToList(),
                     };
                     try { DialogResult = true; } catch (InvalidOperationException) { }
                     Close();
                     return;
                 }
 
-                AutoFillCheckUrl();
                 var name = (TxtName.Text ?? "").Trim();
                 if (name.Length == 0)
                 {
@@ -789,9 +885,12 @@ namespace MihomoLauncher.Views
                     return;
                 }
 
-                var progs = _items.Where(i => !i.IsSite).Select(i => i.ToProgram())
+                // Manual ones first, auto ones after — the order the editor shows them in.
+                var progs = _items.Where(i => !i.IsSite && !i.IsFolder && !i.IsIgnored).OrderBy(i => i.IsAuto ? 1 : 0).Select(i => i.ToProgram())
                                   .Where(p => !string.IsNullOrWhiteSpace(p.Path) || !string.IsNullOrWhiteSpace(p.Aumid)).ToList();
-                if (sites.Count == 0 && progs.Count == 0)
+                var folders = _items.Where(i => i.IsFolder).Select(i => i.ToFolder())
+                                    .Where(f => !string.IsNullOrWhiteSpace(f.Path)).ToList();
+                if (sites.Count == 0 && progs.Count == 0 && folders.Count == 0)
                 {
                     await OverlayDialog.MessageAsync(this, Loc.T("Rule_EmptyTitle"), Loc.T("Rule_NeedOneItem")).ConfigureAwait(true);
                     return;
@@ -808,10 +907,11 @@ namespace MihomoLauncher.Views
                 }
 
                 // A template carries only a rule list — there's no address to open. Its tile
-                // falls back to the rule's check address (AppLauncher does the same), so that
-                // one has to exist before «Плитка» on a template means anything.
+                // falls back to the rule's own address: the check address, else the site the
+                // template brought (HomeUrl; AppLauncher does the same), so one of them has to
+                // exist before «Плитка» on a template means anything.
                 bool tileOnTemplate = sites.Any(s => s.Launch && s.HasRuleList && string.IsNullOrWhiteSpace(s.Url));
-                if (tileOnTemplate && checkUrl.Length == 0)
+                if (tileOnTemplate && checkUrl.Length == 0 && string.IsNullOrWhiteSpace(_homeUrl))
                 {
                     await OverlayDialog.MessageAsync(this, Loc.T("Rule_NotFilled"),
                         Loc.T("Rule_TplNeedCheckUrl")).ConfigureAwait(true);
@@ -824,7 +924,16 @@ namespace MihomoLauncher.Views
                 entry.Name = name;
                 entry.Sites = sites;
                 entry.Programs = progs;
+                entry.Folders = folders;
+                entry.AutoTrack = ChkAutoTrack.IsChecked == true;
+                // The third section, as it stands (paths, or old bare names). A file the person put
+                // back by hand is no longer "removed".
+                entry.AutoIgnored = _items.Where(i => i.IsIgnored).Select(i => (i.BanKey ?? "").Trim())
+                    .Where(b => b.Length > 0)
+                    .Where(b => !progs.Any(p => AutoPrograms.IsBanned(new AppEntry { AutoIgnored = new List<string> { b } }, p.Path)))
+                    .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 entry.CheckUrl = checkUrl;
+                entry.HomeUrl = (_homeUrl ?? "").Trim();
                 // VPN or «Напрямую» is chosen on the tile's plate now (the switch is gone): an
                 // edited rule keeps what it had, a new one starts on VPN, as the switch defaulted.
                 entry.RequiresVpn = _editing == null || _editing.RequiresVpn;
@@ -834,16 +943,16 @@ namespace MihomoLauncher.Views
                 entry.Interfaces = SavedInterfaces();
                 entry.KillSwitchBeforeDirect = _editing != null && _editing.KillSwitchBeforeDirect;
                 entry.KillSwitch = ChkKillSwitch.IsChecked == true;
-                entry.SkipCheck = ChkSkipCheck.IsChecked == true;
-                entry.AutoIcon = ChkAutoIcon.IsChecked == true;
-                // A variant with no number takes no part in this rule, which is exactly what the
-                // exclusion list has always meant; the numbered ones, in their order, are the
-                // priority. Variants with no row here (switched off in Settings) keep whatever
-                // this rule said about them before.
-                entry.DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id)
-                    .Concat(_hiddenDisabledIds).ToList();
+                // The address is the switch (2026-11-23): filled = checked, empty = not checked.
+                entry.SkipCheck = checkUrl.Length == 0;
+                // The icon path is the switch too: empty = the server's icon, a path = the person's.
+                entry.AutoIcon = string.IsNullOrWhiteSpace(TxtIcon.Text);
+                // A configuration with no number takes no part in this rule, which is exactly what
+                // the exclusion list has always meant; the numbered ones, in their order, are the
+                // priority.
+                entry.DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id).ToList();
                 entry.VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
-                    .Select(c => c.Id).Concat(_hiddenRankedIds).ToList();
+                    .Select(c => c.Id).ToList();
 
                 ApplyIcon(entry);
 

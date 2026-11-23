@@ -27,7 +27,6 @@ namespace MihomoLauncher.Views
         {
             InitializeComponent();
             LstProcs.ItemsSource = _rows;
-            Services.UiHelpers.FillLastGridColumn(LstProcs);
             Loaded += (s, e) => LoadProcesses();
         }
 

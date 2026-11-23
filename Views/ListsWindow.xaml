@@ -3,12 +3,50 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:svc="clr-namespace:MihomoLauncher.Services"
+                 xmlns:views="clr-namespace:MihomoLauncher.Views"
                  Width="950" Height="460"
                  MinWidth="760" MinHeight="320"
                  WindowStartupLocation="CenterOwner"
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
-                 WindowBackdropType="Mica">
+                 WindowBackdropType="None"
+                 Background="{x:Static svc:Theme.WindowBg}">
+    <ui:FluentWindow.Resources>
+        <!-- The rules list's yes/no cells (2026-11-23), drawn once for all four columns: the
+             positive value in its state colour (StateCell.OnBrush: VPN green, kill-switch and card
+             lock violet, auto-add blue), SemiBold; the rest muted. Measured on TableRowSelected the
+             three colours stay at 4.0-5.5 : 1, so they keep their colour there; TextMuted would drop
+             to 2.4 : 1, so a negative value on the selected row takes TextSecondary instead. -->
+        <DataTemplate DataType="{x:Type views:StateCell}">
+            <TextBlock x:Name="T" Text="{Binding Text}" VerticalAlignment="Center"
+                       Foreground="{x:Static svc:Theme.TextMuted}" FontWeight="Normal" />
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
+                    <Setter TargetName="T" Property="Foreground" Value="{x:Static svc:Theme.TextSecondary}" />
+                </DataTrigger>
+                <!-- After the selection trigger: a positive value keeps its colour on any row. -->
+                <DataTrigger Binding="{Binding On}" Value="True">
+                    <Setter TargetName="T" Property="Foreground" Value="{Binding OnBrush}" />
+                    <Setter TargetName="T" Property="FontWeight" Value="SemiBold" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- The rules list's header (2026-11-23): «Привязка / к карте» and «Авто- / добавление» are
+             two lines (the one-word captions were unclear), so THIS grid's header row is 44 px tall
+             instead of the shared 34 — every header of it, the checkbox one too, so the bar is even.
+             One-line captions stay left-aligned and vertically centred; the two-line ones are
+             centred in their column. The shared styles and the VPN list are untouched. -->
+        <Style x:Key="RulesHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource AppColumnHeaderStyle}">
+            <Setter Property="Height" Value="44" />
+        </Style>
+        <Style x:Key="RulesTwoLineHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource RulesHeaderStyle}">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="RulesCheckboxHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource CheckboxColumnHeaderStyle}">
+            <Setter Property="Height" Value="44" />
+        </Style>
+    </ui:FluentWindow.Resources>
     <!-- Two windows in one class (ListsWindow.Mode): «VPN» shows only the variants table, «+»
          only the rules table — what used to be the top and bottom half of Settings → «Основное».
          No «Сохранить»: each add / edit / delete / drag is applied the moment it happens
@@ -35,25 +73,29 @@
                         <RowDefinition Height="*" />
                     </Grid.RowDefinitions>
 
+                    <!-- No title at the right any more (2026-11-23: «не надо писать VPN-конфигурации» —
+                         the window's own title says it, and the longer word covered «Обновить»):
+                         the whole row is the buttons'. -->
                     <Grid Grid.Row="0" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <StackPanel Orientation="Horizontal">
                             <ui:Button Content="{DynamicResource Set_BtnAdd}" Margin="0,0,8,0" MinWidth="92" Click="OnAddSlot"
-                                       Foreground="{x:Static svc:Theme.AccentGreen}" />
+                                       Style="{StaticResource AddButtonStyle}" />
                             <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditSlot" />
                             <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteSlot" />
                             <ui:Button x:Name="BtnRefreshSlot" Content="{DynamicResource Set_BtnRefresh}" Margin="0,0,8,0" MinWidth="92"
                                        Click="OnRefreshSlot" IsEnabled="False"
                                        ToolTip="{DynamicResource Set_SlotRefreshTip}" ToolTipService.ShowOnDisabled="True" />
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Text="{DynamicResource Set_VpnVariants}" FontSize="17" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" Margin="12,0,2,0" />
                     </Grid>
 
-                    <DataGrid x:Name="GridSlots" Grid.Row="1"
+                    <!-- The table in a well (2026-11-22 colour standard): ListBg with the outline, also
+                         inside a card; FrameClip makes the frame the table's only outline. The inner
+                         Grid is the host CoverVpnListIfLocked() puts its cover into. -->
+                    <Border Grid.Row="1" CornerRadius="8"
+                            Background="{x:Static svc:Theme.ListBg}"
+                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                    <Grid>
+                    <DataGrid x:Name="GridSlots" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                               Style="{StaticResource AppDataGridStyle}"
                               RowStyle="{StaticResource AppDataGridRowStyle}"
                               CellStyle="{StaticResource AppDataGridCellStyle}"
@@ -92,10 +134,10 @@
                             <DataGridTextColumn Header="{DynamicResource Set_ColType}" Binding="{Binding KindLabel}" Width="Auto" />
                             <DataGridTextColumn Header="{DynamicResource Set_ColValue}" Binding="{Binding ValueLabel}" Width="*"
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
-                            <DataGridTextColumn Header="{DynamicResource Set_ColEnabled}" Binding="{Binding EnabledLabel}" Width="Auto" />
-                            <DataGridTextColumn Header="{DynamicResource Set_ColSlotStatus}" Binding="{Binding StatusLabel}" Width="Auto" />
                         </DataGrid.Columns>
                     </DataGrid>
+                    </Grid>
+                    </Border>
                 </Grid>
             </ui:Card>
 
@@ -114,7 +156,7 @@
                         </Grid.ColumnDefinitions>
                         <StackPanel Grid.Column="0" Orientation="Horizontal">
                             <ui:Button Content="{DynamicResource Set_BtnAdd}" Margin="0,0,8,0" MinWidth="92" Click="OnAddApp"
-                                       Foreground="{x:Static svc:Theme.AccentGreen}" />
+                                       Style="{StaticResource AddButtonStyle}" />
                             <ui:Button Content="{DynamicResource Set_BtnEdit}" Margin="0,0,8,0" MinWidth="92" Click="OnEditApp" />
                             <ui:Button Content="{DynamicResource Set_BtnDelete}" Margin="0,0,8,0" MinWidth="92" Click="OnDeleteApp" />
                             <ui:Button x:Name="BtnRefreshLink" Content="{DynamicResource Set_BtnRefreshLists}"
@@ -124,17 +166,21 @@
                                    VerticalAlignment="Center" Margin="12,0,2,0" />
                     </Grid>
 
-                    <DataGrid x:Name="GridApps" Grid.Row="1"
+                    <!-- In a well, like the variants table above. -->
+                    <Border Grid.Row="1" CornerRadius="8"
+                            Background="{x:Static svc:Theme.ListBg}"
+                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                    <DataGrid x:Name="GridApps" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                               Style="{StaticResource AppDataGridStyle}"
                               RowStyle="{StaticResource AppDataGridRowStyle}"
                               CellStyle="{StaticResource AppDataGridCellStyle}"
-                              ColumnHeaderStyle="{StaticResource AppColumnHeaderStyle}"
+                              ColumnHeaderStyle="{StaticResource RulesHeaderStyle}"
                               CanUserSortColumns="False"
                               MouseDoubleClick="OnEditApp">
                         <DataGrid.Columns>
                             <DataGridTemplateColumn Width="32" CanUserSort="False" CanUserResize="False"
                                                     CellStyle="{StaticResource CheckboxCellStyle}"
-                                                    HeaderStyle="{StaticResource CheckboxColumnHeaderStyle}">
+                                                    HeaderStyle="{StaticResource RulesCheckboxHeaderStyle}">
                                 <DataGridTemplateColumn.HeaderTemplate>
                                     <DataTemplate>
                                         <Border Background="Transparent" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
@@ -160,10 +206,38 @@
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
                             <DataGridTextColumn Header="{DynamicResource Set_ColPath}" Binding="{Binding DisplayPath}" Width="*"
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
-                            <DataGridTextColumn Header="VPN" Binding="{Binding VpnLabel}" Width="Auto" />
-                            <DataGridTextColumn Header="Kill-switch" Binding="{Binding KillSwitchLabel}" Width="Auto" />
+                            <!-- State columns: each cell is a StateCell, drawn by the template above. -->
+                            <DataGridTemplateColumn Header="VPN" Width="Auto" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate><ContentPresenter Content="{Binding Vpn}" /></DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Header="Kill-switch" Width="Auto" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate><ContentPresenter Content="{Binding KillSwitch}" /></DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="Auto" CanUserSort="False"
+                                                    HeaderStyle="{StaticResource RulesTwoLineHeaderStyle}">
+                                <DataGridTemplateColumn.Header>
+                                    <TextBlock Text="{DynamicResource Lst_ColLock}" TextAlignment="Center" ToolTip="{DynamicResource Rule_LockNic}" />
+                                </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate><ContentPresenter Content="{Binding LockNic}" /></DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
+                            <DataGridTemplateColumn Width="Auto" CanUserSort="False"
+                                                    HeaderStyle="{StaticResource RulesTwoLineHeaderStyle}">
+                                <DataGridTemplateColumn.Header>
+                                    <TextBlock Text="{DynamicResource Lst_ColAuto}" TextAlignment="Center" ToolTip="{DynamicResource Rule_AutoTrack}" />
+                                </DataGridTemplateColumn.Header>
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate><ContentPresenter Content="{Binding AutoTrack}" /></DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                         </DataGrid.Columns>
                     </DataGrid>
+                    </Border>
                 </Grid>
             </ui:Card>
         </Grid>

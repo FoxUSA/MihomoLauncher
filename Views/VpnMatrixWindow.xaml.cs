@@ -93,7 +93,7 @@ namespace MihomoLauncher.Views
             _rules = apps;
             _slotsAll = config?.VpnSlots;
             _slots = (config?.VpnSlots ?? new List<VpnSlot>())
-                .Where(s => s != null && s.Enabled).ToList();
+                .Where(s => s != null).ToList();
 
             foreach (var rule in _rules)
             {
@@ -208,7 +208,7 @@ namespace MihomoLauncher.Views
                     Text = name,
                     FontSize = 12.5,
                     FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFF)),
+                    Foreground = Theme.TextOnAction,
                     TextAlignment = TextAlignment.Center,
                     TextWrapping = TextWrapping.Wrap,
                     MaxWidth = 120,
@@ -227,7 +227,7 @@ namespace MihomoLauncher.Views
                 Text = Loc.T("Vpn_Kill"),
                 FontSize = 12.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFF)),
+                Foreground = Theme.TextOnAction,
                 TextAlignment = TextAlignment.Center,
                 TextWrapping = TextWrapping.Wrap,
                 MaxWidth = 120,
@@ -351,16 +351,16 @@ namespace MihomoLauncher.Views
         }
 
         // The one place a cell's look is decided, so the kill-switch column cannot drift away
-        // from the variant columns: same box, same border. On = green for a variant, dim orange
-        // for the kill-switch (it blocks, it doesn't connect).
+        // from the variant columns: same box, same border. On = green for a variant (in use = ok),
+        // violet for the kill-switch — protection on, the colour the tile's kill-switch chip and
+        // the rule editor's switch use (2026-11-22; it was a brown nothing else used).
         private static void PaintBox(Cell cell, bool on, string text, bool kill = false)
         {
             cell.Text.Text = text;
             cell.Box.Background = !on ? (Brush)System.Windows.Media.Brushes.Transparent
-                : new SolidColorBrush(kill ? Color.FromRgb(0x6B, 0x4A, 0x2C) : Color.FromRgb(0x3C, 0x61, 0x49));
-            cell.Box.BorderBrush = new SolidColorBrush(!on ? Color.FromRgb(0x55, 0x5F, 0x77)
-                : kill ? Color.FromRgb(0x9A, 0x6E, 0x42) : Color.FromRgb(0x58, 0x8A, 0x69));
-            cell.Text.Foreground = new SolidColorBrush(Color.FromRgb(0xEA, 0xF1, 0xFF));
+                : kill ? Theme.GuardCellBg : Theme.RankOnBg;
+            cell.Box.BorderBrush = !on ? Theme.RankOffBorder : kill ? Theme.GuardBorder : Theme.RankOnBorder;
+            cell.Text.Foreground = Theme.TextOnAction;
         }
 
         // ---------- save ----------
