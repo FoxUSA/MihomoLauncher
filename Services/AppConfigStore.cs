@@ -19,6 +19,10 @@ namespace MihomoLauncher.Services
         // run (see Loc.Resolve). Persisted once the user picks via the title-bar toggle.
         public string Language { get; set; } = "";
 
+        // Light / dark (2026-11-24): "" = as Windows (the default, follows Windows live),
+        // "light" / "dark" once picked from the title-bar theme button. Services/Theme.
+        public string UiTheme { get; set; } = "";
+
         // "Remote desktop session" safe mode: when on, the launcher watches the mihomo engine
         // and force-stops it every 60s it's running, so a bad VPN config can't lock you out
         // over RDP/AnyDesk. Off by default. Toggled from the main screen, Settings, or the
@@ -82,6 +86,11 @@ namespace MihomoLauncher.Services
         // snaps to whole columns and rows; 5 until then (2026-11-18: 6 → 5 — the mode buttons span
         // the grid edge to edge, fits 1366 px at 125%). Narrowed to what the top bar needs.
         public int TileColumns { get; set; } = 5;
+
+        // «Кто и куда» sort (2026-11-25), programs and addresses each: the key's name
+        // (MainWindow.WhoSort), «!» after it = the other way round. "" = by time, newest first.
+        public string WhoSortProgs { get; set; } = "";
+        public string WhoSortAddrs { get; set; } = "";
 
         // Access password (see AccessLock): salted PBKDF2 hash, its salt, and the hashed place
         // (PC + Windows user + launcher copy) the data was locked in. All empty = no password.
@@ -320,6 +329,13 @@ namespace MihomoLauncher.Services
                 if (NormalizeRules(loaded.Apps)) dirty = true;
                 if (EnsureAllTraffic(loaded.Apps)) dirty = true;
                 if (NormalizeDirectWithTicks(loaded)) dirty = true;
+                // «Блокировать» switched off (grey, blocked nothing) from before 2026-11-24, when
+                // block mode lost its on/off: it would start blocking now — it was not, so it goes.
+                foreach (var a in loaded.Apps.Where(a => a != null && a.Block && !a.AutoConnect))
+                {
+                    a.Block = false;
+                    dirty = true;
+                }
                 // After NormalizeRules: the check address is judged on the entry as the old connect
                 // saw it (legacy fields already folded in).
                 if (NormalizeCheckAddresses(loaded.Apps)) dirty = true;

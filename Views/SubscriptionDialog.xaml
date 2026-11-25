@@ -9,7 +9,7 @@
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -24,14 +24,14 @@
         <!-- What it is: name, servers, lists, when it was downloaded -->
         <StackPanel Grid.Row="1" Margin="20,0,20,10">
             <TextBlock x:Name="LblTitle" FontSize="20" FontWeight="SemiBold"
-                       Foreground="{x:Static svc:Theme.TextPrimary}" TextTrimming="CharacterEllipsis" />
+                       Foreground="{DynamicResource Theme.TextPrimary}" TextTrimming="CharacterEllipsis" />
             <TextBlock x:Name="LblSummary" FontSize="12" Margin="0,4,0,0" TextWrapping="Wrap"
-                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                       Foreground="{DynamicResource Theme.TextSecondary}" />
         </StackPanel>
 
         <!-- «Обновить» in progress: what's being fetched, how much, how fast, how long -->
         <Border Grid.Row="2" x:Name="PanelProgress" Margin="20,0,20,12" Padding="14,12" CornerRadius="8"
-                Background="{x:Static svc:Theme.BannerInfoBg}" BorderBrush="{x:Static svc:Theme.BannerInfoBorder}"
+                Background="{DynamicResource Theme.BannerInfoBg}" BorderBrush="{DynamicResource Theme.BannerInfoBorder}"
                 BorderThickness="1" Visibility="Collapsed">
             <StackPanel>
                 <Grid>
@@ -40,9 +40,9 @@
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="LblStep" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                               Foreground="{x:Static svc:Theme.TextPrimary}" />
+                               Foreground="{DynamicResource Theme.TextPrimary}" />
                     <TextBlock Grid.Column="1" x:Name="LblPercent" FontSize="13" Margin="12,0,0,0"
-                               Foreground="{x:Static svc:Theme.TextPrimary}" />
+                               Foreground="{DynamicResource Theme.TextPrimary}" />
                 </Grid>
                 <ProgressBar x:Name="Bar" Height="6" Minimum="0" Maximum="100" Margin="0,8,0,0" />
                 <Grid Margin="0,6,0,0">
@@ -50,9 +50,9 @@
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="LblBytes" FontSize="12" Foreground="{x:Static svc:Theme.TextSecondary}" />
+                    <TextBlock x:Name="LblBytes" FontSize="12" Foreground="{DynamicResource Theme.TextSecondary}" />
                     <TextBlock Grid.Column="1" x:Name="LblEta" FontSize="12" Margin="12,0,0,0"
-                               Foreground="{x:Static svc:Theme.TextSecondary}" />
+                               Foreground="{DynamicResource Theme.TextSecondary}" />
                 </Grid>
             </StackPanel>
         </Border>
@@ -74,12 +74,12 @@
                 </ui:TextBox.Icon>
             </ui:TextBox>
             <Border Grid.Row="1" x:Name="FindBox" Margin="0,0,0,8" Padding="12,8" CornerRadius="8"
-                    Background="{x:Static svc:Theme.BannerInfoBg}" BorderBrush="{x:Static svc:Theme.BannerInfoBorder}"
+                    Background="{DynamicResource Theme.BannerInfoBg}" BorderBrush="{DynamicResource Theme.BannerInfoBorder}"
                     BorderThickness="1" Visibility="Collapsed">
-                <TextBlock x:Name="LblFind" FontSize="12.5" TextWrapping="Wrap" Foreground="{x:Static svc:Theme.TextPrimary}" />
+                <TextBlock x:Name="LblFind" FontSize="12.5" TextWrapping="Wrap" Foreground="{DynamicResource Theme.TextPrimary}" />
             </Border>
             <TextBlock x:Name="LblHint" Grid.Row="2" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,8"
-                       Foreground="{x:Static svc:Theme.TextMuted}" Text="{DynamicResource Sub_OrderHint}" />
+                       Foreground="{DynamicResource Theme.TextMuted}" Text="{DynamicResource Sub_OrderHint}" />
             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel x:Name="RowsHost" />
             </ScrollViewer>
@@ -102,15 +102,15 @@
                 <ui:Button Content="{DynamicResource Sub_Back}" Click="OnBack" FontSize="13" Padding="12,6" />
                 <TextBlock Grid.Column="1" x:Name="LblListTitle" FontSize="16" FontWeight="SemiBold" Margin="14,0,10,0"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                           Foreground="{x:Static svc:Theme.TextPrimary}" />
+                           Foreground="{DynamicResource Theme.TextPrimary}" />
                 <ContentControl Grid.Column="2" x:Name="ListBadge" VerticalAlignment="Center" />
             </Grid>
             <ui:TextBox Grid.Row="1" x:Name="TxtSearch" Margin="0,0,0,8" FontSize="13"
                         PlaceholderText="{DynamicResource Sub_Search}" TextChanged="OnSearchChanged" />
             <!-- A list in a well with the outline (2026-11-22 colour standard). -->
             <Border Grid.Row="2" CornerRadius="8"
-                    Background="{x:Static svc:Theme.ListBg}"
-                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                    Background="{DynamicResource Theme.ListBg}"
+                    BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
             <ListBox x:Name="EntriesHost"
                      Background="Transparent" BorderThickness="0" Padding="4"
                      FontFamily="Consolas" FontSize="12.5"
@@ -125,7 +125,7 @@
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="Padding" Value="8,2" />
-                        <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+                        <Setter Property="Foreground" Value="{DynamicResource Theme.TextPrimary}" />
                         <Setter Property="Template">
                             <Setter.Value>
                                 <ControlTemplate TargetType="ListBoxItem">
@@ -138,7 +138,7 @@
             </ListBox>
             </Border>
             <TextBlock Grid.Row="3" x:Name="LblShown" FontSize="12" Margin="0,6,0,0"
-                       Foreground="{x:Static svc:Theme.TextMuted}" />
+                       Foreground="{DynamicResource Theme.TextMuted}" />
         </Grid>
 
         <Border Grid.Row="4" Padding="20,12">

@@ -559,10 +559,10 @@ namespace MihomoLauncher.Views
             public AppEntry Entry { get; }
             public string Name { get; }
             public string DisplayPath { get; }
-            // The four state columns (2026-11-23: «всё положительное должно выделяться»): each a
+            // The state columns (2026-11-23: «всё положительное должно выделяться»; «VPN» removed
+            // 2026-11-24): each a
             // StateCell, drawn by ONE template in ListsWindow.xaml — a positive value in its state
             // colour, the rest muted. Rebuilt with the row (RefreshAppRows after every edit).
-            public StateCell Vpn { get; }
             public StateCell KillSwitch { get; }
             public StateCell LockNic { get; }
             public StateCell AutoTrack { get; }
@@ -572,10 +572,7 @@ namespace MihomoLauncher.Views
                 Entry = e;
                 Name = e.Name;
                 DisplayPath = PathSummary(e);
-                // Green = connected / ok.
-                Vpn = new StateCell(e.RequiresVpn, Loc.T(e.RequiresVpn ? "Set_Yes" : "Set_No"), Theme.AccentGreen);
-                // Kill-switch has its own independent status, shown regardless of the VPN toggle.
-                // It and the card lock are protection: the guard switches' violet.
+                // The kill-switch and the card lock are protection: the guard switches' violet.
                 KillSwitch = new StateCell(e.KillSwitch, Loc.T(e.KillSwitch ? "Set_On" : "Set_Off"), Theme.AccentViolet);
                 LockNic = new StateCell(e.LockNic, Loc.T(e.LockNic ? "Set_On" : "Set_Off"), Theme.AccentViolet);
                 // «Всё остальное» has no programs to follow: «—», like its «Путь».

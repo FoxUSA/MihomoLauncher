@@ -39,7 +39,11 @@ namespace MihomoLauncher.Views
             var hero = new StackPanel { Orientation = Orientation.Horizontal };
             hero.Children.Add(heroDown);
             hero.Children.Add(heroUp);
-            var sub = new TextBlock { FontSize = 12.5, Foreground = Theme.TextSecondary, Margin = new Thickness(0, 2, 0, 10), TextTrimming = TextTrimming.CharacterEllipsis };
+            // Under the speed (2026-11-23): what the period moved, «Без VPN» and «По VPN» on their
+            // own lines, labels in one column so the figures line up.
+            var sub = new Grid { Margin = new Thickness(0, 2, 0, 10) };
+            sub.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            sub.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var chart = new SpeedDayChart { Height = 230 };
             var table = new Grid { Margin = new Thickness(4, 8, 4, 2) };
@@ -100,19 +104,31 @@ namespace MihomoLauncher.Views
                 return mb.ToString(mb < 10 ? "0.0" : "0", CultureInfo.CurrentCulture) + " " + Loc.T("Main_SpeedMB");
             }
 
-            // Where the tile's traffic goes now: the VPN (and where it exits) / direct / blocked.
-            string Route()
+            // The split lines: (label, down bytes, up bytes) each.
+            void SetSplit(Func<double, string> fmt, params Tuple<string, double, double>[] rows)
             {
-                if (entry.IsBlockMode) return Loc.T("Main_SpeedBlocked");
-                string proxy;
-                ProxySlotInfo info;
-                if (_assignment.TryGetValue(entry.Id, out proxy) && _proxySlot.TryGetValue(proxy, out info) && info != null)
+                sub.Children.Clear();
+                sub.RowDefinitions.Clear();
+                for (int i = 0; i < rows.Length; i++)
                 {
-                    string geo;
-                    return _proxyGeo.TryGetValue(proxy, out geo) && !string.IsNullOrEmpty(geo)
-                        ? Loc.T("Main_SpeedViaGeo", info.Name, geo) : Loc.T("Main_SpeedVia", info.Name);
+                    sub.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                    var label = new TextBlock
+                    {
+                        Text = rows[i].Item1, FontSize = 12.5, Foreground = Theme.TextSecondary,
+                        Margin = new Thickness(0, 1, rows[i].Item1.Length > 0 ? 10 : 0, 1),
+                    };
+                    var value = new TextBlock
+                    {
+                        Text = Loc.T("Main_SpeedSummary", fmt(rows[i].Item2), fmt(rows[i].Item3)),
+                        FontSize = 12.5, Foreground = Theme.TextSecondary, Margin = new Thickness(0, 1, 0, 1),
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                    };
+                    Grid.SetRow(label, i);
+                    Grid.SetRow(value, i);
+                    Grid.SetColumn(value, 1);
+                    sub.Children.Add(label);
+                    sub.Children.Add(value);
                 }
-                return Loc.T("Main_SpeedDirect");
             }
 
             // The figures this second, on every tab (2026-11-20: «сквозная»).
@@ -141,6 +157,7 @@ namespace MihomoLauncher.Views
 
                 string period;
                 double avgD, avgU, volD, volU, pkD, pkU;
+                double vpnD, vpnU, oldD = 0, oldU = 0;   // through a VPN; recorded before the split
                 string pkDAt, pkUAt, shiftD = null, shiftU = null;
                 if (hours == 0)
                 {
@@ -149,6 +166,8 @@ namespace MihomoLauncher.Views
                     double ms = sec.Sum(x => x.Secs);
                     volD = sec.Sum(x => x.Down * x.Secs);
                     volU = sec.Sum(x => x.Up * x.Secs);
+                    vpnD = sec.Sum(x => x.VpnDown * x.Secs);
+                    vpnU = sec.Sum(x => x.VpnUp * x.Secs);
                     avgD = ms > 0 ? volD / ms : 0;
                     avgU = ms > 0 ? volU / ms : 0;
                     var tD = sec.OrderByDescending(x => x.Down).FirstOrDefault();
@@ -164,6 +183,10 @@ namespace MihomoLauncher.Views
                     double secs = data.Sum(b => b.Secs);
                     volD = data.Sum(b => b.Down);
                     volU = data.Sum(b => b.Up);
+                    vpnD = data.Where(b => b.Split).Sum(b => b.VpnDown);
+                    vpnU = data.Where(b => b.Split).Sum(b => b.VpnUp);
+                    oldD = data.Where(b => !b.Split).Sum(b => b.Down);
+                    oldU = data.Where(b => !b.Split).Sum(b => b.Up);
                     avgD = secs > 0 ? volD / secs : 0;
                     avgU = secs > 0 ? volU / secs : 0;
                     var bD = data.OrderByDescending(b => b.PeakDown).FirstOrDefault();
@@ -184,8 +207,14 @@ namespace MihomoLauncher.Views
                     note.Text = Loc.T("Main_SpeedNote") + " " + Loc.T(span == 1 ? "Main_SpeedShift1" : "Main_SpeedShiftN", span);
                 }
 
-                sub.Text = Route() + " · " + Loc.T("Main_SpeedSummary", period,
-                    hours == 0 ? WhoVolume(volD) : Volume(volD), hours == 0 ? WhoVolume(volU) : Volume(volU));
+                // What moved without a VPN and through one (2026-11-23) — always exactly these two
+                // lines; the period is the open tab. Minutes recorded before the split (an
+                // installation just updated: their route is unknown) are in neither line, only in
+                // the chart, until they roll out of the history.
+                Func<double, string> volFmt = hours == 0 ? (Func<double, string>)WhoVolume : Volume;
+                SetSplit(volFmt,
+                    Tuple.Create(Loc.T("Main_SpeedSplitDirect"), Math.Max(0, volD - oldD - vpnD), Math.Max(0, volU - oldU - vpnU)),
+                    Tuple.Create(Loc.T("Main_SpeedSplitVpn"), vpnD, vpnU));
                 FillTable(table, Loc.T("Main_SpeedFor", period),
                     avgD, shiftD, pkD, pkDAt, hours == 0 ? WhoVolume(volD) : Volume(volD),
                     avgU, shiftU, pkU, pkUAt, hours == 0 ? WhoVolume(volU) : Volume(volU));
@@ -222,7 +251,7 @@ namespace MihomoLauncher.Views
             // Not modal: the tiles stay usable while it is open.
             var win = new SpeedWindow(Loc.T("Main_SpeedTitle", entry.IsAllTraffic ? AllTrafficName() : entry.Name), body) { Owner = this };
             whoOwner = win;
-            whoHolder.Content = BuildSpeedWho(entry, whoOwner, false, null, 0, out whoStop, out whoSetHours);
+            whoHolder.Content = BuildSpeedWho(entry, whoOwner, false, null, 0, null, out whoStop, out whoSetHours);
             win.Closed += (s, e) => whoStop();
 
             var close = new Wpf.Ui.Controls.Button
@@ -238,11 +267,22 @@ namespace MihomoLauncher.Views
             clear.Click += async (s, e) =>
             {
                 var name = entry.IsAllTraffic ? AllTrafficName() : entry.Name;
-                if (!await OverlayDialog.ConfirmAsync(win, Loc.T("Main_SpeedClearTitle"), Loc.T("Main_SpeedClearBody", name),
-                        Loc.T("Main_SpeedClearOk"), Loc.T("Set_BtnCancel"), Wpf.Ui.Controls.ControlAppearance.Danger).ConfigureAwait(true)) return;
-                SpeedHistory.Clear(entry.Id);
-                await Task.Run(() => ConnArchive.Clear(entry.Id)).ConfigureAwait(true);
-                Log.Info("Скорость: история плитки «" + name + "» очищена (график, рекорды и соединения).");
+                // This tile (Enter), or every tile (2026-11-23, the red button on the left).
+                int pick = await OverlayDialog.ChoiceAsync(win, Loc.T("Main_SpeedClearTitle"), Loc.T("Main_SpeedClearBody", name),
+                        Loc.T("Main_SpeedClearOk"), Loc.T("Main_SpeedClearAll"), Loc.T("Set_BtnCancel"), mainDanger: true).ConfigureAwait(true);
+                if (pick == 0) return;
+                if (pick == 2)
+                {
+                    SpeedHistory.ClearAll();
+                    await Task.Run(() => ConnArchive.ClearAll()).ConfigureAwait(true);
+                    Log.Info("Скорость: история всех плиток очищена (графики, рекорды и соединения).");
+                }
+                else
+                {
+                    SpeedHistory.Clear(entry.Id);
+                    await Task.Run(() => ConnArchive.Clear(entry.Id)).ConfigureAwait(true);
+                    Log.Info("Скорость: история плитки «" + name + "» очищена (график, рекорды и соединения).");
+                }
                 Refresh();
                 whoSetHours?.Invoke(hours);
             };

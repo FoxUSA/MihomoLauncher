@@ -13,7 +13,7 @@
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
 
     <ui:FluentWindow.Resources>
         <!-- Top action buttons: one shared base colour (Theme.AccentSoft, like a selected row);
@@ -24,8 +24,8 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="CornerRadius" Value="6" />
             <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Background" Value="{x:Static svc:Theme.AccentSoft}" />
-            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextOnAction}" />
+            <Setter Property="Background" Value="{DynamicResource Theme.AccentSoft}" />
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextOnAction}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="{x:Type ui:Button}">
@@ -107,7 +107,7 @@
                                FontSize="12"
                                MaxWidth="320"
                                TextTrimming="CharacterEllipsis"
-                               Foreground="{x:Static svc:Theme.TextSecondary}" />
+                               Foreground="{DynamicResource Theme.TextSecondary}" />
                 </StackPanel>
             </ui:TitleBar.Header>
             <ui:TitleBar.TrailingContent>
@@ -127,9 +127,9 @@
                             <!-- Only «RU»/«EN» — the translate glyph was removed (2026-11-14). -->
                             <ui:SymbolIcon x:Name="IcoLang" Symbol="Translate24" FontSize="15" Margin="0,0,5,0"
                                            Visibility="Collapsed"
-                                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                           Foreground="{DynamicResource Theme.TextSecondary}" />
                             <TextBlock x:Name="LangCode" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                       Foreground="{DynamicResource Theme.TextSecondary}" />
                         </StackPanel>
                     </ui:Button>
                     <ui:Button x:Name="BtnWebsite"
@@ -142,7 +142,7 @@
                                ToolTip="{DynamicResource Main_WebsiteTip}"
                                Click="OnOpenWebsite">
                         <ui:SymbolIcon x:Name="IcoWebsite" Symbol="Globe24" FontSize="15"
-                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                       Foreground="{DynamicResource Theme.TextSecondary}" />
                     </ui:Button>
                     <!-- The DNS shield lived here until 2026-08-15 — the launcher no longer
                          picks the machine's resolvers, so there is nothing to toggle. -->
@@ -158,7 +158,21 @@
                                ToolTip="{DynamicResource Log_Tip}"
                                Click="OnOpenLog">
                         <ui:SymbolIcon x:Name="IcoLog" Symbol="TextBulletListSquare24" FontSize="15"
-                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                       Foreground="{DynamicResource Theme.TextSecondary}" />
+                    </ui:Button>
+                    <!-- Light / dark (2026-11-24): the icon shows the theme on screen; click — a
+                         menu «Как в Windows / Светлая / Тёмная» (MainWindow.Theme.cs). -->
+                    <ui:Button x:Name="BtnTheme"
+                               VerticalAlignment="Center"
+                               Height="28"
+                               Margin="0,0,6,0"
+                               Padding="8,0"
+                               Appearance="Secondary"
+                               Cursor="Hand"
+                               ToolTip="{DynamicResource Main_ThemeTip}"
+                               Click="OnThemeButton">
+                        <ui:SymbolIcon x:Name="IcoTheme" Symbol="WeatherMoon24" FontSize="15"
+                                       Foreground="{DynamicResource Theme.TextSecondary}" />
                     </ui:Button>
                     <!-- Settings: engine, DNS, updates, launcher options. Was a big button in
                          the action row until 2026-11-13; its place there went to «VPN» and «+». -->
@@ -172,7 +186,7 @@
                                ToolTip="{DynamicResource Set_Title}"
                                Click="OnOpenSettings">
                         <ui:SymbolIcon x:Name="IcoSettings" Symbol="Settings24" FontSize="15"
-                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                       Foreground="{DynamicResource Theme.TextSecondary}" />
                     </ui:Button>
                     <ui:Button x:Name="BtnExitApp"
                                VerticalAlignment="Center"
@@ -184,7 +198,7 @@
                                ToolTip="{DynamicResource Set_BtnExitApp}"
                                Click="OnExitApp">
                         <ui:SymbolIcon x:Name="IcoExit" Symbol="Power24" FontSize="15"
-                                       Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                       Foreground="{DynamicResource Theme.TextSecondary}" />
                     </ui:Button>
                 </WrapPanel>
             </ui:TitleBar.TrailingContent>
@@ -219,10 +233,10 @@
                                    FontSize="14"
                                    FontWeight="SemiBold"
                                    Padding="14,8"
-                                   Tag="{x:Static svc:Theme.ActionDangerHover}"
+                                   Tag="{DynamicResource Theme.ActionDangerHover}"
                                    Click="OnDisconnect">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="PlugDisconnected24" Foreground="{x:Static svc:Theme.TextOnAction}" />
+                                <ui:SymbolIcon Symbol="PlugDisconnected24" Foreground="{DynamicResource Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -235,11 +249,11 @@
                                    Content="{DynamicResource Main_Routing}"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
+                                   Tag="{DynamicResource Theme.AccentSoftHover}"
                                    ToolTip="{DynamicResource Main_RoutingTip}"
                                    Click="OnOpenVpnMatrix">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="Globe24" Foreground="{x:Static svc:Theme.TextOnAction}" />
+                                <ui:SymbolIcon Symbol="Globe24" Foreground="{DynamicResource Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -252,11 +266,11 @@
                                    Content="VPN"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
+                                   Tag="{DynamicResource Theme.AccentSoftHover}"
                                    ToolTip="{DynamicResource Main_VpnListTip}"
                                    Click="OnOpenVpnList">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="ShieldKeyhole24" Foreground="{x:Static svc:Theme.TextOnAction}" />
+                                <ui:SymbolIcon Symbol="ShieldKeyhole24" Foreground="{DynamicResource Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -267,11 +281,11 @@
                                    Content="APP"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
+                                   Tag="{DynamicResource Theme.AccentSoftHover}"
                                    ToolTip="{DynamicResource Main_RulesListTip}"
                                    Click="OnOpenRulesList">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon Symbol="Apps24" Foreground="{x:Static svc:Theme.TextOnAction}" />
+                                <ui:SymbolIcon Symbol="Apps24" Foreground="{DynamicResource Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -283,10 +297,10 @@
                                    Content="DNS"
                                    FontSize="14"
                                    Padding="14,8"
-                                   Tag="{x:Static svc:Theme.AccentSoftHover}"
+                                   Tag="{DynamicResource Theme.AccentSoftHover}"
                                    Click="OnOpenDns">
                             <ui:Button.Icon>
-                                <ui:SymbolIcon x:Name="IcoDns" Symbol="GlobeShield24" Foreground="{x:Static svc:Theme.TextOnAction}" />
+                                <ui:SymbolIcon x:Name="IcoDns" Symbol="GlobeShield24" Foreground="{DynamicResource Theme.TextOnAction}" />
                             </ui:Button.Icon>
                         </ui:Button>
 
@@ -295,7 +309,7 @@
                              so a bad VPN config can't lock you out over RDP/AnyDesk. Off by
                              default. The same switch lives in Settings and the install prompt. -->
                         <Border x:Name="KillTimerBox"
-                                Background="{x:Static svc:Theme.SafeModeBg}"
+                                Background="{DynamicResource Theme.SafeModeBg}"
                                 CornerRadius="6"
                                 Padding="10,0"
                                 VerticalAlignment="Stretch">
@@ -303,30 +317,22 @@
                                 <!-- On: a dull red switch (2026-11-22) — the engine is being stopped
                                      every minute, which is worth seeing, but not shouting. -->
                                 <ui:ToggleSwitch x:Name="SwitchSafeMode" VerticalAlignment="Center"
-                                                 Checked="OnSafeModeToggle" Unchecked="OnSafeModeToggle">
-                                    <ui:ToggleSwitch.Resources>
-                                        <x:Static x:Key="ToggleSwitchFillOn" Member="svc:Theme.SafeModeSwitchFill" />
-                                        <x:Static x:Key="ToggleSwitchFillOnPointerOver" Member="svc:Theme.SafeModeSwitchFillHover" />
-                                        <x:Static x:Key="ToggleSwitchFillOnPressed" Member="svc:Theme.SafeModeSwitchFill" />
-                                        <x:Static x:Key="ToggleSwitchStrokeOn" Member="svc:Theme.SafeModeSwitchFill" />
-                                        <x:Static x:Key="ToggleSwitchStrokeOnPointerOver" Member="svc:Theme.SafeModeSwitchFillHover" />
-                                        <x:Static x:Key="ToggleSwitchStrokeOnPressed" Member="svc:Theme.SafeModeSwitchFill" />
-                                    </ui:ToggleSwitch.Resources>
-                                </ui:ToggleSwitch>
+                                                 Checked="OnSafeModeToggle" Unchecked="OnSafeModeToggle"
+                                                 Style="{DynamicResource SafeModeToggleSwitchStyle}" />
                                 <!-- Off: the switch + its name. On: the switch + the countdown only
                                      (UpdateKillTimerUi) — both at once didn't fit the row. -->
                                 <TextBlock x:Name="KillCountdown" Text="1:00" VerticalAlignment="Center"
                                            FontSize="14" FontWeight="SemiBold" Margin="8,0,4,0"
                                            Visibility="Collapsed"
-                                           Foreground="{x:Static svc:Theme.SafeModeCountdown}" />
+                                           Foreground="{DynamicResource Theme.SafeModeCountdown}" />
                                 <TextBlock x:Name="KillLabel" Text="{DynamicResource Main_KillTimerLabel}" VerticalAlignment="Center"
-                                           FontSize="12.5" Margin="8,0,0,0" Foreground="{x:Static svc:Theme.SafeModeLabel}" />
+                                           FontSize="12.5" Margin="8,0,0,0" Foreground="{DynamicResource Theme.SafeModeLabel}" />
                                 <Border x:Name="KillHelpHit" Width="22" Height="22" CornerRadius="11"
                                         Background="Transparent" Cursor="Hand" Margin="4,0,0,0"
                                         ToolTip="{DynamicResource Main_KillTimerHelpTip}"
                                         MouseLeftButtonUp="OnKillTimerHelp">
                                     <ui:SymbolIcon Symbol="QuestionCircle24" FontSize="15"
-                                                   Foreground="{x:Static svc:Theme.AccentBlue}"
+                                                   Foreground="{DynamicResource Theme.AccentBlue}"
                                                    HorizontalAlignment="Center" VerticalAlignment="Center" />
                                 </Border>
                             </StackPanel>
@@ -345,13 +351,13 @@
                                FontSize="13"
                                FontWeight="SemiBold"
                                Padding="12,8"
-                               Background="{x:Static svc:Theme.EngineBtnBg}"
-                               Foreground="{x:Static svc:Theme.EngineBtnText}"
-                               Tag="{x:Static svc:Theme.EngineBtnHover}"
+                               Background="{DynamicResource Theme.EngineBtnBg}"
+                               Foreground="{DynamicResource Theme.EngineBtnText}"
+                               Tag="{DynamicResource Theme.EngineBtnHover}"
                                Content="{DynamicResource Main_InstallEngineBtn}"
                                Click="OnInstallEngineClick">
                         <ui:Button.Icon>
-                            <ui:SymbolIcon Symbol="ArrowDownload24" Foreground="{x:Static svc:Theme.EngineBtnText}" />
+                            <ui:SymbolIcon Symbol="ArrowDownload24" Foreground="{DynamicResource Theme.EngineBtnText}" />
                         </ui:Button.Icon>
                     </ui:Button>
 
@@ -406,22 +412,22 @@
                         Visibility="Collapsed"
                         Padding="12,7"
                         CornerRadius="7"
-                        Background="{x:Static svc:Theme.ListBg}"
+                        Background="{DynamicResource Theme.ListBg}"
                         BorderThickness="1"
-                        BorderBrush="{x:Static svc:Theme.CardBorder}"
+                        BorderBrush="{DynamicResource Theme.CardBorder}"
                         MouseLeftButtonUp="OnStatsClick">
                         <StackPanel x:Name="StatsLines">
                             <Border x:Name="TopBanner" Visibility="Collapsed">
                                 <TextBlock x:Name="BannerText"
                                            FontSize="13"
                                            FontWeight="Medium"
-                                           Foreground="{x:Static svc:Theme.BannerInfoText}"
+                                           Foreground="{DynamicResource Theme.BannerInfoText}"
                                            TextWrapping="Wrap" />
                             </Border>
                             <TextBlock x:Name="StatusFoot"
                                        Visibility="Collapsed"
                                        FontSize="12.5"
-                                       Foreground="{x:Static svc:Theme.TextSecondary}"
+                                       Foreground="{DynamicResource Theme.TextSecondary}"
                                        TextWrapping="Wrap" />
                             <WrapPanel x:Name="StatsPing" Orientation="Horizontal" Visibility="Collapsed" />
                             <Grid x:Name="StatsBlocksRow" Visibility="Collapsed">
@@ -431,15 +437,15 @@
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                     <ui:SymbolIcon Symbol="ShieldError24" FontSize="14"
-                                                   Foreground="{x:Static svc:Theme.TextSecondary}"
+                                                   Foreground="{DynamicResource Theme.TextSecondary}"
                                                    Margin="0,0,6,0" VerticalAlignment="Center" />
                                     <TextBlock x:Name="StatsCounters" FontSize="12.5"
-                                               Foreground="{x:Static svc:Theme.TextSecondary}"
+                                               Foreground="{DynamicResource Theme.TextSecondary}"
                                                VerticalAlignment="Center" />
                                 </StackPanel>
                                 <TextBlock x:Name="StatsTicker" Grid.Column="1"
                                            Margin="10,0,0,0" FontSize="12.5"
-                                           Foreground="{x:Static svc:Theme.TextMuted}"
+                                           Foreground="{DynamicResource Theme.TextMuted}"
                                            TextTrimming="CharacterEllipsis"
                                            VerticalAlignment="Center" />
                             </Grid>
@@ -451,7 +457,7 @@
             </Grid>
 
             <!-- Connecting overlay -->
-            <Grid x:Name="ConnectingOverlay" Background="{x:Static svc:Theme.OverlayScrim}" Visibility="Collapsed">
+            <Grid x:Name="ConnectingOverlay" Background="{DynamicResource Theme.OverlayScrim}" Visibility="Collapsed">
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Margin="32">
                     <TextBlock x:Name="ConnectingTitle"
                                Text="{DynamicResource Main_ConnectingTitle}"
@@ -483,8 +489,8 @@
                                  Visibility="Collapsed"
                                  HorizontalAlignment="Center"
                                  Margin="0,0,0,24"
-                                 Foreground="{x:Static svc:Theme.Accent}"
-                                 Background="{x:Static svc:Theme.ListBg}"
+                                 Foreground="{DynamicResource Theme.Accent}"
+                                 Background="{DynamicResource Theme.ListBg}"
                                  BorderThickness="0" />
                     <ui:Button x:Name="BtnCancel"
                                Content="{DynamicResource Main_Stop}"

@@ -213,13 +213,22 @@ namespace MihomoLauncher.Views
         }
 
         // Why that card carries nothing, for the plate's second line — longest variant first.
+        // A card that is gone says what became of it (2026-11-24): «TX20E извлечена» / «удалена».
         private static string[] NoNetWhy(NetCard c)
         {
             if (c == null) return null;
             switch (c.State)
             {
                 case NicState.Absent:
-                    return new[] { Loc.T("Main_TileNoCard", c.Name), Loc.T("Main_TileNoCard", ShortCardName(c)), Loc.T("Main_TileNoCardShort") };
+                    string[] why;
+                    if (c.Gone == NicGone.Unknown)
+                        why = new[] { Loc.T("Main_TileNoCard", c.Name), Loc.T("Main_TileNoCard", ShortCardName(c)), Loc.T("Main_TileNoCardShort") };
+                    else
+                    {
+                        var w = Loc.T(c.Gone == NicGone.Ejected ? "Main_NicEjected" : "Main_NicRemovedShort");
+                        why = new[] { c.Name + " " + w, ShortCardName(c) + " " + w, w };
+                    }
+                    return why;
                 case NicState.Disabled:
                     return new[] { Loc.T("Main_TileCardOff", c.Name), Loc.T("Main_TileCardOffShort"), Loc.T("Main_TileCardOffTiny") };
                 case NicState.NoCable:
@@ -258,7 +267,7 @@ namespace MihomoLauncher.Views
 
         private static string NicStateText(NetCard c)
         {
-            if (!c.Present) return Loc.T("Main_NicAbsent");
+            if (!c.Present) return NetCards.GoneText(c);
             var kind = Loc.T(c.Wireless ? "Main_NicWifi" : "Main_NicWired");
             return kind + " · " + NetCards.StateText(c);
         }
@@ -392,14 +401,19 @@ namespace MihomoLauncher.Views
             if (_vpnPicker != null) _vpnPicker.IsOpen = false;
             HookPickerDismiss();
 
+            _netCardsCache = null;   // fresh state for the list
+            NetCards.Invalidate();
+            // A card renamed a moment ago: the tile follows it before the menu is drawn.
+            try { FollowCardChanges(); } catch (Exception ex) { Log.Error("nic-follow-picker", ex); }
             var original = NetCards.Clean(entry.Interfaces);
             var order = new List<string>(original);
-            _netCardsCache = null;   // fresh state for the list
             var present = CurrentNetCards();
-            // Chosen cards that are gone from the system stay in the list (unticking them is how
-            // they are dropped), after the present ones.
+            // A chosen card gone from the system is listed only for a tile bound to it (2026-11-24):
+            // the menu says what became of it and that the tile is bound to it. An unbound tile
+            // drops it by itself (MainWindow.NicFollow) — nothing to show.
             var all = new List<NetCard>(present);
-            foreach (var c in NetCards.Chosen(entry, present).Where(c => !c.Present)) all.Add(c);
+            if (entry.LockNic)
+                foreach (var c in NetCards.Chosen(entry, present).Where(c => !c.Present)) all.Add(c);
 
             var popup = new Popup
             {
@@ -563,7 +577,9 @@ namespace MihomoLauncher.Views
                     var st = card.State;
                     names.Children.Add(new TextBlock
                     {
-                        Text = NicStateText(card) + (string.IsNullOrEmpty(card.Description) ? "" : " · " + card.Description),
+                        Text = NicStateText(card)
+                             + (!card.Present && locked ? " · " + Loc.T("Main_NicPinnedHere") : "")
+                             + (string.IsNullOrEmpty(card.Description) ? "" : " · " + card.Description),
                         FontSize = 11,
                         Foreground = st == NicState.Connected ? Theme.TextMuted
                                    : st == NicState.Disabled || st == NicState.Absent ? Theme.NicOff : Theme.NicTrouble,

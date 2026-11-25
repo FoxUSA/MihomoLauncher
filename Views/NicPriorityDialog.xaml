@@ -10,7 +10,7 @@
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <!-- Windows' own card priority (interface metrics), moved out of Settings' «Сеть» tab on
          2026-11-23 and opened from the menu of a tile's network-card chip. Same text, table and
          behaviour as the tab had; «Применить» here does what Settings' «Сохранить» did for it. -->
@@ -30,8 +30,8 @@
             <!-- In a well, like every table (2026-11-22). The rows are the machine's cards — a few:
                  the table shows them all (no scroll bar) and the window is sized to it. -->
             <Border CornerRadius="8"
-                    Background="{x:Static svc:Theme.ListBg}"
-                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                    Background="{DynamicResource Theme.ListBg}"
+                    BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
                 <DataGrid x:Name="GridNics" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                           Style="{StaticResource AppDataGridStyle}"
                           RowStyle="{StaticResource AppDataGridRowStyle}"
@@ -75,6 +75,15 @@
             </Border>
             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                 <ui:Button x:Name="BtnNicDefault" Content="{DynamicResource Set_NicDefault}" MinWidth="120" Click="OnNicDefault" />
+            </StackPanel>
+            <!-- 2026-11-25: Windows drops Wi-Fi while a cable is in (WcmSvc «minimize simultaneous
+                 connections»). Shown when the machine has both kinds of card (or it is already on);
+                 applied by «Применить» like the order. -->
+            <StackPanel x:Name="PanelWifiEth" Margin="0,14,0,0" Visibility="Collapsed">
+                <ui:ToggleSwitch x:Name="SwitchWifiEth" Content="{DynamicResource Nic_WifiEth}"
+                                 Checked="OnWifiEthChanged" Unchecked="OnWifiEthChanged" />
+                <TextBlock Text="{DynamicResource Nic_WifiEthDesc}" FontSize="12" Opacity="0.6"
+                           TextWrapping="Wrap" Margin="0,4,0,0" />
             </StackPanel>
             <TextBlock x:Name="LblNicStatus" FontSize="12" Opacity="0.85" TextWrapping="Wrap" Margin="0,8,0,0"
                        Visibility="Collapsed" />

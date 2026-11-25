@@ -20,7 +20,38 @@ namespace MihomoLauncher.Views
             PreviewKeyDown += (s, e) =>
             {
                 // Esc inside the «Очистить?» confirmation is that overlay's own.
-                if (e.Key == Key.Escape && !OverlayOpen()) { e.Handled = true; Close(); }
+                if (e.Key != Key.Escape || OverlayOpen()) return;
+                e.Handled = true;
+                // In a search box with text: clears it first (2026-11-25), the next Esc closes.
+                var box = Keyboard.FocusedElement as System.Windows.Controls.TextBox;
+                if (box != null && box.Text.Length > 0) { box.Clear(); return; }
+                Close();
+            };
+            // A click anywhere outside the field being typed in takes the focus off it (2026-11-25:
+            // «сброс фокуса кликом в любое место»), not only a click on something focusable. The
+            // click itself goes on as usual.
+            // Also: rows and tabs here are not focusable, so after a click nothing had the keyboard
+            // and the ↑ / ↓ never arrived (2026-11-25) — the window itself takes it then.
+            Focusable = true;
+            PreviewMouseDown += (s, e) =>
+            {
+                var src = e.OriginalSource as DependencyObject;
+                var focused = Keyboard.FocusedElement as DependencyObject;
+                var box = focused as System.Windows.Controls.Primitives.TextBoxBase;
+                if (box != null && IsWithin(src, box)) return;                 // typing on in the field
+                if (box == null && focused != null && IsWithin(focused, this) && !ReferenceEquals(focused, this)) return;   // a button etc. keeps it
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    // After the press: a field or button it landed on has taken the focus by then.
+                    var now = Keyboard.FocusedElement as DependencyObject;
+                    if (now == null || !IsWithin(now, this) || now is System.Windows.Controls.Primitives.TextBoxBase && !IsWithin(src, now))
+                        Focus();
+                }), System.Windows.Threading.DispatcherPriority.Input);
+            };
+            Activated += (s, e) =>
+            {
+                var now = Keyboard.FocusedElement as DependencyObject;
+                if (now == null || !IsWithin(now, this)) Focus();
             };
             if (resizable)
             {
@@ -38,6 +69,11 @@ namespace MihomoLauncher.Views
                 Loaded += (s, e) => UiHelpers.KeepOnScreen(this);
                 return;
             }
+            // Wider by hand (2026-11-25: «почему я не могу увеличить окно по ширине»): the chart and
+            // the addresses stretch; the height still follows the content and stays locked.
+            ResizeMode = ResizeMode.CanResize;
+            Body.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+            _baseWidth = Width;
             Loaded += (s, e) =>
             {
                 FitToContent();
@@ -57,15 +93,32 @@ namespace MihomoLauncher.Views
             if (root == null) return;
             double width = ActualWidth > 0 ? ActualWidth : Width;
             root.Measure(new Size(root.ActualWidth > 0 ? root.ActualWidth : width, double.PositiveInfinity));
-            // + the thin window frame, as UiHelpers.FitHeightToContent does.
-            double h = Math.Min(root.DesiredSize.Height + 12, SystemParameters.WorkArea.Height);
+            // + the 1-px window frame top and bottom (2026-11-23: was +12, as UiHelpers.FitHeightToContent
+            // has — under the buttons that showed as a band twice as tall as in Settings).
+            double h = Math.Min(root.DesiredSize.Height + 2, SystemParameters.WorkArea.Height);
             if (h <= 120) return;
             SizeToContent = SizeToContent.Manual;
             MinHeight = 0;
             MaxHeight = double.PositiveInfinity;
             Height = h;
             MinHeight = MaxHeight = h;
-            MinWidth = MaxWidth = width;
+            // Width: never under the designed one, up to the screen.
+            MinWidth = _baseWidth;
+            MaxWidth = Math.Max(_baseWidth, SystemParameters.WorkArea.Width);
+        }
+
+        private double _baseWidth = 960;
+
+        private static bool IsWithin(DependencyObject d, DependencyObject ancestor)
+        {
+            while (d != null)
+            {
+                if (ReferenceEquals(d, ancestor)) return true;
+                d = d is System.Windows.Media.Visual || d is System.Windows.Media.Media3D.Visual3D
+                    ? System.Windows.Media.VisualTreeHelper.GetParent(d)
+                    : LogicalTreeHelper.GetParent(d);
+            }
+            return false;
         }
 
         private bool OverlayOpen()

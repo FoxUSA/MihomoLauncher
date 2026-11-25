@@ -61,6 +61,7 @@ namespace MihomoLauncher.Views
         private void MaybeRefreshNicIps()
         {
             HookNicIpChanges();
+            HookCardWatch();
             if (!ShowNicPlate || _nicIpBusy) return;
             // Safety net for an address event Windows never sent: every 5 s compare which cards are
             // up with an address against the line — a card that came or went is asked about now.
@@ -98,6 +99,9 @@ namespace MihomoLauncher.Views
                 _nicStatesSig = sig;
             }
             catch (Exception ex) { Log.Error("nic-states", ex); }
+            // A tile's card renamed or gone from the system (MainWindow.NicFollow).
+            try { FollowCardChanges(); }
+            catch (Exception ex) { Log.Error("nic-follow", ex); }
         }
 
         private async void RefreshNicIps()

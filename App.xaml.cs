@@ -76,23 +76,25 @@ namespace MihomoLauncher
             // Every window fits the screen it opens on (UiHelpers.KeepOnScreen).
             EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
                 new RoutedEventHandler((s, a) => { if (ReferenceEquals(a.OriginalSource, s)) UiHelpers.KeepOnScreen((Window)s); }));
+            // ...and keeps fitting it whenever its size changes while open — any window, any screen
+            // (2026-11-24: a window that grew after showing, its data arriving, went past the bottom).
+            EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.SizeChangedEvent,
+                new SizeChangedEventHandler((s, a) => { if (ReferenceEquals(a.OriginalSource, s)) UiHelpers.KeepOnScreenSoon((Window)s); }));
 
-            // Force the dark theme for the whole app (title-bar buttons follow this, not just the
-            // merged ThemesDictionary). Backdrop None, said out loud: the call's default is Mica,
-            // and no window may be tinted by the wallpaper (2026-11-22 colour standard — every
-            // window is Theme.WindowBg, opaque).
-            try { Wpf.Ui.Appearance.ApplicationThemeManager.Apply(Wpf.Ui.Appearance.ApplicationTheme.Dark, Wpf.Ui.Controls.WindowBackdropType.None); } catch { }
-
-            // The app's one accent (Theme.Accent) for the library too: primary buttons, checked
-            // boxes, switches, focus. Given as all four of the library's accent shades — with only
-            // the base colour it derives lighter, greyer variants for its fills, and the app had
-            // two blues side by side (2026-11-22). Hover still differs: the library dims the fill.
+            // Light or dark (2026-11-24): the saved choice, else as Windows. FIRST, on the UI thread
+            // and before any window: it fills the application's colour resources, creates the live
+            // brushes code-behind uses, and sets the library's theme (backdrop None — no Mica)
+            // and the one accent. Services/Theme.Apply.
             try
             {
-                var accent = Theme.AccentColor;
-                Wpf.Ui.Appearance.ApplicationAccentColorManager.Apply(accent, accent, accent, accent);
+                string savedTheme = "";
+                try { savedTheme = AppConfigStore.Load()?.UiTheme ?? ""; } catch { }
+                Theme.Init(savedTheme);
             }
-            catch { }
+            catch (Exception ex) { try { Log.Error("theme-init", ex); } catch { } }
+            // A new window's frame (DWM dark mode) in the current theme.
+            EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
+                new RoutedEventHandler((s, a) => { if (ReferenceEquals(a.OriginalSource, s)) Theme.ApplyFrame((Window)s); }));
 
             // Localization: pick the UI language (a saved choice wins, else the system culture)
             // and merge its string dictionary BEFORE any window is built, so every XAML

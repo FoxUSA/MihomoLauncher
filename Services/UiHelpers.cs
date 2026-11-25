@@ -1,5 +1,7 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
+using System.Windows.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
@@ -24,6 +26,7 @@ namespace MihomoLauncher.Services
         // to what fits, or WPF would refuse the shrink. Windows that stay inside are not touched.
         public static void KeepOnScreen(Window w)
         {
+            ScrollIfTooTall(w);   // deferred: runs after the window has been fitted below
             try
             {
                 var hwnd = new WindowInteropHelper(w).Handle;
@@ -47,6 +50,88 @@ namespace MihomoLauncher.Services
                 SetWindowPos(hwnd, IntPtr.Zero, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
             }
             catch { }
+        }
+
+        // After a size change (App: every window's SizeChanged), once the new size has applied —
+        // one pending call per window. Only a shown, normal window; a drag of its edge by the person
+        // is clamped to the screen the same way.
+        private static readonly DependencyProperty FitPendingProperty =
+            DependencyProperty.RegisterAttached("FitPending", typeof(bool), typeof(UiHelpers), new PropertyMetadata(false));
+
+        public static void KeepOnScreenSoon(Window w)
+        {
+            if (w == null || !w.IsLoaded || (bool)w.GetValue(FitPendingProperty)) return;
+            w.SetValue(FitPendingProperty, true);
+            w.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                w.SetValue(FitPendingProperty, false);
+                if (w.IsLoaded) KeepOnScreen(w);
+            }), DispatcherPriority.Loaded);
+        }
+
+        // A window sized by its content that is taller than the screen (2026-11-24: the speed
+        // window at 250 % on a 1080p laptop — its lower half and buttons were off the screen and,
+        // fixed to its content, it could not be resized): as Windows programs do, the window stays
+        // screen-sized and everything under the title bar scrolls. Nothing changes where it fits.
+        //
+        // The rows under the title bar move into one Grid inside a ScrollViewer (vertical only — a
+        // horizontal one would give star columns infinite width); the title bar stays put, and the
+        // root keeps two rows, so OverlayDialog still covers the whole window. Resizable windows are
+        // left alone: their lists scroll by themselves. Done once per window.
+        private static readonly DependencyProperty ScrollWrappedProperty =
+            DependencyProperty.RegisterAttached("ScrollWrapped", typeof(bool), typeof(UiHelpers), new PropertyMetadata(false));
+
+        public static void ScrollIfTooTall(Window w)
+        {
+            if (w == null) return;
+            w.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if ((bool)w.GetValue(ScrollWrappedProperty) || w.GetType().Name == "MainWindow") return;
+                    bool fitted = w.ResizeMode == ResizeMode.NoResize || (w.MinHeight > 0 && w.MinHeight == w.MaxHeight);
+                    if (!fitted) return;
+                    var root = w.Content as Grid;
+                    if (root == null || root.RowDefinitions.Count < 2 || root.ActualHeight <= 0) return;
+                    var bar = root.Children.OfType<Wpf.Ui.Controls.TitleBar>().FirstOrDefault(b => Grid.GetRow(b) == 0);
+                    if (bar == null) return;
+                    root.Measure(new Size(root.ActualWidth, double.PositiveInfinity));
+                    // Against the WINDOW: a capped window still lays its root out full height,
+                    // just clipped (measured 2026-11-24: root 4268 in a 1392 window).
+                    if (root.DesiredSize.Height + 2 <= w.ActualHeight + 1) return;
+
+                    var body = new Grid();
+                    foreach (var cd in root.ColumnDefinitions)
+                        body.ColumnDefinitions.Add(new ColumnDefinition { Width = cd.Width, MinWidth = cd.MinWidth, MaxWidth = cd.MaxWidth });
+                    for (int i = 1; i < root.RowDefinitions.Count; i++)
+                    {
+                        var rd = root.RowDefinitions[i];
+                        body.RowDefinitions.Add(new RowDefinition { Height = rd.Height, MinHeight = rd.MinHeight, MaxHeight = rd.MaxHeight });
+                    }
+                    foreach (var c in root.Children.Cast<UIElement>().Where(c => c != bar && Grid.GetRow(c) >= 1).ToList())
+                    {
+                        int r = Grid.GetRow(c);
+                        root.Children.Remove(c);
+                        Grid.SetRow(c, r - 1);
+                        body.Children.Add(c);
+                    }
+                    while (root.RowDefinitions.Count > 1) root.RowDefinitions.RemoveAt(1);
+                    root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                    var sv = new ScrollViewer
+                    {
+                        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                        Focusable = false,
+                        Content = body,
+                    };
+                    Grid.SetRow(sv, 1);
+                    if (root.ColumnDefinitions.Count > 1) Grid.SetColumnSpan(sv, root.ColumnDefinitions.Count);
+                    root.Children.Add(sv);
+                    w.SetValue(ScrollWrappedProperty, true);
+                    Log.Info("Окно «" + w.Title + "» выше экрана — содержимое прокручивается.");
+                }
+                catch (Exception ex) { Log.Error("scroll-if-too-tall", ex); }
+            }), DispatcherPriority.ContextIdle);
         }
 
         [StructLayout(LayoutKind.Sequential)]

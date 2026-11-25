@@ -26,6 +26,11 @@ namespace MihomoLauncher.Views
     //
     // Known, accepted: the very first connection of a never-seen helper goes the default way for
     // the second or two before the rule is applied; a folder entry is the strict tool for that.
+    // Since 2026-11-23 the launcher adds that folder itself where it safely can — the install
+    // folder of a tile's manual program as an auto folder (AutoPrograms.SyncAutoFolders). To the
+    // program auto-adding above it is a folder like any other: what lies in it gets no row of its
+    // own (the sync drops the rows already there), what a process from it starts elsewhere is
+    // still found.
     public partial class MainWindow
     {
         private ProcessTracker _procTracker;
@@ -53,9 +58,7 @@ namespace MihomoLauncher.Views
 
             // The notice (amber gear) for what was added before the last exit and not seen yet.
             foreach (var a in (_config?.Apps ?? new List<AppEntry>()).Where(a => a != null && AutoPrograms.AutoNewNames(a).Count > 0))
-                _autoNotice[a.Id] = AutoNoticeClicks;
-            // Every press on the main window counts toward ending it, whatever it hits.
-            AddHandler(PreviewMouseDownEvent, new System.Windows.Input.MouseButtonEventHandler((s, e) => CountAutoNoticeClick()), true);
+                _autoNotice.Add(a.Id);
             if (_autoNotice.Count > 0) RebuildTiles();
             AutoTrackTick();
         }
@@ -63,13 +66,18 @@ namespace MihomoLauncher.Views
         // ---------- the notice: an amber gear on a rule that got something automatically ----------
         //
         // In memory, per rule: starts when an entry is auto-added (and at start for every rule that
-        // still has AutoNew entries); ends when that gear is clicked, or after 5 presses anywhere on
-        // the main window, or when the rule's editor closes. A new addition starts it again with a
-        // fresh 5. Its end does NOT clear AutoNew — only the rule's editor closing does. No animation.
-        private const int AutoNoticeClicks = 5;
-        private readonly Dictionary<string, int> _autoNotice = new Dictionary<string, int>(StringComparer.Ordinal);
+        // still has AutoNew entries); ends ONLY for that rule — when its gear is clicked or its
+        // editor closes (saved or cancelled). A new addition starts it again. Its end does NOT clear
+        // AutoNew — only the rule's editor closing does. No animation.
+        // 2026-11-23: no more "ends after 5 presses anywhere on the main window" — after an update
+        // eight tiles lit up at once, and the presses spent on the first few put out the gears of
+        // the tiles nobody had looked at yet. Instead it also goes out by itself after the main
+        // window has been ON SCREEN for an hour since the last automatic addition to the rule
+        // (minimized / in the tray does not count; the count survives a restart) — AutoNew is
+        // cleared then, the entries stay. See NoticeClockTick.
+        private readonly HashSet<string> _autoNotice = new HashSet<string>(StringComparer.Ordinal);
 
-        private bool AutoNoticeOn(AppEntry entry) => entry != null && _autoNotice.ContainsKey(entry.Id);
+        private bool AutoNoticeOn(AppEntry entry) => entry != null && _autoNotice.Contains(entry.Id);
 
         // «Добавлено автоматически: codex.exe, Microsoft.VisualStudio.Code.Server.exe +2».
         private string AutoNoticeTip(AppEntry entry)
@@ -88,19 +96,6 @@ namespace MihomoLauncher.Views
             Dispatcher.BeginInvoke(new Action(RebuildTiles));
         }
 
-        private void CountAutoNoticeClick()
-        {
-            if (_autoNotice.Count == 0) return;
-            bool ended = false;
-            foreach (var id in _autoNotice.Keys.ToList())
-            {
-                if (--_autoNotice[id] > 0) continue;
-                _autoNotice.Remove(id);
-                ended = true;
-            }
-            if (ended) Dispatcher.BeginInvoke(new Action(RebuildTiles));
-        }
-
         // A rule's editor closed — saved or cancelled, from the tile or the rules list: its new
         // auto entries have been seen. Only AutoNew is written (a cancelled edit stays discarded).
         internal void AutoNewSeen(string ruleId)
@@ -113,8 +108,68 @@ namespace MihomoLauncher.Views
             EndAutoNotice(ruleId);
         }
 
+        // ---------- the notice's clock (2026-11-23) ----------
+        //
+        // Counted on the 5 s tick: the real time since the previous tick (at most 10 s — a sleep /
+        // resume or a stalled UI thread adds no jump), only while a person can see the tiles.
+        // AutoPrograms.NoticeTick does the arithmetic. The counters live in _config, so any save
+        // writes them; besides, a flush every 5 counted minutes, at once on an expiry, and at exit —
+        // never while something holds a copy of the rules (tried again on a later tick).
+        private const int NoticeFlushSec = 300;
+        private DateTime _noticeLastTickUtc = DateTime.MinValue;
+        private double _noticeCarry;          // the fraction of a second not counted yet
+        private int _noticeUnsavedSec;
+        private bool _noticeDirty, _noticeSaveNow;
+
+        // On screen = the tiles can be seen: shown (not hidden to the tray — Hide() on close,
+        // StartHiddenInTray at autostart; _hidden says the same from the app's side) and not
+        // minimized to the taskbar.
+        private bool MainWindowOnScreen()
+            => IsVisible && !_hidden && WindowState != WindowState.Minimized;
+
+        private void NoticeClockTick()
+        {
+            try
+            {
+                var now = DateTime.UtcNow;
+                int add = 0;
+                if (_noticeLastTickUtc != DateTime.MinValue && MainWindowOnScreen())
+                {
+                    var dt = (now - _noticeLastTickUtc).TotalSeconds;
+                    if (dt > 0) _noticeCarry += Math.Min(dt, 10);
+                    add = (int)_noticeCarry;
+                    _noticeCarry -= add;
+                }
+                _noticeLastTickUtc = now;
+
+                var r = AutoPrograms.NoticeTick(_config, add);
+                if (r.Changed) { _noticeDirty = true; _noticeUnsavedSec += add; }
+                foreach (var id in r.Expired)
+                {
+                    var rule = (_config?.Apps ?? new List<AppEntry>()).FirstOrDefault(a => a != null && a.Id == id);
+                    Log.Info("Авто: уведомление плитки «" + (rule?.Name ?? id) + "» погашено — окно было на экране час");
+                    EndAutoNotice(id);
+                    _noticeSaveNow = true;
+                }
+                if ((_noticeSaveNow || _noticeUnsavedSec >= NoticeFlushSec) && !AutoTrackHeld()) FlushNoticeClock();
+            }
+            catch (Exception ex) { Log.Error("auto-notice-clock", ex); }
+        }
+
+        private void FlushNoticeClock()
+        {
+            try
+            {
+                AppConfigStore.Save(_config);
+                _noticeDirty = _noticeSaveNow = false;
+                _noticeUnsavedSec = 0;
+            }
+            catch (Exception ex) { Log.Error("auto-notice-save", ex); }
+        }
+
         private void StopAutoTrack()
         {
+            try { if ((_noticeDirty || _noticeSaveNow) && !AutoTrackHeld()) FlushNoticeClock(); } catch { }
             try { _autoTimer?.Stop(); } catch { }
             try { _procTracker?.Stop(); } catch { }
             try { FolderWatch.StopAll(); } catch { }
@@ -147,9 +202,13 @@ namespace MihomoLauncher.Views
         private static string WatchSignature(AppConfig cfg)
         {
             var sb = new System.Text.StringBuilder();
+            // Whether the firewall walls a rule decides whether its auto folders are watched
+            // (FolderWatch, 2026-11-23).
+            sb.Append(cfg?.FirewallKillSwitch == true ? "W1|" : "W0|");
             foreach (var a in cfg?.Apps ?? new List<AppEntry>())
             {
                 if (a == null) continue;
+                sb.Append(a.KillSwitch || a.LockNic ? "K1|" : "K0|");
                 foreach (var f in a.Folders ?? new List<RuleFolder>()) sb.Append('F').Append(f?.Path).Append('|');
                 foreach (var p in a.Programs ?? new List<RuleProgram>()) sb.Append('P').Append(p?.Path).Append('|');
             }
@@ -158,10 +217,26 @@ namespace MihomoLauncher.Views
 
         private void AutoTrackTick()
         {
+            NoticeClockTick();   // first, its own try/catch: no early return below may skip it
             try
             {
                 var sig = WatchSignature(_config);
                 if (sig != _watchSig) { _watchSig = sig; RebuildFolderWatch(); }
+
+                // «Авто-папка программы» (2026-11-23): the catch-all for every save of the rules that
+                // did not sync itself (the rules list, Settings, an import). Not while something holds
+                // a copy of the rules, and never closer than a reload gap to the last auto reload.
+                if (!AutoTrackHeld() && DateTime.UtcNow - _autoLastReloadUtc >= AutoReloadGap)
+                {
+                    var fs = SyncAutoFoldersNow();
+                    if (fs != null && fs.Changed)
+                    {
+                        try { AppConfigStore.Save(_config); }
+                        catch (Exception ex) { Log.Error("auto-folder-save", ex); }
+                        NoticeAutoFolders(fs);
+                        ApplyAutoChange("авто-папка программы", AutoFolderCutFiles(fs), DateTime.UtcNow);
+                    }
+                }
 
                 if (!AutoPrograms.AnyTracking(_config))
                 {
@@ -187,11 +262,7 @@ namespace MihomoLauncher.Views
                 // nothing is decided (it is what keeps Word, opened from a messenger, out of its tile).
                 if (StandaloneApps.Ready)
                 {
-                    var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        VersionInfo.ExeName, VersionInfo.LegacyExeName, "mihomo-dnscheck.exe",
-                    };
-                    try { var eng = System.IO.Path.GetFileName((_config?.MihomoExePath ?? "").Trim()); if (!string.IsNullOrEmpty(eng)) own.Add(eng); } catch { }
+                    var own = OwnExeNames();
                     var installRoot = MihomoConfigBuilder.NormalizeFolder(VersionInfo.InstallRoot);
 
                     var env = new AutoPrograms.Env
@@ -280,29 +351,99 @@ namespace MihomoLauncher.Views
                     AutoNew = true,
                 });
                 added.Add(d.Path);
-                _autoNotice[tile.Id] = AutoNoticeClicks;   // a fresh notice, a fresh 5
+                _autoNotice.Add(tile.Id);   // the notice, again
+                tile.AutoNoticeShownSec = 0;   // and its hour starts over
                 Log.Info("Авто: в «" + tile.Name + "» добавлена " + d.Name + " (" + d.Why + "). " + d.Path);
             }
             if (added.Count == 0) return;
 
             try { AppConfigStore.Save(_config); }
             catch (Exception ex) { Log.Error("auto-track-save", ex); }
+            ApplyAutoChange("авто-добавление программ", added, now);
+        }
+
+        // What follows a saved automatic change of the rules (auto programs, auto folders): one
+        // reload for the whole batch, only if the engine's text really changed; the open
+        // connections of `cutFiles` are cut after it, so they redial through their tile.
+        private void ApplyAutoChange(string reason, List<string> cutFiles, DateTime now)
+        {
             _autoLastReloadUtc = now;
             try { EngineLogStore.Instance.RefreshRules(_config); } catch { }
             _speedMapDirty = true;
-            // One reload for the whole batch, only if the engine's text really changed; the
-            // helpers' open connections are cut after it, so they redial through their tile.
             try
             {
                 if (_hasChecked && _assignment.Count > 0)
-                    ApplyFinalConfig(CurrentAssignedProxies(), "авто-добавление программ", cutFiles: added);
+                    ApplyFinalConfig(CurrentAssignedProxies(), reason, cutFiles: cutFiles);
                 else
-                    _ = ArmKillSwitchAsync(CancellationToken.None, added);
+                    _ = ArmKillSwitchAsync(CancellationToken.None, cutFiles);
             }
             catch (Exception ex) { Log.Error("auto-track-apply", ex); }
             SyncFirewallSoon();
             try { UpdateConflictIcon(); } catch { }
             RebuildTiles();   // the amber gear
+        }
+
+        // The launcher's and the engine's own exe names: never added anywhere.
+        private HashSet<string> OwnExeNames()
+        {
+            var own = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                VersionInfo.ExeName, VersionInfo.LegacyExeName, "mihomo-dnscheck.exe",
+            };
+            try { var eng = System.IO.Path.GetFileName((_config?.MihomoExePath ?? "").Trim()); if (!string.IsNullOrEmpty(eng)) own.Add(eng); } catch { }
+            return own;
+        }
+
+        // ---------- «Авто-папка программы» (2026-11-23) ----------
+        //
+        // AutoPrograms.SyncAutoFolders on the live config, one log line per addition / removal.
+        // Called at start, when the tile's rule editor or the new-rule tile saves, and on the tick.
+        // Never a window: a failure goes to app.log and changes nothing. Null on failure.
+        private AutoPrograms.FolderSync SyncAutoFoldersNow()
+        {
+            try
+            {
+                var env = new AutoPrograms.Env
+                {
+                    VersionWords = AutoPrograms.VersionWordsOf,
+                    OwnNames = OwnExeNames(),
+                    InstallRoot = VersionInfo.InstallRoot,
+                };
+                var fs = AutoPrograms.SyncAutoFolders(_config, env);
+                foreach (var a in fs.Added)
+                    Log.Info("Авто: в «" + a.Tile?.Name + "» добавлена папка программы " + a.Exe + " — " + a.Path);
+                foreach (var r in fs.Removed)
+                    Log.Info("Авто: из «" + r.Tile?.Name + "» убрана авто-папка " + r.Path + " — " + r.Reason);
+                foreach (var d in fs.DroppedPrograms)
+                {
+                    string exe;
+                    try { exe = System.IO.Path.GetFileName(d.Path ?? "") ?? ""; } catch { exe = d.Path ?? ""; }
+                    Log.Info("Авто: из «" + d.Tile?.Name + "» убрана строка " + exe + " — входит в авто-папку " + d.Folder);
+                }
+                return fs;
+            }
+            catch (Exception ex) { Log.Error("auto-folders", ex); return null; }
+        }
+
+        // The amber gear for every tile that got a folder.
+        private void NoticeAutoFolders(AutoPrograms.FolderSync fs)
+        {
+            foreach (var a in fs?.Added ?? new List<AutoPrograms.FolderAdded>())
+                if (a?.Tile != null) _autoNotice.Add(a.Tile.Id);
+        }
+
+        // The programs already online from an added folder, cut after the reload so they redial
+        // through it — never one a tile already claims (the tile's own program is routed already;
+        // a file another tile has keeps its connections).
+        private List<string> AutoFolderCutFiles(AutoPrograms.FolderSync fs)
+        {
+            var cut = new List<string>();
+            foreach (var a in fs?.Added ?? new List<AutoPrograms.FolderAdded>())
+                foreach (var path in _autoNetPaths.Keys)
+                    if (MihomoConfigBuilder.InFolder(path, a.Path) && AutoPrograms.ClaimedBy(_config, path) == null
+                        && !cut.Contains(path, StringComparer.OrdinalIgnoreCase))
+                        cut.Add(path);
+            return cut;
         }
 
         private static string SafeNameNoExt(string path)

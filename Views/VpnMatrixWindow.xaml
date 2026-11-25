@@ -11,7 +11,7 @@
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />

@@ -16,6 +16,9 @@ namespace MihomoLauncher.Services
         public bool HasGateway { get; set; }          // can reach anything past the LAN
         public bool Present { get; set; } = true;     // false: chosen earlier, not in the system now
         public bool Disabled { get; set; }            // switched off in Windows («Отключить» in Network Connections)
+        public string Id { get; set; } = "";          // Windows' interface GUID — survives a rename (NicHistory)
+        public string PnpId { get; set; } = "";       // the device behind it
+        public NicGone Gone { get; set; }             // not Present: what Windows says became of it
 
         // One state for the chip's colour and the picker's words (2026-11-18):
         // Connected — blue Wi-Fi / green cable; NoCable / NoNetwork / NoInternet — amber;
@@ -134,12 +137,23 @@ namespace MihomoLauncher.Services
         {
             switch (c.State)
             {
-                case NicState.Absent: return Loc.T("Main_NicAbsent");
+                case NicState.Absent: return GoneText(c);
                 case NicState.Disabled: return Loc.T("Main_NicDown");
                 case NicState.NoCable: return Loc.T("Main_NicNoCable");
                 case NicState.NoNetwork: return Loc.T("Main_NicNoNet");
                 case NicState.NoInternet: return Loc.T("Main_NicNoGw");
                 default: return Loc.T("Main_NicUp");
+            }
+        }
+
+        // A card not in the system, in words: «извлечена» / «удалена из системы» / «нет в системе».
+        public static string GoneText(NetCard c)
+        {
+            switch (c?.Gone ?? NicGone.Unknown)
+            {
+                case NicGone.Ejected: return Loc.T("Main_NicEjected");
+                case NicGone.Removed: return Loc.T("Main_NicRemoved");
+                default: return Loc.T("Main_NicAbsent");
             }
         }
 
@@ -168,6 +182,7 @@ namespace MihomoLauncher.Services
                     bool gw = false;
                     try { gw = up && nic.GetIPProperties().GatewayAddresses.Any(g => g?.Address != null && !g.Address.ToString().StartsWith("0.")); }
                     catch { }
+                    var ad = adapters.FirstOrDefault(a => string.Equals(a.Name, nic.Name, StringComparison.OrdinalIgnoreCase));
                     list.Add(new NetCard
                     {
                         Name = nic.Name ?? "",
@@ -175,6 +190,8 @@ namespace MihomoLauncher.Services
                         Wireless = wireless,
                         Up = up,
                         HasGateway = gw,
+                        Id = nic.Id ?? "",
+                        PnpId = ad?.PnpId ?? "",
                     });
                 }
             }
@@ -187,22 +204,40 @@ namespace MihomoLauncher.Services
                 if (list.Any(c => string.Equals(c.Name, a.Name, StringComparison.OrdinalIgnoreCase))) continue;
                 var desc = a.Description + " " + a.Name;
                 if (VirtualMarks.Any(m => desc.IndexOf(m, StringComparison.OrdinalIgnoreCase) >= 0)) continue;
-                list.Add(new NetCard { Name = a.Name, Description = a.Description, Wireless = a.Wireless, Disabled = true });
+                list.Add(new NetCard { Name = a.Name, Description = a.Description, Wireless = a.Wireless, Disabled = true, Id = a.Guid, PnpId = a.PnpId });
             }
 
-            return list.Where(c => c.Name.Length > 0)
+            var result = list.Where(c => c.Name.Length > 0)
                        .OrderBy(c => c.Wireless ? 1 : 0).ThenBy(c => c.Name, StringComparer.CurrentCultureIgnoreCase)
                        .ToList();
+            NicHistory.Note(result);   // so a card renamed / pulled out later is still recognised
+            return result;
         }
 
         private sealed class Adapter
         {
-            public string Name = "", Description = "";
+            public string Name = "", Description = "", Guid = "", PnpId = "";
             public bool Wireless, Disabled, Physical;
         }
 
         private static List<Adapter> _adapters = new List<Adapter>();
         private static DateTime _adaptersAt = DateTime.MinValue;
+
+        // A card was renamed / came / went: the next List() reads WMI anew, not the 3-s cache.
+        public static void Invalidate() { _adaptersAt = DateTime.MinValue; }
+
+        // Names and GUIDs of the cards Windows reports — cheap (no WMI), for a once-a-second watch.
+        public static string QuickSig()
+        {
+            try
+            {
+                return string.Join("|", NetworkInterface.GetAllNetworkInterfaces()
+                    .Where(n => n.NetworkInterfaceType == NetworkInterfaceType.Wireless80211 || n.NetworkInterfaceType == NetworkInterfaceType.Ethernet
+                             || n.NetworkInterfaceType == NetworkInterfaceType.GigabitEthernet)
+                    .Select(n => n.Id + "=" + n.Name + "=" + n.OperationalStatus));
+            }
+            catch { return ""; }
+        }
 
         private static List<Adapter> Adapters()
         {
@@ -211,7 +246,7 @@ namespace MihomoLauncher.Services
             try
             {
                 using (var s = new System.Management.ManagementObjectSearcher(@"\\.\root\StandardCimv2",
-                    "SELECT Name, InterfaceDescription, State, InterfaceAdminStatus, NdisPhysicalMedium, HardwareInterface, Virtual FROM MSFT_NetAdapter"))
+                    "SELECT Name, InterfaceDescription, State, InterfaceAdminStatus, NdisPhysicalMedium, HardwareInterface, Virtual, InterfaceGuid, PnPDeviceID FROM MSFT_NetAdapter"))
                 using (var all = s.Get())
                     foreach (System.Management.ManagementObject mo in all)
                         using (mo)
@@ -226,6 +261,8 @@ namespace MihomoLauncher.Services
                             {
                                 Name = mo["Name"] as string ?? "",
                                 Description = mo["InterfaceDescription"] as string ?? "",
+                                Guid = mo["InterfaceGuid"] as string ?? "",
+                                PnpId = mo["PnPDeviceID"] as string ?? "",
                                 Wireless = medium == 1 || medium == 9,
                                 Disabled = state == 3,
                                 Physical = (mo["HardwareInterface"] as bool? ?? false) && !(mo["Virtual"] as bool? ?? false)
@@ -249,9 +286,70 @@ namespace MihomoLauncher.Services
             foreach (var name in Clean(entry?.Interfaces))
             {
                 var c = now.FirstOrDefault(x => string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
-                result.Add(c ?? new NetCard { Name = name, Present = false });
+                // Renamed in Windows: the card itself, under its new name, at once (2026-11-24: the
+                // menu said «нет в системе» for seconds until the tile caught up — MainWindow.NicFollow).
+                if (c == null)
+                {
+                    var renamed = RenamedTo(entry, name, now);
+                    if (renamed != null) c = now.FirstOrDefault(x => string.Equals(x.Name, renamed, StringComparison.OrdinalIgnoreCase));
+                }
+                if (c != null && result.Contains(c)) continue;
+                result.Add(c ?? Missing(name));
             }
             return result;
+        }
+
+        // The GUID the tile remembers for one of its cards ("name=guid" in AppEntry.InterfaceIds).
+        public static string IdOf(AppEntry entry, string name)
+        {
+            foreach (var s in entry?.InterfaceIds ?? new List<string>())
+            {
+                int at = (s ?? "").LastIndexOf('=');
+                if (at > 0 && string.Equals(s.Substring(0, at), name, StringComparison.OrdinalIgnoreCase)) return s.Substring(at + 1);
+            }
+            return null;
+        }
+
+        // A card of the tile gone under this name but present under another one — by the GUID the
+        // tile remembers, else by the launcher's card history. Its name now, or null.
+        public static string RenamedTo(AppEntry entry, string name, List<NetCard> present)
+        {
+            var id = IdOf(entry, name);
+            if (!string.IsNullOrEmpty(id))
+            {
+                var c = present.FirstOrDefault(x => x.Present && string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+                if (c != null && !string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)) return c.Name;
+            }
+            return NicHistory.RenamedTo(name, present);
+        }
+
+        // The tile's "name=guid" list for its current cards: present ones read now, gone ones keep
+        // what was remembered. True when it changed.
+        public static bool RememberIds(AppEntry entry, List<NetCard> present)
+        {
+            var next = new List<string>();
+            foreach (var n in Clean(entry.Interfaces))
+            {
+                var c = present.FirstOrDefault(x => x.Present && string.Equals(x.Name, n, StringComparison.OrdinalIgnoreCase));
+                var id = c != null && !string.IsNullOrEmpty(c.Id) ? c.Id : IdOf(entry, n);
+                if (!string.IsNullOrEmpty(id)) next.Add(n + "=" + id);
+            }
+            if (next.SequenceEqual(entry.InterfaceIds ?? new List<string>(), StringComparer.OrdinalIgnoreCase)) return false;
+            entry.InterfaceIds = next;
+            return true;
+        }
+
+        // A chosen card not in the system: Wi-Fi or cable as it was when last seen, and what Windows
+        // says became of it (2026-11-24: «пиши удалена / извлечена»).
+        public static NetCard Missing(string name)
+        {
+            return new NetCard
+            {
+                Name = name,
+                Present = false,
+                Wireless = NicHistory.WasWireless(name) ?? false,
+                Gone = NicHistory.WhatHappened(name),
+            };
         }
 
         // The rule's card list as the engine gets it: trimmed, no blanks, no repeats, in order.

@@ -627,6 +627,42 @@ namespace MihomoLauncher.Services
             // itself), its port and TCP/UDP.
             public string ProcessPath = "", DestIp = "", Port = "", Network = "";
             public long Up, Down;
+            // Went out without a VPN (2026-11-23, the speed window's «Без VPN / По VPN»): every
+            // outbound of its chain is DIRECT or a network card (IsDirectChain).
+            public bool Direct;
+            // When it opened (the engine's `start`), UTC; MinValue = not given (2026-11-25: the
+            // speed window shows it in place of the address under the mouse).
+            public DateTime Start = DateTime.MinValue;
+        }
+
+        // "2026-11-25T11:03:12.123456789+03:00" — more fraction digits than .NET reads: cut to 7.
+        private static DateTime StartOf(string conn)
+        {
+            var s = JsonField(conn, "start");
+            if (s.Length == 0) return DateTime.MinValue;
+            s = System.Text.RegularExpressions.Regex.Replace(s, @"(\.\d{7})\d+", "$1");
+            DateTimeOffset t;
+            return DateTimeOffset.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out t) ? t.UtcDateTime : DateTime.MinValue;
+        }
+
+        // "chains":["vpn_Turkey"] / ["DIRECT"] / ["nic-…","nics-…"] / [node, subscription group]:
+        // direct when nothing in it is a VPN — only DIRECT, REJECT* (carries nothing) and the
+        // launcher's card outbounds (direct-type proxies bound to a card). No chain = direct.
+        public static bool IsDirectChain(string conn)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(conn ?? "", "\"chains\"\\s*:\\s*\\[([^\\]]*)\\]");
+            if (!m.Success) return true;
+            foreach (System.Text.RegularExpressions.Match s in System.Text.RegularExpressions.Regex.Matches(m.Groups[1].Value, "\"((?:[^\"\\\\]|\\\\.)*)\""))
+            {
+                var name = s.Groups[1].Value.Trim();
+                if (name.Length == 0) continue;
+                if (name.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) continue;
+                if (name.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)) continue;
+                if (MihomoConfigBuilder.IsNicTarget(name)) continue;
+                return false;
+            }
+            return true;
         }
 
         // GET /connections, parsed; null = no answer (engine down / restarting).
@@ -660,6 +696,8 @@ namespace MihomoLauncher.Services
                         Network = JsonField(conn, "network"),
                         Up = JsonNumber(conn, "upload"),
                         Down = JsonNumber(conn, "download"),
+                        Direct = IsDirectChain(conn),
+                        Start = StartOf(conn),
                     });
                 }
                 return list;

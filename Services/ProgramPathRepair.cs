@@ -141,7 +141,10 @@ namespace MihomoLauncher.Services
             foreach (var rule in cfg.Apps)
                 foreach (var f in rule?.Folders ?? Enumerable.Empty<RuleFolder>())
                 {
-                    if (f == null || string.IsNullOrWhiteSpace(f.Path)) continue;
+                    // An auto folder (2026-11-23) follows its program's folder by itself
+                    // (AutoPrograms.SyncAutoFolders) — moved here it would cost a forced reload for a
+                    // firewall list it is not on. With «Плитка» it is the person's: repaired as any.
+                    if (f == null || (f.Auto && !f.Launch) || string.IsNullOrWhiteSpace(f.Path)) continue;
                     try { if (Directory.Exists(f.Path)) continue; } catch { continue; }
                     string newer;
                     try { newer = FindNewer(f.Path, directory: true); } catch { newer = null; }
@@ -166,7 +169,7 @@ namespace MihomoLauncher.Services
                 }
                 foreach (var f in rule?.Folders ?? Enumerable.Empty<RuleFolder>())
                 {
-                    if (f == null || string.IsNullOrWhiteSpace(f.Path)) continue;
+                    if (f == null || (f.Auto && !f.Launch) || string.IsNullOrWhiteSpace(f.Path)) continue;   // as RepairFolders
                     try { if (!Directory.Exists(f.Path)) return true; } catch { }
                 }
             }

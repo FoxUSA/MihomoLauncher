@@ -10,7 +10,7 @@
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <ui:FluentWindow.Resources>
         <!-- Same pill-tab chrome as Settings: the TabControl here holds NO content, it is a
              filter switch above the one shared table. -->
@@ -32,7 +32,7 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextSecondary}" />
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextSecondary}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Margin" Value="0,0,8,0" />
@@ -42,8 +42,8 @@
                     <ControlTemplate TargetType="TabItem">
                         <Border x:Name="Bd" Height="30" Padding="14,0" CornerRadius="6"
                                 SnapsToDevicePixels="True"
-                                Background="{x:Static svc:Theme.BadgeNeutralBg}"
-                                BorderBrush="{x:Static svc:Theme.CardBorder}"
+                                Background="{DynamicResource Theme.BadgeNeutralBg}"
+                                BorderBrush="{DynamicResource Theme.CardBorder}"
                                 BorderThickness="1"
                                 TextElement.Foreground="{TemplateBinding Foreground}">
                             <ContentPresenter ContentSource="Header"
@@ -51,12 +51,12 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.CardBgHover}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.CardBgHover}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.SelectionBg}" />
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{x:Static svc:Theme.SelectionBg}" />
-                                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+                                <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Theme.SelectionBg}" />
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Theme.SelectionBg}" />
+                                <Setter Property="Foreground" Value="{DynamicResource Theme.TextPrimary}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -79,14 +79,14 @@
             <!-- Pinned here, or the stock cell style paints a selected row in the system's
                  inactive-selection text colour (black) the moment the grid loses focus — e.g.
                  after «Копировать». -->
-            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextPrimary}" />
         </Style>
         <!-- The first column also draws the table's left edge (the model gets it from its
              checkbox column). -->
         <Style x:Key="LogFirstCellStyle" TargetType="DataGridCell" BasedOn="{StaticResource FirstColumnCellStyle}">
             <Setter Property="Padding" Value="8,4" />
             <Setter Property="VerticalContentAlignment" Value="Top" />
-            <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
+            <Setter Property="Foreground" Value="{DynamicResource Theme.TextPrimary}" />
         </Style>
     </ui:FluentWindow.Resources>
 
@@ -149,8 +149,8 @@
                 </ui:Button>
             </Grid>
             <Border x:Name="ExplainBox" Margin="0,8,0,0" Padding="10,6" CornerRadius="6"
-                    Background="{x:Static svc:Theme.CardBg}"
-                    BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1"
+                    Background="{DynamicResource Theme.CardBg}"
+                    BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1"
                     Visibility="Collapsed">
                 <Grid>
                     <Grid.RowDefinitions>
@@ -169,8 +169,8 @@
         <!-- The table's well (2026-11-22 colour standard); the conflict cards sit on it raised. -->
         <Border Grid.Row="2" Margin="20,0,20,0"
                 CornerRadius="8"
-                Background="{x:Static svc:Theme.ListBg}"
-                BorderBrush="{x:Static svc:Theme.CardBorder}"
+                Background="{DynamicResource Theme.ListBg}"
+                BorderBrush="{DynamicResource Theme.CardBorder}"
                 BorderThickness="1"
                 ClipToBounds="True">
             <Grid>
@@ -202,9 +202,9 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <StackPanel>
-                                    <TextBlock Text="{Binding TimeText}" FontFamily="Consolas" Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                    <TextBlock Text="{Binding TimeText}" FontFamily="Consolas" Foreground="{DynamicResource Theme.TextSecondary}" />
                                     <TextBlock Text="{Binding CountText}" FontSize="11" Margin="0,2,0,0"
-                                               Foreground="{x:Static svc:Theme.TextMuted}" />
+                                               Foreground="{DynamicResource Theme.TextMuted}" />
                                 </StackPanel>
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
@@ -213,7 +213,7 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <Border BorderBrush="{Binding VerdictBrush}" BorderThickness="1" CornerRadius="10"
-                                        Background="{x:Static svc:Theme.BadgeNeutralBg}"
+                                        Background="{DynamicResource Theme.BadgeNeutralBg}"
                                         Padding="9,1" HorizontalAlignment="Left">
                                     <TextBlock Text="{Binding VerdictText}" FontSize="12" Foreground="{Binding VerdictBrush}" />
                                 </Border>
@@ -228,7 +228,7 @@
                                     <TextBlock Text="{Binding HostText}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
                                                ToolTip="{Binding HostText}" />
                                     <TextBlock FontSize="11.5" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"
-                                               Foreground="{x:Static svc:Theme.TextMuted}">
+                                               Foreground="{DynamicResource Theme.TextMuted}">
                                         <Run Text="{Binding ProcessName, Mode=OneWay}" />
                                         <Run Text="{Binding RuleLine, Mode=OneWay}" />
                                     </TextBlock>
@@ -243,7 +243,7 @@
                         <DataGridTemplateColumn.CellTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding WhyText}" TextWrapping="Wrap" LineHeight="18"
-                                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                           Foreground="{DynamicResource Theme.TextSecondary}" />
                             </DataTemplate>
                         </DataGridTemplateColumn.CellTemplate>
                     </DataGridTemplateColumn>

@@ -10,7 +10,7 @@
                  ShowInTaskbar="False"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <!-- A tile's speed (2026-11-16): its own window, not an overlay — it can be dragged off the
          launcher. The body is built by MainWindow.ShowSpeedHistory. -->
     <Grid>
@@ -21,6 +21,6 @@
 
         <ui:TitleBar Grid.Row="0" x:Name="Bar" ShowMaximize="False" ShowMinimize="False" />
 
-        <ContentControl Grid.Row="1" x:Name="Body" Margin="20,4,20,18" />
+        <ContentControl Grid.Row="1" x:Name="Body" Margin="20,4,20,8" />
     </Grid>
 </ui:FluentWindow>

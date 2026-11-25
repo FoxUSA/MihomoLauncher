@@ -149,6 +149,8 @@ namespace MihomoLauncher.Services
                 // A folder entry (2026-11-22): every exe in it, below it too (FolderWatch caps and
                 // caches the list, and reports new files). A change to that set changes the plan's
                 // signature — which is what makes SyncIfNeeded rewrite the rules.
+                // An auto folder too (2026-11-23): the rule's auto rows inside it are dropped in its
+                // favour (AutoPrograms.SyncAutoFolders), so the wall must not shrink with them.
                 foreach (var folder in app.Folders ?? new List<RuleFolder>())
                 {
                     if (folder == null || string.IsNullOrWhiteSpace(folder.Path)) continue;

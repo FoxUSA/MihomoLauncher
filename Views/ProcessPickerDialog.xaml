@@ -10,7 +10,7 @@
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -39,8 +39,8 @@
              framed like the rule editor's table this dialog is opened from. The path column takes
              the rest of the width (a ListView needed UiHelpers.FillLastGridColumn for that). -->
         <Border Grid.Row="2" Margin="20,0,20,0" CornerRadius="8"
-                Background="{x:Static svc:Theme.ListBg}"
-                BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                Background="{DynamicResource Theme.ListBg}"
+                BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
             <DataGrid x:Name="LstProcs" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                       Style="{StaticResource AppDataGridStyle}"
                       RowStyle="{StaticResource AppDataGridRowStyle}"

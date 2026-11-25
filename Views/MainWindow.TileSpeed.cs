@@ -32,13 +32,12 @@ namespace MihomoLauncher.Views
     public partial class MainWindow
     {
         internal const double SpeedPlateHeight = 32;   // as tall as the VPN plate
-        private const double LevelBarWidth = 84;
 
         // Always (2026-11-16: the «Показывать скорость» box went; AppConfig.ShowTileSpeed is ignored).
         private bool ShowTileSpeed => true;
         private double SpeedStrip => ShowTileSpeed ? SpeedPlateHeight + PlateGap : 0;   // + the gap above it
 
-        private sealed class SpeedView { public TextBlock Text; public Border Fill; }
+        private sealed class SpeedView { public TextBlock DownArrow, UpArrow, DownText, UpText; public Border DownFill, UpFill; }
 
         // Tile Id → its plate's parts, re-filled in place every second (no tile rebuild).
         private readonly Dictionary<string, SpeedView> _speedViews = new Dictionary<string, SpeedView>(StringComparer.Ordinal);
@@ -46,7 +45,8 @@ namespace MihomoLauncher.Views
         private readonly Dictionary<string, double[]> _speedNow = new Dictionary<string, double[]>(StringComparer.Ordinal);
         // Tile Id → its measured polls of the last 60 s, unsmoothed (2026-11-20): the «Сейчас» tab's
         // cards — peak / average / down / up over the same minute as «кто и куда».
-        internal sealed class SpeedSec { public DateTime At; public double Down, Up, Secs; }   // bytes/s, seconds measured
+        // bytes/s, seconds measured; VpnDown / VpnUp = the part that went through a VPN (2026-11-23).
+        internal sealed class SpeedSec { public DateTime At; public double Down, Up, Secs, VpnDown, VpnUp; }
         private readonly Dictionary<string, Queue<SpeedSec>> _speedLastMin = new Dictionary<string, Queue<SpeedSec>>(StringComparer.Ordinal);
 
         private List<SpeedSec> SpeedLastMinute(string tileId)
@@ -70,27 +70,59 @@ namespace MihomoLauncher.Views
             EnsureSpeedTimer();
             _speedMapDirty = true;
 
+            // Two rows (2026-11-25, variant D of .dev\mockups\tile-speed-updown.html): «↓ 0,05 ▬▬▬»
+            // over «↑ 94,8 ▬▬▬». The arrow and the number sit in fixed columns — «0», «0,05» or
+            // «150» never move the arrow or where the bar starts; the bar takes the rest of the
+            // plate's width (its fill is a star column of the track: no pixel width to know). Not
+            // hit-testable: a press must start at the plate, never at one of its parts.
+            const double RowFont = 10;
+            TextBlock Txt() => new TextBlock { FontSize = RowFont, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false };
+            const double BarH = 6;   // 2026-11-25: was 4, «чуть толще»
+            Border Fill() => new Border { Height = BarH, CornerRadius = new CornerRadius(BarH / 2) };
             var view = new SpeedView
             {
-                // Not hit-testable: a press must start at the plate, never at one of its Runs.
-                Text = new TextBlock { HorizontalAlignment = HorizontalAlignment.Center, IsHitTestVisible = false },
-                Fill = new Border { Height = 4, CornerRadius = new CornerRadius(2), HorizontalAlignment = HorizontalAlignment.Left, Width = 0 },
+                DownArrow = Txt(), UpArrow = Txt(), DownText = Txt(), UpText = Txt(), DownFill = Fill(), UpFill = Fill(),
             };
+            view.DownArrow.Text = "↓";
+            view.UpArrow.Text = "↑";
+            foreach (var t in new[] { view.DownText, view.UpText }) Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
             _speedViews[entry.Id] = view;
 
-            var track = new Border
+            // Room for the widest number Mbit() writes («0,05», «94,8», «150», «1000»).
+            // Four characters at most (2026-11-25: was sized for five — the bars came out short).
+            double numW = Math.Ceiling(Math.Max(TextWidth("0,00", RowFont, FontWeights.Normal), TextWidth("0000", RowFont, FontWeights.Normal))) + 3;   // + the 2 after the arrow
+            Grid Line(TextBlock arrow, TextBlock number, Border fill)
             {
-                Width = LevelBarWidth,
-                Height = 4,
-                CornerRadius = new CornerRadius(2),
-                Background = Theme.SpeedTrack,
-                Margin = new Thickness(0, 3, 0, 0),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                Child = view.Fill,
-            };
-            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
-            stack.Children.Add(view.Text);
-            stack.Children.Add(track);
+                var g = new Grid { Height = 12, IsHitTestVisible = false };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // ↓ and ↑ are one width
+                number.Margin = new Thickness(2, 0, 0, 0);
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(numW) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                g.Children.Add(arrow);
+                Grid.SetColumn(number, 1);
+                g.Children.Add(number);
+
+                var track = new Grid { IsHitTestVisible = false };
+                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) });
+                track.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                track.Children.Add(fill);
+                var box = new Border
+                {
+                    Height = BarH,
+                    CornerRadius = new CornerRadius(BarH / 2),
+                    Background = Theme.SpeedTrack,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(3, 0, 0, 0),
+                    Child = track,
+                    ClipToBounds = true,
+                };
+                Grid.SetColumn(box, 2);
+                g.Children.Add(box);
+                return g;
+            }
+            var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(7, 0, 7, 0), IsHitTestVisible = false };
+            stack.Children.Add(Line(view.DownArrow, view.DownText, view.DownFill));
+            stack.Children.Add(Line(view.UpArrow, view.UpText, view.UpFill));
             RenderSpeed(entry.Id, view);
 
             var plate = new Border
@@ -154,7 +186,8 @@ namespace MihomoLauncher.Views
             double secs = _connPrev == null ? 0 : (now - _connPrevAt).TotalSeconds;
             bool measure = _connPrev != null && secs > 0.3 && secs < 10;
             var cur = new Dictionary<string, long[]>(conns.Count, StringComparer.Ordinal);
-            var moved = new Dictionary<string, long[]>(StringComparer.Ordinal);   // tile → {down, up} bytes since last poll
+            // tile → {down, up, VPN down, VPN up} bytes since last poll
+            var moved = new Dictionary<string, long[]>(StringComparer.Ordinal);
             foreach (var c in conns)
             {
                 cur[c.Id] = new[] { c.Up, c.Down };
@@ -172,9 +205,10 @@ namespace MihomoLauncher.Views
                 if (du <= 0 && dd <= 0) continue;
                 if (c.Process.Length > 0) _whoLast[tile] = new WhoSeen { At = now, Process = c.Process };
                 long[] m;
-                if (!moved.TryGetValue(tile, out m)) moved[tile] = m = new long[2];
+                if (!moved.TryGetValue(tile, out m)) moved[tile] = m = new long[4];
                 m[0] += Math.Max(0, dd);
                 m[1] += Math.Max(0, du);
+                if (!c.Direct) { m[2] += Math.Max(0, dd); m[3] += Math.Max(0, du); }
             }
             _connPrev = cur;
             _connPrevAt = now;
@@ -188,10 +222,11 @@ namespace MihomoLauncher.Views
                 long[] m;
                 moved.TryGetValue(app.Id, out m);
                 double down = m == null ? 0 : m[0] / secs, up = m == null ? 0 : m[1] / secs;
-                SpeedHistory.Add(app.Id, now, down, up, secs);
+                double vpnDown = m == null ? 0 : m[2] / secs, vpnUp = m == null ? 0 : m[3] / secs;
+                SpeedHistory.Add(app.Id, now, down, up, secs, vpnDown, vpnUp);
                 Queue<SpeedSec> q;
                 if (!_speedLastMin.TryGetValue(app.Id, out q)) _speedLastMin[app.Id] = q = new Queue<SpeedSec>();
-                q.Enqueue(new SpeedSec { At = now, Down = down, Up = up, Secs = secs });
+                q.Enqueue(new SpeedSec { At = now, Down = down, Up = up, Secs = secs, VpnDown = vpnDown, VpnUp = vpnUp });
                 while (q.Count > 0 && (now - q.Peek().At).TotalSeconds > 60) q.Dequeue();
                 // Light smoothing for the plate: one burst does not make the number jump around.
                 double[] old;
@@ -302,27 +337,38 @@ namespace MihomoLauncher.Views
             foreach (var kv in _speedViews) RenderSpeed(kv.Key, kv.Value);
         }
 
-        // «↓ 15,2 Мбит/с ↑ 0,65» + the bar: its length on a log scale (0,1 Mbit/s still shows,
-        // ~200 fills it), its colour the speed class.
+        // «↓ 15,2 ▬▬▬» over «↑ 0,65 ▬▬▬».
         private void RenderSpeed(string id, SpeedView v)
         {
             double[] s;
             bool known = _speedNow.TryGetValue(id, out s);
             double down = known ? s[0] : 0, up = known ? s[1] : 0;
-            double mbit = down * 8 / 1e6;
+            double mbitDown = down * 8 / 1e6, mbitUp = up * 8 / 1e6;
 
-            v.Text.Inlines.Clear();
-            v.Text.Inlines.Add(new Run("↓ " + (known ? Mbit(down) : "—")) { FontSize = 10.5, Foreground = mbit >= 0.005 ? Theme.TextPrimary : Theme.TextSecondary });
-            v.Text.Inlines.Add(new Run(" " + Loc.T("Main_SpeedMbit")) { FontSize = 9, Foreground = Theme.TextMuted });
-            // ↑ only while it fits (a long «↓ 150 Мбит/с» leaves no room).
-            var upText = "  ↑ " + (known ? Mbit(up) : "—");
-            double width = TextWidth("↓ " + (known ? Mbit(down) : "—"), 10.5, FontWeights.Normal)
-                         + TextWidth(" " + Loc.T("Main_SpeedMbit") + upText, 9, FontWeights.Normal);
-            if (width <= 102 - 2 - 6) v.Text.Inlines.Add(new Run(upText) { FontSize = 9, Foreground = Theme.TextMuted });
+            // ↓ and ↑ alike, each over its own bar (2026-11-25, variant C of
+            // .dev\mockups\tile-speed-updown.html: copying TO a server is upload, and its «↑ 94,8»
+            // in small grey beside one shared bar read as nothing). No «Мбит/с» on the plate — the
+            // tooltip says it. A figure is white from 0,1 Mbit/s (real traffic), grey below.
+            const double Active = 0.1;
 
+            v.DownText.Text = known ? Mbit(down) : "—";
+            v.DownText.Foreground = v.DownArrow.Foreground = mbitDown >= Active ? Theme.TextPrimary : Theme.TextSecondary;
+            v.UpText.Text = known ? Mbit(up) : "—";
+            v.UpText.Foreground = v.UpArrow.Foreground = mbitUp >= Active ? Theme.TextPrimary : Theme.TextSecondary;
+            PaintLevel(v.DownFill, mbitDown);
+            PaintLevel(v.UpFill, mbitUp);
+        }
+
+        // A bar's length on a log scale (0,1 Mbit/s still shows, ~200 fills it), its colour the speed class.
+        private static void PaintLevel(Border fill, double mbit)
+        {
             double frac = mbit < 0.005 ? 0 : Math.Min(1, Math.Log10(1 + mbit * 10) / Math.Log10(1 + 2000));
-            v.Fill.Width = Math.Round(frac * LevelBarWidth, 1);
-            v.Fill.Background = SpeedBrush(mbit);
+            fill.Background = SpeedBrush(mbit);
+            var track = fill.Parent as Grid;
+            if (track == null || track.ColumnDefinitions.Count < 2) return;
+            frac = Math.Round(frac, 3);
+            track.ColumnDefinitions[0].Width = new GridLength(frac, GridUnitType.Star);
+            track.ColumnDefinitions[1].Width = new GridLength(1 - frac, GridUnitType.Star);
         }
 
         // Bytes per second → Mbit/s, never K: «0,05» / «3,10» / «12,3» / «150»; nothing at all = «0».

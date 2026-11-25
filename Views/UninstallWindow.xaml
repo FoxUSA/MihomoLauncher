@@ -11,7 +11,7 @@
                  ShowInTaskbar="True"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -23,15 +23,15 @@
         <StackPanel Grid.Row="1" Margin="24,0,24,20">
             <TextBlock Text="{DynamicResource Uni_Title}"
                        FontSize="18" FontWeight="SemiBold"
-                       Foreground="{x:Static svc:Theme.TextPrimary}" />
+                       Foreground="{DynamicResource Theme.TextPrimary}" />
 
             <TextBlock Margin="0,8,0,0" FontSize="13" TextWrapping="Wrap"
-                       Foreground="{x:Static svc:Theme.TextSecondary}"
+                       Foreground="{DynamicResource Theme.TextSecondary}"
                        Text="{DynamicResource Uni_Intro}" />
 
             <Border Margin="0,12,0,0"
-                    Background="{x:Static svc:Theme.ListBg}"
-                    BorderBrush="{x:Static svc:Theme.CardBorder}"
+                    Background="{DynamicResource Theme.ListBg}"
+                    BorderBrush="{DynamicResource Theme.CardBorder}"
                     BorderThickness="1" CornerRadius="8">
                 <ItemsControl x:Name="StepsList" Margin="10,6">
                     <ItemsControl.ItemTemplate>
@@ -47,7 +47,7 @@
                                            Foreground="{Binding GlyphBrush}" VerticalAlignment="Center" />
                                 <TextBlock Grid.Column="1" Text="{Binding Title}"
                                            FontSize="13" VerticalAlignment="Center"
-                                           Foreground="{x:Static svc:Theme.TextPrimary}" />
+                                           Foreground="{DynamicResource Theme.TextPrimary}" />
                                 <TextBlock Grid.Column="2" Text="{Binding Detail}"
                                            FontSize="12" VerticalAlignment="Center" Margin="12,0,0,0"
                                            TextAlignment="Right" TextWrapping="Wrap"
@@ -59,24 +59,24 @@
             </Border>
 
             <TextBlock Margin="0,12,0,2" FontSize="13"
-                       Foreground="{x:Static svc:Theme.TextSecondary}"
+                       Foreground="{DynamicResource Theme.TextSecondary}"
                        Text="{DynamicResource Uni_FolderNote}" />
             <TextBox x:Name="TxtFolder" IsReadOnly="True" FontSize="12.5" TextWrapping="Wrap" />
 
             <ProgressBar x:Name="Bar2" Margin="0,14,0,0"
                          Height="6" Minimum="0" Maximum="100" Value="0"
                          Visibility="Collapsed"
-                         Foreground="{x:Static svc:Theme.Accent}"
-                         Background="{x:Static svc:Theme.ListBg}"
+                         Foreground="{DynamicResource Theme.Accent}"
+                         Background="{DynamicResource Theme.ListBg}"
                          BorderThickness="0" />
 
             <Border x:Name="DonePanel" Visibility="Collapsed"
                     Margin="0,14,0,0" Padding="12,10"
-                    Background="{x:Static svc:Theme.BannerOkBg}"
-                    BorderBrush="{x:Static svc:Theme.BannerOkBorder}"
+                    Background="{DynamicResource Theme.BannerOkBg}"
+                    BorderBrush="{DynamicResource Theme.BannerOkBorder}"
                     BorderThickness="1" CornerRadius="6">
                 <TextBlock TextWrapping="Wrap" FontSize="13"
-                           Foreground="{x:Static svc:Theme.BannerOkText}"
+                           Foreground="{DynamicResource Theme.BannerOkText}"
                            Text="{DynamicResource Uni_DoneBanner}" />
             </Border>
 

@@ -1,163 +1,45 @@
 <Application x:Class="MihomoLauncher.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
-             xmlns:svc="clr-namespace:MihomoLauncher.Services">
+             xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
     <!-- No StartupUri: App.OnStartup decides which window to show (normal launcher, the update
          applier, or the uninstaller). Setting StartupUri=null at runtime throws, so we never
          set it and create the right window in code instead. -->
+    <!-- NO colours in this file (2026-11-24). Each theme keeps all of its colours in its own
+         folder: Themes\Dark\, Themes\Light\ (Palette.xaml + Styles.xaml). Services/Theme.cs puts
+         the chosen theme's palette into these resources at startup and on every switch; the
+         ThemesDictionary below is only the library's starting point — Theme.Apply swaps it. -->
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ui:ThemesDictionary Theme="Dark" />
                 <ui:ControlsDictionary />
-                <ResourceDictionary Source="pack://application:,,,/Themes/DataGridStyles.xaml" />
+                <!-- Shared by both themes: shapes and sizes, colours only by key. -->
+                <ResourceDictionary Source="pack://application:,,,/Themes/Common/Styles.xaml" />
+                <ResourceDictionary Source="pack://application:,,,/Themes/Common/DataGridStyles.xaml" />
+                <!-- Themes\<theme>\Styles.xaml is merged after these by Theme.Apply. -->
             </ResourceDictionary.MergedDictionaries>
-
-            <!-- ===== The library inside the app's palette (2026-11-22, Services/Theme.cs) =====
-                 WPF-UI's dark theme draws cards, popups, menus, tooltips and the window itself with
-                 its own greys — partly semi-transparent, so under Mica they took the wallpaper's
-                 tint. These keys (the ones WPF-UI 4.3's control templates reference) are redirected
-                 to the app's opaque tokens. Direct entries of Application.Resources, on purpose:
-                 they win over the merged theme dictionary and survive ApplicationThemeManager.Apply,
-                 which swaps that dictionary. The semi-transparent white fills of inputs and default
-                 buttons stay — over fixed opaque surfaces they look the same everywhere. -->
-            <!-- Window -->
-            <x:Static x:Key="WindowBackground" Member="svc:Theme.WindowBg" />
-            <x:Static x:Key="ApplicationBackgroundBrush" Member="svc:Theme.WindowBg" />
-            <!-- ui:Card / CardExpander: a raised surface with the outline -->
-            <x:Static x:Key="CardBackground" Member="svc:Theme.CardBg" />
-            <x:Static x:Key="CardBackgroundPointerOver" Member="svc:Theme.CardBgHover" />
-            <x:Static x:Key="CardBackgroundPressed" Member="svc:Theme.CardBg" />
-            <x:Static x:Key="CardBackgroundDisabled" Member="svc:Theme.CardBg" />
-            <x:Static x:Key="CardFooterBackground" Member="svc:Theme.CardBg" />
-            <x:Static x:Key="CardBorderBrush" Member="svc:Theme.CardBorder" />
-            <x:Static x:Key="CardBorderBrushPressed" Member="svc:Theme.CardBorder" />
-            <x:Static x:Key="CardBorderBrushDisabled" Member="svc:Theme.CardBorder" />
-            <!-- Floating: context menus, sub-menus, tooltips, dropdowns, dialogs, snackbars -->
-            <x:Static x:Key="ContextMenuBackground" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="ContextMenuBorderBrush" Member="svc:Theme.PickerBorder" />
-            <x:Static x:Key="FlyoutBackground" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="FlyoutBorderBrush" Member="svc:Theme.PickerBorder" />
-            <x:Static x:Key="ToolTipBackground" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="ToolTipBorderBrush" Member="svc:Theme.PickerBorder" />
-            <x:Static x:Key="ComboBoxDropDownBackground" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="ComboBoxDropDownBorderBrush" Member="svc:Theme.PickerBorder" />
-            <x:Static x:Key="ContentDialogBackground" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="ContentDialogBorderBrush" Member="svc:Theme.PickerBorder" />
-            <x:Static x:Key="SnackBarBackground" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="SnackBarBorderBrush" Member="svc:Theme.PickerBorder" />
-            <!-- Opaque greys inside controls -->
-            <x:Static x:Key="ScrollBarTrackFillPointerOver" Member="svc:Theme.OverlayCardBg" />
-            <x:Static x:Key="SliderOuterThumbBackground" Member="svc:Theme.PickerBorder" />
-            <!-- Primary text: the app's, not the library's pure white -->
-            <x:Static x:Key="TextFillColorPrimaryBrush" Member="svc:Theme.TextPrimary" />
 
             <!-- ===== Buttons: four roles, defined once =====
                  default — the library's button; primary — Appearance="Primary" (the one accent,
-                 handed to the library in App.OnStartup); «add» and danger below. -->
+                 handed to the library by Theme.Apply); «add» and danger below. Here and not in
+                 Themes\Common: BasedOn needs the library's button style by StaticResource, which
+                 only resolves next to the merged ControlsDictionary. Colours by key, as everywhere. -->
             <!-- «Add»: the default button with green text (green = add / ok). -->
             <Style x:Key="AddButtonStyle" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource {x:Type ui:Button}}">
-                <Setter Property="Foreground" Value="{x:Static svc:Theme.AccentGreen}" />
+                <Setter Property="Foreground" Value="{DynamicResource Theme.AccentGreen}" />
             </Style>
             <!-- Danger: muted red fill, primary text. Not Appearance="Danger" — the library's red is
                  the loudest colour in any window, and a rare destructive action must not be. -->
             <Style x:Key="DangerButtonStyle" TargetType="{x:Type ui:Button}" BasedOn="{StaticResource {x:Type ui:Button}}">
-                <Setter Property="Background" Value="{x:Static svc:Theme.DangerBg}" />
-                <Setter Property="BorderBrush" Value="{x:Static svc:Theme.DangerBg}" />
-                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
-                <Setter Property="MouseOverBackground" Value="{x:Static svc:Theme.DangerBgHover}" />
-                <Setter Property="MouseOverBorderBrush" Value="{x:Static svc:Theme.DangerBgHover}" />
-                <Setter Property="PressedBackground" Value="{x:Static svc:Theme.DangerBg}" />
-                <Setter Property="PressedBorderBrush" Value="{x:Static svc:Theme.DangerBg}" />
-                <Setter Property="PressedForeground" Value="{x:Static svc:Theme.TextPrimary}" />
-            </Style>
-
-            <!-- WPF-UI 4.x does not theme the native ListView / GridView, so they render
-                 bright white in a dark window. These implicit styles give them the table look of
-                 Themes/DataGridStyles.xaml (well, header, hairline, hover, selection tokens). No
-                 ListView is left in the app (2026-11-22, all became DataGrids); kept so a new one
-                 starts in the palette. -->
-
-            <!-- Column header -->
-            <Style TargetType="{x:Type GridViewColumnHeader}">
-                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
-                <Setter Property="Background" Value="{x:Static svc:Theme.TableHeaderBg}" />
-                <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="Padding" Value="10,7" />
-                <Setter Property="HorizontalContentAlignment" Value="Left" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type GridViewColumnHeader}">
-                            <!-- Only a bottom rule, no vertical separators — so the GridView's
-                                 trailing filler strip (leftover width after the last real
-                                 column) is just empty header bar, never a phantom column. -->
-                            <Border x:Name="HeaderBorder"
-                                    Background="{TemplateBinding Background}"
-                                    BorderBrush="{x:Static svc:Theme.TableLine}"
-                                    BorderThickness="0,0,0,1"
-                                    Padding="{TemplateBinding Padding}">
-                                <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="Center"
-                                                  RecognizesAccessKey="True" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="HeaderBorder" Property="Background" Value="{x:Static svc:Theme.TableRowHover}" />
-                                </Trigger>
-                                <Trigger Property="Role" Value="Padding">
-                                    <Setter TargetName="HeaderBorder" Property="Background" Value="{x:Static svc:Theme.TableHeaderBg}" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- Rows -->
-            <Style TargetType="{x:Type ListViewItem}">
-                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="FontSize" Value="13" />
-                <Setter Property="Padding" Value="8,6" />
-                <Setter Property="BorderThickness" Value="0" />
-                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                <Setter Property="SnapsToDevicePixels" Value="True" />
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="{x:Type ListViewItem}">
-                            <Border x:Name="Bd"
-                                    Background="{TemplateBinding Background}"
-                                    Padding="{TemplateBinding Padding}"
-                                    CornerRadius="6"
-                                    Margin="2,1"
-                                    SnapsToDevicePixels="True">
-                                <GridViewRowPresenter Content="{TemplateBinding Content}"
-                                                      Columns="{TemplateBinding GridView.ColumnCollection}"
-                                                      VerticalAlignment="Center" />
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableRowHover}" />
-                                </Trigger>
-                                <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{x:Static svc:Theme.TableRowSelected}" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-
-            <!-- The table itself: the recessed well with the outline. We only restyle (no Template
-                 override) so the GridView column-header row is preserved. -->
-            <Style TargetType="{x:Type ListView}">
-                <Setter Property="Background" Value="{x:Static svc:Theme.ListBg}" />
-                <Setter Property="BorderBrush" Value="{x:Static svc:Theme.CardBorder}" />
-                <Setter Property="BorderThickness" Value="1" />
-                <Setter Property="Foreground" Value="{x:Static svc:Theme.TextPrimary}" />
-                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="Background" Value="{DynamicResource Theme.DangerBg}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource Theme.DangerBg}" />
+                <Setter Property="Foreground" Value="{DynamicResource Theme.TextPrimary}" />
+                <Setter Property="MouseOverBackground" Value="{DynamicResource Theme.DangerBgHover}" />
+                <Setter Property="MouseOverBorderBrush" Value="{DynamicResource Theme.DangerBgHover}" />
+                <Setter Property="PressedBackground" Value="{DynamicResource Theme.DangerBg}" />
+                <Setter Property="PressedBorderBrush" Value="{DynamicResource Theme.DangerBg}" />
+                <Setter Property="PressedForeground" Value="{DynamicResource Theme.TextPrimary}" />
             </Style>
         </ResourceDictionary>
     </Application.Resources>

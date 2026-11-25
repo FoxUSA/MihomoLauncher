@@ -17,7 +17,7 @@ namespace MihomoLauncher.Services
     // of what the fixed columns leave (by its star weight); the moment a row appears the original
     // MinWidth is put back and the grid shares the room itself again. Re-done on every resize.
     //
-    // On for every table through AppDataGridStyle (Themes\DataGridStyles.xaml), so a new table
+    // On for every table through AppDataGridStyle (Themes\Common\DataGridStyles.xaml), so a new table
     // gets it without anyone remembering the trap.
     public static class EmptyGridHeader
     {

@@ -377,6 +377,15 @@ namespace MihomoLauncher.Services
         public static bool InFolder(string exePath, string folder)
             => !string.IsNullOrEmpty(folder) && MatchCached("D|" + folder, () => FolderRegex(folder), exePath);
 
+        // Are these the same folder for the engine (2026-11-23)? The same regexp — so a version
+        // bump of a segment ("app-1.0.9" → "app-1.0.10") is still the same folder. Both usable.
+        public static bool SameFolder(string a, string b)
+        {
+            var x = FolderRegex(a);
+            var y = FolderRegex(b);
+            return x.Length > 0 && y.Length > 0 && string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool MatchCached(string key, Func<string> pattern, string exePath)
         {
             if (string.IsNullOrEmpty(exePath)) return false;

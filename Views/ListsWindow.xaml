@@ -10,7 +10,7 @@
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <ui:FluentWindow.Resources>
         <!-- The rules list's yes/no cells (2026-11-23), drawn once for all four columns: the
              positive value in its state colour (StateCell.OnBrush: VPN green, kill-switch and card
@@ -19,10 +19,10 @@
              to 2.4 : 1, so a negative value on the selected row takes TextSecondary instead. -->
         <DataTemplate DataType="{x:Type views:StateCell}">
             <TextBlock x:Name="T" Text="{Binding Text}" VerticalAlignment="Center"
-                       Foreground="{x:Static svc:Theme.TextMuted}" FontWeight="Normal" />
+                       Foreground="{DynamicResource Theme.TextMuted}" FontWeight="Normal" />
             <DataTemplate.Triggers>
                 <DataTrigger Binding="{Binding IsSelected, RelativeSource={RelativeSource AncestorType=DataGridRow}}" Value="True">
-                    <Setter TargetName="T" Property="Foreground" Value="{x:Static svc:Theme.TextSecondary}" />
+                    <Setter TargetName="T" Property="Foreground" Value="{DynamicResource Theme.TextSecondary}" />
                 </DataTrigger>
                 <!-- After the selection trigger: a positive value keeps its colour on any row. -->
                 <DataTrigger Binding="{Binding On}" Value="True">
@@ -92,8 +92,8 @@
                          inside a card; FrameClip makes the frame the table's only outline. The inner
                          Grid is the host CoverVpnListIfLocked() puts its cover into. -->
                     <Border Grid.Row="1" CornerRadius="8"
-                            Background="{x:Static svc:Theme.ListBg}"
-                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                            Background="{DynamicResource Theme.ListBg}"
+                            BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
                     <Grid>
                     <DataGrid x:Name="GridSlots" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                               Style="{StaticResource AppDataGridStyle}"
@@ -168,8 +168,8 @@
 
                     <!-- In a well, like the variants table above. -->
                     <Border Grid.Row="1" CornerRadius="8"
-                            Background="{x:Static svc:Theme.ListBg}"
-                            BorderBrush="{x:Static svc:Theme.CardBorder}" BorderThickness="1">
+                            Background="{DynamicResource Theme.ListBg}"
+                            BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
                     <DataGrid x:Name="GridApps" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                               Style="{StaticResource AppDataGridStyle}"
                               RowStyle="{StaticResource AppDataGridRowStyle}"
@@ -206,12 +206,9 @@
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
                             <DataGridTextColumn Header="{DynamicResource Set_ColPath}" Binding="{Binding DisplayPath}" Width="*"
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
-                            <!-- State columns: each cell is a StateCell, drawn by the template above. -->
-                            <DataGridTemplateColumn Header="VPN" Width="Auto" CanUserSort="False">
-                                <DataGridTemplateColumn.CellTemplate>
-                                    <DataTemplate><ContentPresenter Content="{Binding Vpn}" /></DataTemplate>
-                                </DataGridTemplateColumn.CellTemplate>
-                            </DataGridTemplateColumn>
+                            <!-- State columns: each cell is a StateCell, drawn by the template above.
+                                 No «VPN» column (2026-11-24, removed by the user): it showed RequiresVpn,
+                                 «Да» on tiles that go direct with no VPN ticked. -->
                             <DataGridTemplateColumn Header="Kill-switch" Width="Auto" CanUserSort="False">
                                 <DataGridTemplateColumn.CellTemplate>
                                     <DataTemplate><ContentPresenter Content="{Binding KillSwitch}" /></DataTemplate>

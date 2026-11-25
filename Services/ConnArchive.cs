@@ -22,6 +22,7 @@ namespace MihomoLauncher.Services
             public string Tile = "", Process = "", Path = "", Host = "", Sniff = "", Ip = "", Port = "", Network = "";
             public long End;           // Unix seconds (UTC), the last poll it was open at
             public long Down, Up;      // bytes
+            public long Start;         // Unix seconds (UTC) it opened; 0 = unknown (lines before 2026-11-25)
         }
 
         private const int KeepHours = 24;
@@ -40,6 +41,7 @@ namespace MihomoLauncher.Services
             Tile = tile ?? "", Process = c.Process ?? "", Path = c.ProcessPath ?? "", Host = c.Host ?? "", Sniff = c.SniffHost ?? "",
             Ip = c.DestIp ?? "", Port = c.Port ?? "", Network = c.Network ?? "",
             End = SecOf(endUtc), Down = Math.Max(0, down), Up = Math.Max(0, up),
+            Start = c.Start > Epoch ? SecOf(c.Start) : 0,
         };
 
         public static void Add(Rec r)
@@ -129,6 +131,20 @@ namespace MihomoLauncher.Services
             }
         }
 
+        // «Очистить у всех плиток» (2026-11-23): every hour file gone.
+        public static void ClearAll()
+        {
+            lock (_buf) _pending.Clear();
+            lock (_io)
+            {
+                foreach (var f in Files())
+                {
+                    try { File.Delete(f.Key); }
+                    catch (Exception ex) { Log.Error("conn-archive-clear-all", ex); }
+                }
+            }
+        }
+
         private static string FileOf(DateTime utc) => Path.Combine(Dir, "conn-" + utc.ToString("yyyyMMdd-HH", CultureInfo.InvariantCulture) + ".txt");
 
         // Hour file → its UTC hour.
@@ -160,7 +176,8 @@ namespace MihomoLauncher.Services
 
         private static string Clean(string s) => string.IsNullOrEmpty(s) ? "" : s.Replace('\t', ' ').Replace('\r', ' ').Replace('\n', ' ');
 
-        // tile \t end \t process \t path \t host \t sniff \t ip \t port \t network \t down \t up
+        // tile \t end \t process \t path \t host \t sniff \t ip \t port \t network \t down \t up \t start
+        // (start since 2026-11-25 — older lines have 11 fields and read as start unknown)
         private static void Line(StringBuilder sb, Rec r)
         {
             sb.Append(Clean(r.Tile)).Append('\t')
@@ -173,7 +190,8 @@ namespace MihomoLauncher.Services
               .Append(Clean(r.Port)).Append('\t')
               .Append(Clean(r.Network)).Append('\t')
               .Append(r.Down.ToString(CultureInfo.InvariantCulture)).Append('\t')
-              .Append(r.Up.ToString(CultureInfo.InvariantCulture)).Append('\n');
+              .Append(r.Up.ToString(CultureInfo.InvariantCulture)).Append('\t')
+              .Append(r.Start.ToString(CultureInfo.InvariantCulture)).Append('\n');
         }
 
         private static Rec Parse(string line)
@@ -184,10 +202,12 @@ namespace MihomoLauncher.Services
             if (!long.TryParse(p[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out end)) return null;
             long.TryParse(p[9], NumberStyles.Integer, CultureInfo.InvariantCulture, out down);
             long.TryParse(p[10], NumberStyles.Integer, CultureInfo.InvariantCulture, out up);
+            long start = 0;
+            if (p.Length > 11) long.TryParse(p[11], NumberStyles.Integer, CultureInfo.InvariantCulture, out start);
             return new Rec
             {
                 Tile = p[0], End = end, Process = p[2], Path = p[3], Host = p[4], Sniff = p[5],
-                Ip = p[6], Port = p[7], Network = p[8], Down = down, Up = up,
+                Ip = p[6], Port = p[7], Network = p[8], Down = down, Up = up, Start = start,
             };
         }
     }

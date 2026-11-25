@@ -163,6 +163,14 @@ namespace MihomoLauncher.Views
             _hidden = autostart;
 
             _config = AppConfigStore.Load();
+            // «Авто-папка программы» (2026-11-23): before anything builds an engine config, so the
+            // very first one already carries the folders of the tiles' programs.
+            try
+            {
+                var fs = SyncAutoFoldersNow();
+                if (fs != null && fs.Changed) AppConfigStore.Save(_config);
+            }
+            catch (Exception ex) { Log.Error("auto-folders-start", ex); }
             _mihomo = new MihomoController(_config);
 
             // Point VersionInfo at the engine so the version comes from the binary rather than
@@ -182,6 +190,7 @@ namespace MihomoLauncher.Views
             // code-driven UI (tiles + banner) live whenever the language changes.
             UpdateLangButton();
             Loc.LanguageChanged += OnLanguageChanged;
+            InitThemeButton();
             SyncDnsButton();
             StartDnsStats();
 
@@ -356,6 +365,7 @@ namespace MihomoLauncher.Views
                 }
                 try { App.ShowRequested -= OnShowRequested; } catch { }
                 try { Loc.LanguageChanged -= OnLanguageChanged; } catch { }
+                DetachThemeButton();
                 try { System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged; } catch { }
                 try { _killTimer?.Stop(); } catch { }
                 // Before the engine is stopped in App.OnExit — otherwise the watchdog would
@@ -1838,9 +1848,9 @@ namespace MihomoLauncher.Views
             // Right corner (2026-11-17): the bin on top (swapped the same day), under it ONE switch — ▷ while off, ⏸ while on (it is the old ✕:
             // stops the rule). No ⟳ any more: to reconnect, pick the same VPN
             // on the plate again.
-            if (entry.RequiresVpn)
+            // «Блокировать» has no on/off (2026-11-24): no ▷/⏸ on its tile — the plate's menu ends it.
+            if (entry.RequiresVpn && !entry.IsBlockMode)
             {
-                // «Блокировать» switched on counts as on, exactly like a connected VPN.
                 bool vpnUp = _assignment.ContainsKey(entry.Id) || _workingApps.Contains(entry.Id) || entry.IsBlocking;
                 // No VPN ticked in the rule → it goes through the VPN the tile is on (or was last
                 // picked on its plate); with neither there is nothing to go through. «Блокировать»
@@ -2725,7 +2735,7 @@ namespace MihomoLauncher.Views
             // back as "restore everything" after a reboot.
             bool any = false;
             foreach (var a in _config.Apps ?? new List<AppEntry>())
-                if (a != null && a.AutoConnect) { a.AutoConnect = false; any = true; }
+                if (a != null && a.AutoConnect && !a.IsBlockMode) { a.AutoConnect = false; any = true; }   // «Блокировать» stays (2026-11-24)
             if (any) SaveRuleSwitches("disconnect-all");
             _workingApps.Clear();
             _assignment.Clear();
@@ -4059,8 +4069,11 @@ namespace MihomoLauncher.Views
 
             _config.Apps[idx] = dlg.Result;
             AutoPrograms.ClearAutoNew(_config, dlg.Result.Id);   // the editor's result carries none anyway
+            // The folders of its programs (2026-11-23), in the same save and the same comparison.
+            var folderSync = SyncAutoFoldersNow();
             AppConfigStore.Save(_config);
             EndAutoNotice(dlg.Result.Id);
+            NoticeAutoFolders(folderSync);
             EngineLogStore.Instance.RefreshRules(_config);   // so the log names the edited rule
             SyncFirewallSoon();                              // programs/kill-switch may have changed
 
@@ -4125,6 +4138,7 @@ namespace MihomoLauncher.Views
         private void DisconnectOneRule(AppEntry entry)
         {
             if (entry == null || !entry.RequiresVpn) return;
+            if (entry.IsBlockMode) return;   // «Блокировать» is not switched off (2026-11-24)
 
             // Switched OFF first, in every state. It used to bail out before this whenever the
             // rule had no node — "already off" — but a rule that is switched on and FAILING has

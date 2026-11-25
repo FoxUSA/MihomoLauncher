@@ -20,7 +20,9 @@ namespace MihomoLauncher.Views
     //  · ✕ on an auto row moves it to a third section «Не добавлять автоматически» — a ban for
     //    its exact file (AppEntry.AutoIgnored); ✕ there lifts the ban;
     //  · an auto row dragged up into the first section becomes a manual entry;
-    //  · «Папка» adds a whole folder as one row.
+    //  · «Папка» adds a whole folder as one row;
+    //  · an auto folder (2026-11-23, the folder of one of the rule's programs) is an auto row too:
+    //    ✕ makes it a folder ban, dragged up it becomes a manual folder.
     public partial class EditRuleDialog
     {
         private void SetupAutoRows()
@@ -52,6 +54,19 @@ namespace MihomoLauncher.Views
             if (row == null) return;
             bool hadTile = row.Launch;
             _items.Remove(row);
+            // An auto folder (2026-11-23): a ban of that folder, NormalizeFolder(path) + "\" — a
+            // version bump of it is still that folder (AutoPrograms.IsFolderBanned).
+            if (row.IsFolder)
+            {
+                var folderKey = AutoPrograms.FolderBanKey(row.Path);
+                if (folderKey.Length > 0)
+                {
+                    var bans = new AppEntry { AutoIgnored = _items.Where(i => i.IsIgnored).Select(i => i.BanKey).ToList() };
+                    if (!AutoPrograms.IsFolderBanned(bans, folderKey)) _items.Add(ItemRow.FromBan(folderKey));
+                }
+                if (hadTile && !_items.Any(i => i.Launch)) GiveTileToBest();
+                return;
+            }
             var key = !string.IsNullOrWhiteSpace(row.Path) ? row.Path.Trim() : ExeNameOf(row.Path);
             if (key.Length == 0) key = (row.Name ?? "").Trim();
             if (key.Length > 0)
@@ -72,6 +87,8 @@ namespace MihomoLauncher.Views
             _items.Remove(row);
             row.IsAuto = false;
             row.AutoFrom = "";
+            // An auto folder has no name of its own (2026-11-23): as a manual one it gets its leaf.
+            if (row.IsFolder && string.IsNullOrWhiteSpace(row.Name)) row.Name = AutoPrograms.LeafOf(row.Path);
             int manual = _items.Count(i => !i.IsAuto && !i.IsIgnored);
             int at = Math.Max(0, Math.Min(index, manual));
             _items.Insert(at, row);
@@ -104,6 +121,12 @@ namespace MihomoLauncher.Views
             }
 
             var dup = _items.FirstOrDefault(i => i.IsFolder && string.Equals(MihomoConfigBuilder.NormalizeFolder(i.Path), path, StringComparison.OrdinalIgnoreCase));
+            // Picked by hand what the launcher had already added (2026-11-23): it simply becomes manual.
+            if (dup != null && dup.IsAuto)
+            {
+                MakeManual(dup, _items.Count(i => !i.IsAuto && !i.IsIgnored));
+                return;
+            }
             if (dup != null)
             {
                 ItemsGrid.ScrollIntoView(dup);

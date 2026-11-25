@@ -1,0 +1,41 @@
+<!-- Styles for the DARK theme only. Merged after Themes\Common\ by Services/Theme.cs while the dark
+     theme is on, and removed when it is off — so a style here cannot touch the light theme.
+     Here goes a style that needs this theme's brushes INSIDE it (Style.Resources, which no
+     DynamicResource can reach). Every keyed style here must exist in the light Styles.xaml too,
+     under the same key, and be used as Style="{DynamicResource Key}" — so a switch swaps it.
+     {StaticResource Theme.X} here = this theme's palette (Theme.Apply loads it first); as an
+     attribute only: a <StaticResource> ELEMENT inside Style.Resources breaks the deferred load
+     («StaticResourceHolder must be preceded by StartObject»). -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml">
+
+    <!-- The library's switch with its «on» colours replaced (the keys its template reads).
+         Guard: violet = protection on — the rule editor's Kill-switch and «Привязка». -->
+    <Style x:Key="GuardToggleSwitchStyle" TargetType="{x:Type ui:ToggleSwitch}" BasedOn="{StaticResource {x:Type ui:ToggleSwitch}}">
+        <Style.Resources>
+            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="{StaticResource Theme.GuardSwitchFill}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="{StaticResource Theme.GuardSwitchFillHover}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="{StaticResource Theme.GuardSwitchFill}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="{StaticResource Theme.GuardSwitchFill}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="{StaticResource Theme.GuardSwitchFillHover}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="{StaticResource Theme.GuardSwitchFill}" />
+        </Style.Resources>
+    </Style>
+
+    <!-- Safe mode (main window, RDP): a dull red when on — worth seeing, not shouting. -->
+    <Style x:Key="SafeModeToggleSwitchStyle" TargetType="{x:Type ui:ToggleSwitch}" BasedOn="{StaticResource {x:Type ui:ToggleSwitch}}">
+        <Style.Resources>
+            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="{StaticResource Theme.SafeModeSwitchFill}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="{StaticResource Theme.SafeModeSwitchFillHover}" />
+            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="{StaticResource Theme.SafeModeSwitchFill}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOn" Color="{StaticResource Theme.SafeModeSwitchFill}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPointerOver" Color="{StaticResource Theme.SafeModeSwitchFillHover}" />
+            <SolidColorBrush x:Key="ToggleSwitchStrokeOnPressed" Color="{StaticResource Theme.SafeModeSwitchFill}" />
+        </Style.Resources>
+    </Style>
+    <!-- The rule between sections of a settings card: as it always was. -->
+    <Style x:Key="SectionSeparatorStyle" TargetType="{x:Type Separator}" BasedOn="{StaticResource {x:Type Separator}}">
+        <Setter Property="Opacity" Value="0.4" />
+    </Style>
+</ResourceDictionary>

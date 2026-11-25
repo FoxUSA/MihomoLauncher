@@ -113,6 +113,8 @@ namespace MihomoLauncher.Services
             public List<string> TempDirs;
             // "Now" for the freshness test (a probe sets its own).
             public DateTime NowUtc = DateTime.UtcNow;
+            // The launcher's own folder (null = VersionInfo.InstallRoot): never an auto folder.
+            public string InstallRoot;
         }
 
         public sealed class Decision
@@ -134,7 +136,8 @@ namespace MihomoLauncher.Services
             public List<Skip> Skipped = new List<Skip>();
         }
 
-        // Does this tile take part? Its switch on, and something to watch.
+        // Does this tile take part? Its switch on, and something to watch (an auto folder is a
+        // folder like any other, 2026-11-23).
         public static bool Tracks(AppEntry a)
             => a != null && a.AutoTrack && !a.IsAllTraffic
                && ((a.Programs != null && a.Programs.Any(p => p != null && !string.IsNullOrWhiteSpace(p.Path))) || a.HasFolders);
@@ -144,6 +147,7 @@ namespace MihomoLauncher.Services
         // Does `rule` refuse to auto-add this file (AppEntry.AutoIgnored)? An entry with a path is the
         // exact FILE, matched like auto-adding itself (a version bump is still that file); an old
         // entry that is a bare exe name keeps working by name. Per tile: other tiles are not asked.
+        // An entry ending with a separator is a FOLDER ban (IsFolderBanned) and is not asked here.
         public static bool IsBanned(AppEntry rule, string exePath)
         {
             var name = FileName(exePath);
@@ -151,11 +155,41 @@ namespace MihomoLauncher.Services
             {
                 var ban = (e ?? "").Trim();
                 if (ban.Length == 0) continue;
+                if (IsFolderBanKey(ban)) continue;
                 if (ban.IndexOf('\\') >= 0 || ban.IndexOf('/') >= 0)
                 {
                     if (MihomoConfigBuilder.IsSameFile(exePath, ban)) return true;
                 }
                 else if (string.Equals(ban, name, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
+        }
+
+        // A folder ban (2026-11-23): what the editor's ✕ on an auto folder stores in
+        // AppEntry.AutoIgnored — NormalizeFolder(path) + "\". Told apart from a file ban by the
+        // trailing separator.
+        public static bool IsFolderBanKey(string ban)
+        {
+            var b = (ban ?? "").Trim();
+            return b.Length > 1 && (b.EndsWith("\\") || b.EndsWith("/"));
+        }
+
+        public static string FolderBanKey(string dir)
+        {
+            var d = MihomoConfigBuilder.NormalizeFolder(dir);
+            return d.Length == 0 ? "" : (d.EndsWith("\\") ? d : d + "\\");
+        }
+
+        // Does `rule` refuse this folder as an auto folder? A folder ban for the same folder (a
+        // version bump is still that folder, MihomoConfigBuilder.SameFolder). Per tile.
+        public static bool IsFolderBanned(AppEntry rule, string dir)
+        {
+            if (string.IsNullOrWhiteSpace(dir)) return false;
+            foreach (var e in rule?.AutoIgnored ?? new List<string>())
+            {
+                var ban = (e ?? "").Trim();
+                if (!IsFolderBanKey(ban)) continue;
+                if (MihomoConfigBuilder.SameFolder(ban, dir)) return true;
             }
             return false;
         }
@@ -168,13 +202,74 @@ namespace MihomoLauncher.Services
             bool changed = false;
             foreach (var p in rule?.Programs ?? new List<RuleProgram>())
                 if (p != null && p.AutoNew) { p.AutoNew = false; changed = true; }
+            foreach (var f in rule?.Folders ?? new List<RuleFolder>())
+                if (f != null && f.AutoNew) { f.AutoNew = false; changed = true; }
             return changed;
         }
 
-        // Exe names of the rule's not-yet-seen auto entries, for the amber gear's tooltip.
+        // ---------- the notice's clock (2026-11-23) ----------
+        //
+        // A rule's amber notice goes out by itself once the main window has been on screen for an
+        // hour in total since the last automatic addition to it (AppEntry.AutoNoticeShownSec; the
+        // caller passes only on-screen time). Pure: the caller logs, ends the notice and saves.
+        public const int NoticeLimitSec = 3600;
+
+        public sealed class NoticeTickResult
+        {
+            public List<string> Expired = new List<string>();   // rule ids, AutoNew already cleared
+            public bool Changed;
+        }
+
+        public static NoticeTickResult NoticeTick(AppConfig cfg, int addSeconds)
+        {
+            var res = new NoticeTickResult();
+            foreach (var rule in cfg?.Apps ?? new List<AppEntry>())
+            {
+                if (rule == null) continue;
+                if (AutoNewNames(rule).Count == 0)
+                {
+                    // Nothing unseen: no clock running.
+                    if (rule.AutoNoticeShownSec != 0) { rule.AutoNoticeShownSec = 0; res.Changed = true; }
+                    continue;
+                }
+                if (addSeconds <= 0) continue;
+                rule.AutoNoticeShownSec = Math.Max(0, rule.AutoNoticeShownSec) + addSeconds;
+                res.Changed = true;
+                if (rule.AutoNoticeShownSec < NoticeLimitSec) continue;
+                ClearAutoNew(cfg, rule.Id);
+                rule.AutoNoticeShownSec = 0;
+                res.Expired.Add(rule.Id);
+            }
+            return res;
+        }
+
+        // Names of the rule's not-yet-seen auto entries, for the amber gear's tooltip: auto folders
+        // first, as their leaf name + "\" («Microsoft VS Code\»), then exe names.
         public static List<string> AutoNewNames(AppEntry rule)
-            => (rule?.Programs ?? new List<RuleProgram>()).Where(p => p != null && p.AutoNew)
-                   .Select(p => FileName(p.Path)).Where(n => n.Length > 0).ToList();
+        {
+            var list = new List<string>();
+            foreach (var f in rule?.Folders ?? new List<RuleFolder>())
+            {
+                if (f == null || !f.AutoNew) continue;
+                var leaf = LeafOf(f.Path);
+                if (leaf.Length > 0) list.Add(leaf + "\\");
+            }
+            list.AddRange((rule?.Programs ?? new List<RuleProgram>()).Where(p => p != null && p.AutoNew)
+                              .Select(p => FileName(p.Path)).Where(n => n.Length > 0));
+            return list;
+        }
+
+        // "C:\Program Files\Microsoft VS Code" → "Microsoft VS Code"; "" if unusable.
+        public static string LeafOf(string dir)
+        {
+            try
+            {
+                var trimmed = (dir ?? "").Trim().TrimEnd('\\', '/');
+                var leaf = System.IO.Path.GetFileName(trimmed);
+                return string.IsNullOrEmpty(leaf) ? trimmed : leaf;
+            }
+            catch { return ""; }
+        }
 
         // Who already has this exe (2026-11-22): a manual entry claims its NAME (it is routed by
         // name), an auto entry only its own FILE (it is routed by that file, version bumps
@@ -243,29 +338,52 @@ namespace MihomoLauncher.Services
             return list;
         }
 
+        // The machine's places, as Decide and SyncAutoFolders read them from an Env (2026-11-23:
+        // taken out of Decide unchanged, so both use the very same "shared place" test).
+        private sealed class Places
+        {
+            public string WinDir = "";
+            public HashSet<string> Shared = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public List<string> TempDirs = new List<string>();
+
+            // A drive root, Windows and below, one of the shared dirs themselves.
+            public bool IsShared(string dir)
+            {
+                if (string.IsNullOrEmpty(dir)) return true;
+                try { if (string.Equals(System.IO.Path.GetPathRoot(dir)?.TrimEnd('\\'), dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true; }
+                catch { return true; }
+                if (WinDir.Length > 0 && (string.Equals(dir, WinDir, StringComparison.OrdinalIgnoreCase) || Under(dir, WinDir))) return true;
+                return Shared.Contains(dir);
+            }
+        }
+
+        private static Places PlacesOf(Env env)
+        {
+            var p = new Places();
+            p.WinDir = MihomoConfigBuilder.NormalizeFolder(env.WinDir ?? Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+            p.Shared = new HashSet<string>((env.SharedDirs ?? DefaultSharedDirs()).Select(MihomoConfigBuilder.NormalizeFolder).Where(s => s.Length > 0),
+                                           StringComparer.OrdinalIgnoreCase);
+            p.TempDirs = (env.TempDirs ?? DefaultTempDirs()).Select(MihomoConfigBuilder.NormalizeFolder)
+                                                            .Where(s => s.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            return p;
+        }
+
         public static Result Decide(AppConfig cfg, IList<ProcessTracker.Proc> procs, Env env)
         {
             var res = new Result();
             if (cfg?.Apps == null || procs == null) return res;
             env = env ?? new Env();
-            var winDir = MihomoConfigBuilder.NormalizeFolder(env.WinDir ?? Environment.GetFolderPath(Environment.SpecialFolder.Windows));
-            var shared = new HashSet<string>((env.SharedDirs ?? DefaultSharedDirs()).Select(MihomoConfigBuilder.NormalizeFolder).Where(s => s.Length > 0),
-                                             StringComparer.OrdinalIgnoreCase);
-            bool IsShared(string dir)
-            {
-                if (string.IsNullOrEmpty(dir)) return true;
-                try { if (string.Equals(System.IO.Path.GetPathRoot(dir)?.TrimEnd('\\'), dir.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)) return true; }
-                catch { return true; }
-                if (winDir.Length > 0 && (string.Equals(dir, winDir, StringComparison.OrdinalIgnoreCase) || Under(dir, winDir))) return true;
-                return shared.Contains(dir);
-            }
-            var tempDirs = (env.TempDirs ?? DefaultTempDirs()).Select(MihomoConfigBuilder.NormalizeFolder)
-                                                              .Where(s => s.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var places = PlacesOf(env);
+            var winDir = places.WinDir;
+            bool IsShared(string dir) => places.IsShared(dir);
+            var tempDirs = places.TempDirs;
             var now = env.NowUtc;
 
             var tiles = cfg.Apps.Where(a => a != null && !a.IsAllTraffic).ToList();
 
             // Everything already claimed (ClaimedBy): folders here, names and files per path below.
+            // An auto folder too (2026-11-23): what lies in it is already the tile's — no row of its
+            // own («лежит в папке плитки»).
             var allFolders = new List<KeyValuePair<string, AppEntry>>();
             foreach (var t in tiles)
             {
@@ -297,6 +415,8 @@ namespace MihomoLauncher.Services
                     var d = DirOf(p.Path);
                     if (d.Length > 0 && !IsShared(d) && !r.DirExe.ContainsKey(d)) { r.Dirs.Add(d); r.DirExe[d] = n; }
                 }
+                // An auto folder is a root too (2026-11-23): an updater started from it by the Task
+                // Scheduler still makes the helpers it starts elsewhere the tile's.
                 foreach (var f in t.Folders ?? new List<RuleFolder>())
                     if (f != null && !string.IsNullOrWhiteSpace(f.Path)) r.Folders.Add(f.Path);
                 if (r.Names.Count > 0 || r.Files.Count > 0 || r.Folders.Count > 0) roots.Add(r);
@@ -477,6 +597,264 @@ namespace MihomoLauncher.Services
                 pick.Key.AutoCount++;
             }
             return res;
+        }
+
+        // ---------- «Авто-папка программы» (2026-11-23) ----------
+        //
+        // Auto-adding (Decide) catches a helper only after it has gone online, and the engine then
+        // needs a reload: its first connections go the default way — possibly DIRECT, the home IP.
+        // A folder rule is in the engine before the helper starts. So a tile with a MANUAL program
+        // gets that program's install folder too, as an auto folder (RuleFolder.Auto) — when the
+        // folder is the program's own (by name, FolderNamedForProgram), not a shared place, not
+        // the launcher's, not refused by the person (a folder ban, or a file of it they removed),
+        // and no other tile has anything in it, around it or inside it (the engine would split
+        // that folder between tiles). To Decide an auto folder is a folder like a manual one: what
+        // lies in it gets no row of its own, and a process started from it is a root of the tile
+        // (its helpers OUTSIDE the folder are still found).
+        //
+        // Upkeep, whatever the tile's AutoTrack: an auto folder with «Плитка» is the person's and
+        // stays; one whose program left the tile, one another tile now touches, one a manual folder
+        // of the tile already covers, one the person refused (a folder ban, or a file of it removed
+        // from the tile) — goes. Otherwise it stays (the other add conditions are not asked again),
+        // following its program's folder through a version bump.
+        // Then the tile's auto programs inside its auto folders go (user, 2026-11-23: a tile lists
+        // the folder OR its helpers, never both) — not a manual one, not one with «Плитка», never
+        // another tile's; the folder sends them the same way.
+        // Pure: no log, no disk (VersionWords is the Env's). Mutates `cfg`; idempotent.
+
+        public sealed class FolderAdded
+        {
+            public AppEntry Tile;
+            public string Path = "", Exe = "";
+        }
+
+        public sealed class FolderRemoved
+        {
+            public AppEntry Tile;
+            public string Path = "", Reason = "";
+        }
+
+        // An auto program taken out because the tile's auto folder already covers it.
+        public sealed class ProgramDropped
+        {
+            public AppEntry Tile;
+            public string Path = "", Folder = "";
+        }
+
+        public sealed class FolderSync
+        {
+            public bool Changed;
+            public List<FolderAdded> Added = new List<FolderAdded>();
+            public List<FolderRemoved> Removed = new List<FolderRemoved>();
+            public List<ProgramDropped> DroppedPrograms = new List<ProgramDropped>();
+        }
+
+        public static FolderSync SyncAutoFolders(AppConfig cfg, Env env)
+        {
+            var res = new FolderSync();
+            if (cfg?.Apps == null) return res;
+            env = env ?? new Env();
+            var places = PlacesOf(env);
+            string installRoot = "";
+            try { installRoot = MihomoConfigBuilder.NormalizeFolder(env.InstallRoot ?? VersionInfo.InstallRoot); } catch { }
+
+            var tiles = cfg.Apps.Where(a => a != null && !a.IsAllTraffic).ToList();
+
+            // The other tile that has something in `dir`, around it or inside it; null = none.
+            AppEntry TouchedBy(AppEntry self, string dir)
+            {
+                foreach (var u in tiles)
+                {
+                    if (ReferenceEquals(u, self)) continue;
+                    foreach (var p in u.Programs ?? new List<RuleProgram>())
+                        if (p != null && !string.IsNullOrWhiteSpace(p.Path) && MihomoConfigBuilder.InFolder(p.Path.Trim(), dir)) return u;
+                    foreach (var f in u.Folders ?? new List<RuleFolder>())
+                    {
+                        var fp = MihomoConfigBuilder.NormalizeFolder(f?.Path);
+                        if (fp.Length == 0) continue;
+                        if (MihomoConfigBuilder.SameFolder(fp, dir)
+                            || MihomoConfigBuilder.InFolder(fp + "\\", dir)      // F inside D
+                            || MihomoConfigBuilder.InFolder(dir + "\\", fp))     // D inside F
+                            return u;
+                    }
+                }
+                return null;
+            }
+            // `dir` is `folder` or lies inside it.
+            bool Covers(string folder, string dir)
+            {
+                var fp = MihomoConfigBuilder.NormalizeFolder(folder);
+                return fp.Length > 0 && (MihomoConfigBuilder.SameFolder(fp, dir) || MihomoConfigBuilder.InFolder(dir + "\\", fp));
+            }
+            List<RuleProgram> ManualProgs(AppEntry t)
+                => (t.Programs ?? new List<RuleProgram>()).Where(p => p != null && !p.Auto && !string.IsNullOrWhiteSpace(p.Path)).ToList();
+
+            // ---- upkeep of the auto folders there are
+            foreach (var t in tiles)
+            {
+                if (t.Folders == null) continue;
+                foreach (var e in t.Folders.ToList())
+                {
+                    if (e == null || !e.Auto) continue;
+                    if (e.Launch) continue;   // the person gave it the tile: theirs now
+                    var path = MihomoConfigBuilder.NormalizeFolder(e.Path);
+                    string reason = null;
+                    var manual = ManualProgs(t);
+                    if (path.Length == 0 || !manual.Any(p => MihomoConfigBuilder.InFolder(p.Path.Trim(), path)))
+                        reason = "её программы больше нет в плитке";
+                    else
+                    {
+                        var other = TouchedBy(t, path);
+                        if (other != null) reason = "в ней или рядом есть программа или папка плитки «" + other.Name + "»";
+                        else if ((t.Folders ?? new List<RuleFolder>()).Any(m => m != null && !m.Auto && Covers(m.Path, path)))
+                            reason = "эта папка уже есть в плитке вручную";
+                        // A ✕ in the editor must keep meaning "not through this tile": a helper the
+                        // person removed would otherwise still be routed by the folder rule.
+                        else if (IsFolderBanned(t, path))
+                            reason = "папка убрана из плитки вручную";
+                        else if (HasFileBanIn(t, path))
+                            reason = "в ней есть программа, убранная из плитки вручную";
+                    }
+                    if (reason != null)
+                    {
+                        t.Folders.Remove(e);
+                        res.Removed.Add(new FolderRemoved { Tile = t, Path = e.Path ?? "", Reason = reason });
+                        res.Changed = true;
+                        continue;
+                    }
+                    // Kept. A version bump of its program's folder: follow it (the same folder).
+                    var dirs = manual.Select(p => DirOf(p.Path.Trim())).Where(d => d.Length > 0 && MihomoConfigBuilder.SameFolder(d, path)).ToList();
+                    if (dirs.Count > 0 && !dirs.Any(d => string.Equals(d, (e.Path ?? "").Trim(), StringComparison.OrdinalIgnoreCase)))
+                    {
+                        e.Path = dirs[0];
+                        res.Changed = true;
+                    }
+                }
+            }
+
+            // ---- additions
+            foreach (var t in tiles)
+            {
+                if (!t.AutoTrack) continue;
+                var want = new List<KeyValuePair<string, string>>();   // dir → exe name
+                foreach (var p in ManualProgs(t))
+                {
+                    var exePath = p.Path.Trim();
+                    var exe = FileName(exePath);
+                    if (exe.Length == 0 || DenyList.Contains(exe)) continue;
+                    if (env.OwnNames != null && env.OwnNames.Contains(exe)) continue;
+                    var d = DirOf(exePath);
+                    if (d.Length == 0 || places.IsShared(d)) continue;
+                    if (places.TempDirs.Any(x => string.Equals(d, x, StringComparison.OrdinalIgnoreCase) || Under(d, x))) continue;
+                    if (installRoot.Length > 0 && (string.Equals(d, installRoot, StringComparison.OrdinalIgnoreCase) || Under(d, installRoot))) continue;
+                    if (IsFolderBanned(t, d) || HasFileBanIn(t, d)) continue;
+                    if (TouchedBy(t, d) != null) continue;
+                    if ((t.Folders ?? new List<RuleFolder>()).Any(f => f != null && Covers(f.Path, d))) continue;
+                    if (want.Any(w => MihomoConfigBuilder.SameFolder(w.Key, d))) continue;
+                    // The name guard last, the exe's name first: its ProductName means reading the
+                    // file (a dead network path would stall the UI thread), so only when the name
+                    // alone does not do and everything else already holds.
+                    if (!FolderNamedForProgram(exePath, null, places.Shared))
+                    {
+                        string[] words = null;
+                        try { words = env.VersionWords?.Invoke(exePath); } catch { }
+                        var product = words != null && words.Length > 0 ? words[0] : null;
+                        if (product == null || !FolderNamedForProgram(exePath, product, places.Shared)) continue;
+                    }
+                    want.Add(new KeyValuePair<string, string>(d, exe));
+                }
+                // One inside another: the outer one only.
+                var outer = want.Where(w => !want.Any(o => !MihomoConfigBuilder.SameFolder(o.Key, w.Key)
+                                                           && MihomoConfigBuilder.InFolder(w.Key + "\\", o.Key))).ToList();
+                foreach (var w in outer)
+                {
+                    if (t.Folders == null) t.Folders = new List<RuleFolder>();
+                    t.Folders.Add(new RuleFolder { Name = "", Path = w.Key, Auto = true, AutoFrom = w.Value, AutoNew = true, Launch = false });
+                    res.Added.Add(new FolderAdded { Tile = t, Path = w.Key, Exe = w.Value });
+                    t.AutoNoticeShownSec = 0;   // a new addition: the notice's hour starts over
+                    res.Changed = true;
+                }
+            }
+
+            // ---- the tile's own auto rows its auto folders already cover
+            foreach (var t in tiles)
+            {
+                if (t.Programs == null || t.Folders == null) continue;
+                var autoDirs = t.Folders.Where(f => f != null && f.Auto && !string.IsNullOrWhiteSpace(f.Path)).ToList();
+                if (autoDirs.Count == 0) continue;
+                foreach (var p in t.Programs.ToList())
+                {
+                    if (p == null || !p.Auto || p.Launch || string.IsNullOrWhiteSpace(p.Path)) continue;
+                    var f = autoDirs.FirstOrDefault(x => MihomoConfigBuilder.InFolder(p.Path.Trim(), x.Path));
+                    if (f == null) continue;
+                    // Kept when another tile names the same exe: the engine writes an auto file line
+                    // above every program by name, a folder line below them — without the row this
+                    // very file would go to that tile (VS Code's codex.exe vs ChatGPT's codex.exe).
+                    var exe = FileName(p.Path.Trim());
+                    if (tiles.Any(u => !ReferenceEquals(u, t) && (u.Programs ?? new List<RuleProgram>()).Any(q =>
+                            q != null && !q.Auto && string.Equals(FileName((q.Path ?? "").Trim()), exe, StringComparison.OrdinalIgnoreCase))))
+                        continue;
+                    t.Programs.Remove(p);
+                    res.DroppedPrograms.Add(new ProgramDropped { Tile = t, Path = p.Path ?? "", Folder = f.Path ?? "" });
+                    res.Changed = true;
+                }
+            }
+            return res;
+        }
+
+        // A file the person removed from this tile (a file ban: a path, not a folder) lying in `dir`:
+        // a folder rule would bring it back. Old bare-name bans are not asked.
+        private static bool HasFileBanIn(AppEntry rule, string dir)
+        {
+            foreach (var e in rule?.AutoIgnored ?? new List<string>())
+            {
+                var ban = (e ?? "").Trim();
+                if (ban.Length == 0 || IsFolderBanKey(ban)) continue;
+                if (ban.IndexOf('\\') < 0 && ban.IndexOf('/') < 0) continue;
+                if (MihomoConfigBuilder.InFolder(ban, dir)) return true;
+            }
+            return false;
+        }
+
+        // Is the folder of `exePath` the program's OWN, by name? A folder rule takes everything
+        // in the folder: ~\.local\bin\claude.exe, D:\Portable\telegram.exe, scoop\shims must not
+        // turn into rules for whatever else lies next to them. The exe's name (no extension) or
+        // its ProductName, as letters and digits in lower case (2+ long), against each segment of
+        // the folder BELOW the deepest shared place that holds it (none: below the drive root):
+        // equal, or — both 4+ long — one contains the other. `sharedDirs`: normalized folders.
+        public static bool FolderNamedForProgram(string exePath, string productName, IEnumerable<string> sharedDirs)
+        {
+            var dir = DirOf(exePath);
+            if (dir.Length == 0) return false;
+            string Norm(string s) => new string((s ?? "").ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+            var a = new List<string>();
+            try { a.Add(Norm(System.IO.Path.GetFileNameWithoutExtension(exePath ?? ""))); } catch { }
+            a.Add(Norm(productName));
+            a = a.Where(x => x.Length >= 2).Distinct().ToList();
+            if (a.Count == 0) return false;
+
+            // The deepest shared place that holds the folder; else the drive root.
+            string root;
+            try { root = (System.IO.Path.GetPathRoot(dir) ?? "").TrimEnd('\\'); } catch { return false; }
+            string bas = root;
+            foreach (var s in sharedDirs ?? Enumerable.Empty<string>())
+            {
+                var sd = MihomoConfigBuilder.NormalizeFolder(s);
+                if (sd.Length == 0) continue;
+                if (Under(dir, sd) && sd.TrimEnd('\\').Length > bas.Length) bas = sd.TrimEnd('\\');
+            }
+            if (dir.Length <= bas.Length) return false;
+            var below = dir.Substring(bas.Length).Split(new[] { '\\', '/' }, StringSplitOptions.RemoveEmptyEntries)
+                           .Select(Norm).Where(x => x.Length > 0).ToList();
+
+            foreach (var x in a)
+                foreach (var y in below)
+                {
+                    if (x == y) return true;
+                    if (x.Length >= 4 && y.Length >= 4 && (x.Contains(y) || y.Contains(x))) return true;
+                }
+            return false;
         }
 
         // How well a tile's NAME fits a program: each word of the name (letters/digits, 3+ long)

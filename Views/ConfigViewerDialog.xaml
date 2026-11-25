@@ -10,7 +10,7 @@
                  ResizeMode="CanResize"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -26,8 +26,8 @@
 
         <Border Grid.Row="2" Margin="20,0,20,0"
                 CornerRadius="8"
-                Background="{x:Static svc:Theme.ListBg}"
-                BorderBrush="{x:Static svc:Theme.CardBorder}"
+                Background="{DynamicResource Theme.ListBg}"
+                BorderBrush="{DynamicResource Theme.CardBorder}"
                 BorderThickness="1">
             <!-- The scroll bars belong to an outer ScrollViewer (2026-11-16: «скролл ползунка не
                  хватает»): the styled TextBox showed none of its own. The TextBox grows to the

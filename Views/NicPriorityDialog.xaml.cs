@@ -51,6 +51,7 @@ namespace MihomoLauncher.Views
             GridNics.ItemsSource = _nicRows;
             // Order = priority: dragging only renumbers; «Применить» touches Windows.
             new GridRowDrag<NicRow>(GridNics, _nicRows, r => false, (order, moved) => OnNicOrderChanged());
+            RefreshWifiEth();
             RefreshNicRows();
             Loaded += (s, e) => UiHelpers.FitHeightToContent(this);
             Closed += (s, e) => _closed = true;
@@ -58,7 +59,31 @@ namespace MihomoLauncher.Views
 
         private bool NicOrderChanged =>
             !_nicRows.Select(r => r.Name).SequenceEqual(_nicOrigOrder, StringComparer.OrdinalIgnoreCase);
-        private bool NicPending => _nicRows.Count > 0 && (_nicAutoPending || NicOrderChanged);
+        private bool MetricsPending => _nicRows.Count > 0 && (_nicAutoPending || NicOrderChanged);
+        private bool WifiPending => PanelWifiEth.Visibility == Visibility.Visible && (SwitchWifiEth.IsChecked == true) != _wifiOrig;
+        private bool NicPending => MetricsPending || WifiPending;
+
+        private bool _wifiOrig, _wifiLoading;
+
+        // What Windows has now; the switch is shown only where it means something — a wired and a
+        // wireless card on the machine — or when it is already on (so it can be turned back off).
+        private void RefreshWifiEth()
+        {
+            _wifiOrig = NicMetrics.WifiWithEthernet();
+            var cards = NetCards.List();
+            bool both = cards.Any(c => c.Wireless) && cards.Any(c => !c.Wireless);
+            PanelWifiEth.Visibility = both || _wifiOrig ? Visibility.Visible : Visibility.Collapsed;
+            _wifiLoading = true;
+            SwitchWifiEth.IsChecked = _wifiOrig;
+            _wifiLoading = false;
+            SwitchWifiEth.IsEnabled = !_nicBusy;
+        }
+
+        private void OnWifiEthChanged(object sender, RoutedEventArgs e)
+        {
+            if (_wifiLoading || _nicBusy) return;
+            UpdateNicPending();
+        }
 
         private void OnNicUp(object sender, RoutedEventArgs e) { MoveNic(sender, -1); }
         private void OnNicDown(object sender, RoutedEventArgs e) { MoveNic(sender, +1); }
@@ -95,7 +120,8 @@ namespace MihomoLauncher.Views
         {
             bool pending = NicPending;
             BtnApply.IsEnabled = pending && !_nicBusy;
-            SetNicStatus(!pending ? "" : Loc.T(_nicAutoPending ? "Set_NicDefaultHint" : "Set_NicMovedHint"));
+            SetNicStatus(!pending ? "" : Loc.T(!MetricsPending ? "Nic_WifiEthHint"
+                                             : _nicAutoPending ? "Set_NicDefaultHint" : "Set_NicMovedHint"));
         }
 
         // The status line takes room only while it says something; the window follows its height.
@@ -153,19 +179,24 @@ namespace MihomoLauncher.Views
         private async void OnApply(object sender, RoutedEventArgs e)
         {
             if (_nicBusy || !NicPending) return;   // nothing changed: Windows is left alone
+            bool metrics = MetricsPending;
             if (await ApplyNicAsync(_nicAutoPending).ConfigureAwait(true) && !_closed)
             {
-                Applied = true;
+                if (metrics) Applied = true;
+                RefreshWifiEth();
                 RefreshNicRows();   // what Windows has now (also clears «pending»)
-                SetNicStatus(Loc.T("Set_NicDone"));
+                SetNicStatus(Loc.T(metrics ? "Set_NicDone" : "Nic_WifiEthDone"));
             }
         }
 
-        // The order on screen → metrics 10, 20, 30… (or all automatic), applied by the SYSTEM
-        // helper (NicMetrics). False = not applied (password refused, no helper, helper failed).
+        // The order on screen → metrics 10, 20, 30… (or all automatic), and the Wi-Fi switch —
+        // each only if changed — applied by the SYSTEM helper (NicMetrics). False = not applied
+        // (password refused, no helper, helper failed).
         private async Task<bool> ApplyNicAsync(bool auto)
         {
-            if (_nicBusy || _nicRows.Count == 0) return false;
+            if (_nicBusy || !NicPending) return false;
+            bool metrics = MetricsPending;
+            bool? wifi = WifiPending ? SwitchWifiEth.IsChecked == true : (bool?)null;
             // Which card the whole machine goes out through is routing — behind the access password.
             if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return false;
             if (!MihomoSetup.IsFirewallTaskInstalled())
@@ -176,14 +207,19 @@ namespace MihomoLauncher.Views
             _nicBusy = true;
             BtnNicDefault.IsEnabled = false;
             BtnApply.IsEnabled = false;
+            SwitchWifiEth.IsEnabled = false;
             SetNicStatus(Loc.T("Set_NicApplying"));
             string failure = null;
             try
             {
-                var plan = _nicRows.Select((r, i) => new KeyValuePair<string, uint>(r.Name, auto ? 0u : (uint)((i + 1) * 10))).ToList();
-                Log.Info("Сеть: приоритет карт Windows — " + (auto ? "по умолчанию (автоматическая метрика)"
-                         : string.Join(", ", plan.Select(p => p.Key + "=" + p.Value))) + ".");
-                var id = NicMetrics.WritePlan(plan);
+                var plan = !metrics ? new List<KeyValuePair<string, uint>>()
+                         : _nicRows.Select((r, i) => new KeyValuePair<string, uint>(r.Name, auto ? 0u : (uint)((i + 1) * 10))).ToList();
+                if (metrics)
+                    Log.Info("Сеть: приоритет карт Windows — " + (auto ? "по умолчанию (автоматическая метрика)"
+                             : string.Join(", ", plan.Select(p => p.Key + "=" + p.Value))) + ".");
+                if (wifi.HasValue)
+                    Log.Info("Сеть: «Подключаться к Wi-Fi при активном Ethernet» — " + (wifi.Value ? "вкл." : "выкл."));
+                var id = NicMetrics.WritePlan(plan, wifi);
                 bool sent = await Task.Run(() => MihomoSetup.RunFirewallTask()).ConfigureAwait(true);
                 if (!sent) failure = Loc.T("Set_NicNoHelper");
                 else
@@ -203,7 +239,7 @@ namespace MihomoLauncher.Views
             finally
             {
                 _nicBusy = false;
-                if (!_closed) { BtnNicDefault.IsEnabled = _nicRows.Count > 0; UpdateNicPending(); }
+                if (!_closed) { BtnNicDefault.IsEnabled = _nicRows.Count > 0; SwitchWifiEth.IsEnabled = true; UpdateNicPending(); }
             }
 
             if (_closed) return false;

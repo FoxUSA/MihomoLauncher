@@ -19,8 +19,8 @@ namespace MihomoLauncher.Services
     // enabled and editable — the cross shows only with text, so the two never meet. Not on a
     // plain TextBox (no ClearButton in its template): nothing happens there.
     //
-    // For link / address inputs only (VPN link, check address, site URL, DNS servers) — not search
-    // boxes or names.
+    // For link / address inputs (VPN link, check address, site URL, DNS servers) and, since
+    // 2026-11-25 at the user's word, the speed window's search — not names.
     public static class PasteButton
     {
         public static readonly DependencyProperty IsEnabledProperty = DependencyProperty.RegisterAttached(

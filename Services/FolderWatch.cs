@@ -199,9 +199,10 @@ namespace MihomoLauncher.Services
             foreach (var app in cfg?.Apps ?? new List<AppEntry>())
             {
                 if (app == null) continue;
+                // Manual folders here; auto folders below (2026-11-23).
                 foreach (var f in app.Folders ?? new List<RuleFolder>())
                 {
-                    if (f == null || string.IsNullOrWhiteSpace(f.Path)) continue;
+                    if (f == null || f.Auto || string.IsNullOrWhiteSpace(f.Path)) continue;
                     Add(f.Path, Kind.Exes);
                     AddVersionParents(f.Path, includeOwnParent: true);
                 }
@@ -209,6 +210,15 @@ namespace MihomoLauncher.Services
             foreach (var app in cfg?.Apps ?? new List<AppEntry>())
                 foreach (var p in app?.Programs ?? new List<RuleProgram>())
                     if (p != null && !p.IsStoreApp) AddVersionParents(p.Path, includeOwnParent: false);
+            // Auto folders (2026-11-23): their exe list matters only to the firewall, so a watcher
+            // only where the firewall walls the rule (FirewallGuard.Build's condition) — and no
+            // version parents: its program's path already registers those, and with a folder for
+            // nearly every tile they would eat the 64 watchers. Last, so they never push a manual
+            // folder's watcher out.
+            if (cfg != null && cfg.FirewallKillSwitch)
+                foreach (var app in (cfg.Apps ?? new List<AppEntry>()).Where(a => a != null && (a.KillSwitch || a.LockNic)))
+                    foreach (var f in app.Folders ?? new List<RuleFolder>())
+                        if (f != null && f.Auto && !string.IsNullOrWhiteSpace(f.Path)) Add(f.Path, Kind.Exes);
             if (skipped > 0)
                 NoteOnce("watch-cap|" + skipped, "Слежение за папками: " + MaxWatchers + " папок — предел, ещё " + skipped
                                                  + " без слежения (их подхватит проверка раз в 10 минут).");

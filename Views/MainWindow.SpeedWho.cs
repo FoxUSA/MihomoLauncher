@@ -32,7 +32,7 @@ namespace MihomoLauncher.Views
     // tabular digits; the window keeps its height whatever is open.
     //
     // Drawn like the rules list (ListsWindow.GridApps, 2026-11-22: «все таблицы одного стиля и
-    // размера»): the header, cell padding, hairlines and row colours of Themes\DataGridStyles.xaml,
+    // размера»): the header, cell padding, hairlines and row colours of Themes\Common\DataGridStyles.xaml,
     // taken from the same Theme table tokens, in the same well with the outline. The one difference is the row height: these cells hold two
     // lines (name + connections, host + address), which 26 px cannot, so rows stay WhoRowH.
     public partial class MainWindow
@@ -115,9 +115,28 @@ namespace MihomoLauncher.Views
 
         private const int WhoRows = 8;
         private const double WhoRowH = 36;
+        // Lines that stand side by side in two columns must be one height whatever is in them
+        // (2026-11-25: the place's first line holds the 17 px country badge, the name's does not —
+        // the IP under the place sat lower than the time under the name): the first line 18, every
+        // small line under it 13, Consolas or Segoe alike — their natural heights (18 / 14 spread
+        // the lines apart, 2026-11-25); the country badge is 16 to fit the first line.
+        private const double WhoLine1H = 16, WhoLineSmallH = 13;
+        private static TextBlock SmallLine(TextBlock t)
+        {
+            t.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+            t.LineHeight = WhoLineSmallH;
+            return t;
+        }
+        // A PROGRAM row with the clock's time: three lines — name / date / time (its connections go
+        // under the figure). An address row stays WhoRowH: name / time | place / IP is two lines
+        // (2026-11-25: 50 for both left the address rows half empty). The boxes never change height
+        // («окно менять нельзя по высоте»): 8 × 36 = 288 holds exactly 6 program rows of 48.
+        private const double WhoRowH3 = 48;
+        private bool _whoShowTime;            // the clock button, for this session
+        private bool _whoShowIp = true;       // the «IP» button, for this session
         private static readonly FontFamily WhoMono = new FontFamily("Consolas");
 
-        // The model table's metrics (Themes\DataGridStyles.xaml): header 34 high, 13 semibold; cells
+        // The model table's metrics (Themes\Common\DataGridStyles.xaml): header 34 high, 13 semibold; cells
         // 12 with 8 px sides; hairlines right and bottom of every cell, the first column also left.
         private const double WhoHeadH = 34;
         private const double WhoHeadFont = 13;
@@ -129,6 +148,72 @@ namespace MihomoLauncher.Views
 
         private string AsnPath => _mihomo == null ? null : System.IO.Path.Combine(_mihomo.WorkDir, "ASN.mmdb");
 
+        // ---- sorting (2026-11-25) ----
+        // A click on a column title sorts by what that column shows NOW («сортировка сортирует то,
+        // что сейчас есть в его столбике»): «N соед.» is under the name, or under the figure while
+        // the clock shows; the IP under the address name, or under the place. A column holding
+        // several things steps through them and says which under its title («по времени»); one
+        // holding one thing (provider, ↓ DL, ↑ UL) turns it round on a second click, no caption.
+        // Time — the default — always belongs to the name column (its line, when shown, is there).
+        internal enum WhoSort { Time, Name, Conns, Down, Up, Ip, Place, Isp }
+
+        private sealed class WhoSortState
+        {
+            public WhoSort Key = WhoSort.Time;
+            public bool Rev;   // the other way from the key's natural order
+
+            public static WhoSortState Parse(string s)
+            {
+                var st = new WhoSortState();
+                s = (s ?? "").Trim();
+                if (s.EndsWith("!")) { st.Rev = true; s = s.Substring(0, s.Length - 1); }
+                WhoSort k;
+                if (Enum.TryParse(s, out k)) st.Key = k; else st.Rev = false;
+                return st;
+            }
+            public override string ToString() => Key == WhoSort.Time && !Rev ? "" : Key + (Rev ? "!" : "");
+        }
+
+        // Natural order: time, figures, connections — biggest / newest first; words and IPs — A to Z.
+        private static bool WhoSortDesc(WhoSort k) => k == WhoSort.Time || k == WhoSort.Conns || k == WhoSort.Down || k == WhoSort.Up;
+
+        private static string WhoSortCaption(WhoSort k, bool live)
+        {
+            switch (k)
+            {
+                case WhoSort.Time: return Loc.T("Main_WhoSortTime");
+                case WhoSort.Name: return Loc.T("Main_WhoSortName");
+                case WhoSort.Conns: return Loc.T("Main_WhoSortConns");
+                case WhoSort.Ip: return Loc.T("Main_WhoSortIp");
+                case WhoSort.Place: return Loc.T("Main_WhoSortPlace");
+                case WhoSort.Down: return Loc.T("Main_WhoSortDown");
+                default: return "";
+            }
+        }
+
+        // Compares by `key` (null = has none: always last, whichever way), then `tie`.
+        private static int WhoCmp<T>(T a, T b, Func<T, IComparable> key, bool desc, Comparison<T> tie)
+        {
+            var ka = key(a); var kb = key(b);
+            if (ka == null && kb != null) return 1;
+            if (ka != null && kb == null) return -1;
+            if (ka != null)
+            {
+                int c = ka is string sa ? string.Compare(sa, (string)kb, StringComparison.CurrentCultureIgnoreCase) : ka.CompareTo(kb);
+                if (c != 0) return desc ? -c : c;
+            }
+            return tie(a, b);
+        }
+
+        // An IP as text that sorts in address order: IPv4 first, each byte as two hex digits.
+        private static string WhoIpKey(string ip)
+        {
+            System.Net.IPAddress a;
+            if (string.IsNullOrEmpty(ip) || !System.Net.IPAddress.TryParse(ip, out a)) return null;
+            var b = a.GetAddressBytes();
+            return (b.Length == 4 ? "4" : "6") + BitConverter.ToString(b);
+        }
+
         private sealed class WhoProg
         {
             public string Key, Name, Path;
@@ -138,6 +223,16 @@ namespace MihomoLauncher.Views
             public long Bytes;
             public int Count;          // archive: connections in the period
             public List<WhoAddr> Addrs; // archive: already added up
+            public DateTime First = DateTime.MinValue, Last = DateTime.MinValue;   // as WhoAddr's
+            public void Saw(DateTime start, DateTime end) => WhoSaw(ref First, ref Last, start, end);
+        }
+
+        // The earliest start / latest end seen (UTC; MinValue = unknown; a missing start counts as the end).
+        private static void WhoSaw(ref DateTime first, ref DateTime last, DateTime start, DateTime end)
+        {
+            if (start == DateTime.MinValue) start = end;
+            if (start != DateTime.MinValue && (first == DateTime.MinValue || start < first)) first = start;
+            if (end > last) last = end;
         }
 
         private static string RecProgKey(ConnArchive.Rec r) => r.Path.Length > 0 ? r.Path : r.Process.Length > 0 ? r.Process : "?";
@@ -168,6 +263,9 @@ namespace MihomoLauncher.Views
                     map[ak] = a = new WhoAddr { Host = r.Host.Length > 0 ? r.Host : r.Sniff, Ip = r.Ip, Port = r.Port, Network = r.Network };
                 if (a.Ip.Length == 0 && r.Ip.Length > 0) a.Ip = r.Ip;
                 a.Count++; a.Down += r.Down; a.Up += r.Up; a.Bytes += r.Down + r.Up;
+                var rs = r.Start > 0 ? ConnArchive.TimeOf(r.Start) : DateTime.MinValue;
+                a.Saw(rs, ConnArchive.TimeOf(r.End));
+                p.Saw(rs, ConnArchive.TimeOf(r.End));
             }
             foreach (var p in progs.Values)
                 p.Addrs = addrs[p.Key].Values.OrderByDescending(a => a.Bytes).ThenBy(a => a.Host, StringComparer.OrdinalIgnoreCase).ToList();
@@ -196,6 +294,30 @@ namespace MihomoLauncher.Views
             public int Count, Open;
             public double Down, Up;
             public long Bytes;
+            // UTC: the earliest of its connections opened / the latest was last seen (MinValue = unknown).
+            public DateTime First = DateTime.MinValue, Last = DateTime.MinValue;
+            public void Saw(DateTime start, DateTime end) => WhoSaw(ref First, ref Last, start, end);
+        }
+
+        // When, in the system's date and time format, whole — nothing cut (2026-11-25: «25.11.2026
+        // 10:18 – 13:12» did not fit the program column and ended in «…»). The date on one line,
+        // the time under it: one connection — when it opened, to the second («25.11.2026» /
+        // «10:43:15»); several — from the first to the last («25.11.2026» / «10:18 – 13:12»;
+        // over midnight both dates: «24.11.2026 – 25.11.2026» / «23:50 – 00:10»).
+        // twoLines: the date over the time — for the narrow program column only; the addresses
+        // have room for one line (2026-11-25).
+        private static string WhoWhen(int count, DateTime first, DateTime last, bool twoLines)
+        {
+            if (first == DateTime.MinValue && last == DateTime.MinValue) return "—";
+            var f = (first != DateTime.MinValue ? first : last).ToLocalTime();
+            var l = (last != DateTime.MinValue ? last : first).ToLocalTime();
+            var c = CultureInfo.CurrentCulture;
+            string br = twoLines ? "\n" : " ";
+            if (count <= 1 || (l - f).TotalSeconds < 60) return f.ToString("d", c) + br + f.ToString("T", c);
+            if (f.Date == l.Date) return f.ToString("d", c) + br + f.ToString("t", c) + " – " + l.ToString("t", c);
+            return twoLines
+                ? f.ToString("d", c) + " – " + l.ToString("d", c) + "\n" + f.ToString("t", c) + " – " + l.ToString("t", c)
+                : f.ToString("d", c) + " " + f.ToString("t", c) + " – " + l.ToString("d", c) + " " + l.ToString("t", c);
         }
 
         // The «кто и куда» block and its refresh. Registers the tile for collection; the caller
@@ -207,9 +329,33 @@ namespace MihomoLauncher.Views
         // archive of that period (ConnArchive + what is open right now), read once when chosen and
         // then left still — no rows jumping while it is looked at. setHours switches it.
         private UIElement BuildSpeedWho(AppEntry entry, Window win, bool detached, string initialSelected, int initialHours,
-                                        out Action stop, out Action<int> setHours)
+                                        string initialMask, out Action stop, out Action<int> setHours)
         {
             string selected = initialSelected;
+            Wpf.Ui.Controls.TextBox search = null;   // made below, read by Refresh
+            // The addresses' own pick (2026-11-25): a click on an address selects it and the arrows
+            // then move through the addresses; a click on a program gives them back to the programs.
+            bool addrPane = false;
+            string selAddr = null;
+            List<WhoAddr> shownAddrs = new List<WhoAddr>();
+            string AddrId(WhoAddr a) => !string.IsNullOrEmpty(a.Host) ? a.Host : a.Ip ?? "";
+            // The clock button (2026-11-25): when — a third line in every row of both tables, the
+            // rows that much taller. Remembered for the session (the next window opens the same).
+            bool showTime = _whoShowTime;
+            bool showIp = _whoShowIp;   // the «IP» button: the address line under each name
+            var progSort = WhoSortState.Parse(_config.WhoSortProgs);
+            var addrSort = WhoSortState.Parse(_config.WhoSortAddrs);
+            double RowH() => showTime ? WhoRowH3 : WhoRowH;   // a program row; an address row is always WhoRowH
+            // Program rows that fill the box (it stays WhoRows × WhoRowH tall): 8, or 6 with the time.
+            int ProgMinRows() => (int)Math.Round(WhoRows * WhoRowH / RowH());
+            var progWhen = new List<TextBlock>();
+            var aWhen = new List<TextBlock>();
+            TextBlock WhenCell() => SmallLine(new TextBlock
+            {
+                // Two lines for a span (WhoWhen), never cut.
+                FontSize = 11, Foreground = Theme.TextMuted, FontFamily = WhoMono,
+                Visibility = showTime ? Visibility.Visible : Visibility.Collapsed,
+            });
             List<WhoProg> progs = new List<WhoProg>();
             Action refresh = null;   // the row clicks are wired before Refresh exists
             int hours = initialHours;
@@ -234,6 +380,8 @@ namespace MihomoLauncher.Views
             var progRows = new List<Border>();
             var progName = new List<TextBlock>();
             var progSub = new List<TextBlock>();
+            var progSubR = new List<TextBlock>();   // the same, under the figure while the time shows
+            var progPad = new List<Border>();       // and an empty line under it
             var progDown = new List<TextBlock>();
             // All of them (2026-11-16: «показываем все»): the rows scroll inside a box exactly
             // WhoRows tall, so the window keeps its height; rows are added as needed, never rebuilt.
@@ -245,12 +393,35 @@ namespace MihomoLauncher.Views
             {
                 int i = progRows.Count;
                 var name = Cell(WhoCellFont, Theme.TextPrimary, FontWeights.SemiBold);
-                var sub = Cell(11, Theme.TextMuted);
+                name.Height = WhoLine1H;
+                var sub = SmallLine(Cell(11, Theme.TextMuted));
+                var when = WhenCell();
                 var down = Num();
+                down.Height = WhoLine1H;
+                // With the time shown, «89 соед.» moves under the figure (2026-11-25): the name
+                // column then holds name / date / time.
+                var subR = SmallLine(Cell(11, Theme.TextMuted));
+                subR.TextAlignment = TextAlignment.Right;
+                subR.HorizontalAlignment = HorizontalAlignment.Right;
+                sub.Visibility = showTime ? Visibility.Collapsed : Visibility.Visible;
+                subR.Visibility = showTime ? Visibility.Visible : Visibility.Collapsed;
                 var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 stack.Children.Add(name);
                 stack.Children.Add(sub);
-                var row = Row(progCols, i, -1, stack, down);
+                stack.Children.Add(when);
+                down.HorizontalAlignment = HorizontalAlignment.Right;
+                var right = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                right.Children.Add(down);
+                right.Children.Add(subR);
+                // An empty third line opposite the time's second: both columns are three lines
+                // tall, so «89 соед.» stands level with the date.
+                var pad = new Border { Height = WhoLineSmallH, Visibility = subR.Visibility };
+                right.Children.Add(pad);
+                progPad.Add(pad);
+                var row = Row(progCols, i, -1, stack, right);
+                row.Height = RowH();
+                progWhen.Add(when);
+                progSubR.Add(subR);
                 int idx = i;
                 row.Cursor = Cursors.Hand;
                 row.MouseLeftButtonDown += (s, e) =>
@@ -259,7 +430,9 @@ namespace MihomoLauncher.Views
                     var p = progs[idx];
                     e.Handled = true;
                     if (e.ClickCount >= 2) { ShowInExplorer(win, p); return; }
+                    if (selected != p.Key) selAddr = null;
                     selected = p.Key;
+                    addrPane = false;
                     refresh?.Invoke();
                 };
                 progRows.Add(row); progName.Add(name); progSub.Add(sub); progDown.Add(down);
@@ -272,7 +445,7 @@ namespace MihomoLauncher.Views
             if (detached)
             {
                 progTable.Children.Remove(progScroll);
-                progTable.Children.Add(StripedUnder(progScroll, out progStripes));
+                progTable.Children.Add(StripedUnder(progScroll, () => RowH(), out progStripes));
             }
             var leftStack = new DockPanel();
             leftStack.Children.Add(leftHead);
@@ -283,6 +456,7 @@ namespace MihomoLauncher.Views
             var rightHead = PaneTitle();
             var rightHeadRow = new DockPanel();
             DockPanel.SetDock(rightHeadRow, Dock.Top);
+            Action toggleTime = null, toggleIp = null;   // set once both tables exist
             if (!detached)
             {
                 var icon = new Wpf.Ui.Controls.SymbolIcon { Symbol = Wpf.Ui.Controls.SymbolRegular.Open24, FontSize = 16, Foreground = Theme.TextSecondary };
@@ -294,10 +468,41 @@ namespace MihomoLauncher.Views
                 };
                 detach.MouseEnter += (s, e) => { detach.Background = Theme.ChipBgHover; icon.Foreground = Theme.TextPrimary; };
                 detach.MouseLeave += (s, e) => { detach.Background = Brushes.Transparent; icon.Foreground = Theme.TextSecondary; };
-                detach.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenSpeedWhoWindow(entry, selected, hours); };
+                detach.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenSpeedWhoWindow(entry, selected, hours, search?.Text); };
                 DockPanel.SetDock(detach, Dock.Right);
                 rightHeadRow.Children.Add(detach);
             }
+            // Switches left of ⧉ (2026-11-25), lit while on: the clock — when, a third line in both
+            // tables; «IP» — the address line under each name (on by default).
+            void AddSwitch(UIElement content, Func<bool> isOn, Action flip, string tip, double rightMargin)
+            {
+                var b = new Border
+                {
+                    Width = 28, Height = 24, CornerRadius = new CornerRadius(5),
+                    Margin = new Thickness(4, 0, rightMargin, 4), Cursor = Cursors.Hand, ToolTip = tip,
+                    Child = content,
+                };
+                void Paint(bool hover)
+                {
+                    bool on = isOn();
+                    b.Background = on ? Theme.ChipBg : hover ? Theme.ChipBgHover : Brushes.Transparent;
+                    b.BorderBrush = Theme.CardBorder;
+                    b.BorderThickness = new Thickness(on ? 1 : 0);
+                    var fg = on || hover ? Theme.TextPrimary : Theme.TextSecondary;
+                    if (content is Wpf.Ui.Controls.SymbolIcon si) si.Foreground = fg;
+                    else if (content is TextBlock tb) tb.Foreground = fg;
+                }
+                Paint(false);
+                b.MouseEnter += (s, e) => Paint(true);
+                b.MouseLeave += (s, e) => Paint(false);
+                b.MouseLeftButtonUp += (s, e) => { e.Handled = true; flip?.Invoke(); Paint(b.IsMouseOver); };
+                DockPanel.SetDock(b, Dock.Right);
+                rightHeadRow.Children.Add(b);
+            }
+            AddSwitch(new Wpf.Ui.Controls.SymbolIcon { Symbol = Wpf.Ui.Controls.SymbolRegular.Clock24, FontSize = 16 },
+                      () => showTime, () => toggleTime?.Invoke(), Loc.T("Main_WhoTimeTip"), detached ? 2 : 0);
+            AddSwitch(new TextBlock { Text = "IP", FontSize = 11, FontWeight = FontWeights.Bold, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center },
+                      () => showIp, () => toggleIp?.Invoke(), Loc.T("Main_WhoIpTip"), 0);
             rightHeadRow.Children.Add(rightHead);
 
             // Columns: address · place · provider take what their longest text needs (WhoFit),
@@ -317,6 +522,7 @@ namespace MihomoLauncher.Views
             aGrids.Add((Grid)addrHeader.Child);
             var aHost = new List<TextBlock>();
             var aIp = new List<TextBlock>();
+            var aIpR = new List<TextBlock>();   // the same line under the place (while the time shows)
             var aCc = new List<Border>();
             var aCcText = new List<TextBlock>();
             var aPlace = new List<TextBlock>();
@@ -328,54 +534,275 @@ namespace MihomoLauncher.Views
             var addrScroll = ScrollBox(addrBody, !detached);
             addrTable.Children.Add(addrScroll);
             double[] want = { 160, 160, 120 };
-            double[] least = { 120, 110, 90 };
+            double[] leastBase = { 120, 110, 90 };
+            double[] least = (double[])leastBase.Clone();   // never under what the column's title needs
+            double dlW = 66, ulW = 60;   // ↓ / ↑: 66 / 60, or what their titles need (the sort mark)
             void LayoutAddr()
             {
                 double view = addrScroll.ViewportWidth > 0 ? addrScroll.ViewportWidth : addrScroll.ActualWidth;
                 if (view <= 0) return;
                 // ↓ + ↑ + gutter are fixed; the three text columns share the rest.
-                var w = WhoFit(want, least, view - 66 - 60 - Gutter);
+                var w = WhoFit(want, least, view - dlW - ulW - Gutter);
                 foreach (var g in aGrids)
+                {
                     for (int k = 0; k < 3; k++) g.ColumnDefinitions[k].Width = new GridLength(w[k]);
+                    g.ColumnDefinitions[4].Width = new GridLength(dlW);
+                    g.ColumnDefinitions[5].Width = new GridLength(ulW);
+                }
                 SyncGutter(addrScroll, (Grid)addrHeader.Child);
             }
             addrScroll.SizeChanged += (s, e) => LayoutAddr();
             if (detached)
             {
                 addrTable.Children.Remove(addrScroll);
-                addrTable.Children.Add(StripedUnder(addrScroll, out addrStripes));
+                addrTable.Children.Add(StripedUnder(addrScroll, () => WhoRowH, out addrStripes));
             }
             addrScroll.ScrollChanged += (s, e) => { if (e.ViewportWidthChange != 0) LayoutAddr(); };
             void AddAddrRow()
             {
                 int i = aRows.Count;
                 var host = Cell(WhoCellFont, Theme.TextPrimary, FontWeights.SemiBold);
-                var ip = Cell(11, Theme.TextMuted);
+                host.Height = WhoLine1H;
+                var ip = SmallLine(Cell(11, Theme.TextMuted));
                 ip.FontFamily = WhoMono;
+                // With the time shown the IP moves under the place (ipR), as «89 соед.» moves under
+                // the figure for a program (2026-11-25): name / time | place / IP.
+                var ipR = SmallLine(Cell(11, Theme.TextMuted));
+                ipR.FontFamily = WhoMono;
+                var when = WhenCell();
                 var hs = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
                 hs.Children.Add(host);
                 hs.Children.Add(ip);
+                hs.Children.Add(when);
+                aWhen.Add(when);
 
                 var cc = CountryBadge("");
                 cc.Margin = new Thickness(0, 0, 6, 0);
                 var ccText = (TextBlock)cc.Child;
                 var place = Cell(12, Theme.TextPrimary);
-                var geo = new DockPanel { VerticalAlignment = VerticalAlignment.Center, LastChildFill = true };
+                var geo = new DockPanel { LastChildFill = true, Height = WhoLine1H };
                 DockPanel.SetDock(cc, Dock.Left);
                 geo.Children.Add(cc);
                 geo.Children.Add(place);
+                var geoCell = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                geoCell.Children.Add(geo);
+                geoCell.Children.Add(ipR);
+                aIpR.Add(ipR);
 
                 var isp = Cell(12, Theme.TextSecondary);
                 var down = Num();
                 var up = Num();
                 up.Foreground = Theme.TextSecondary;
-                var arow = Row(addrCols, i, 2, hs, geo, isp, new Border(), down, up);
+                var arow = Row(addrCols, i, 2, hs, geoCell, isp, new Border(), down, up);   // WhoRowH tall, always
+                int idx = i;
+                arow.MouseLeftButtonDown += (s, e) =>
+                {
+                    if (idx >= shownAddrs.Count) return;
+                    e.Handled = true;
+                    selAddr = AddrId(shownAddrs[idx]);
+                    addrPane = true;
+                    refresh?.Invoke();
+                };
                 addrBody.Children.Add(arow);
                 aRows.Add(arow);
                 aGrids.Add((Grid)arow.Child);
                 aHost.Add(host); aIp.Add(ip); aCc.Add(cc); aCcText.Add(ccText); aPlace.Add(place); aIsp.Add(isp); aDown.Add(down); aUp.Add(up);
+                PlaceIp(i);
+            }
+            // Where the IP line is: under the name, or under the place while the time shows; none with «IP» off.
+            void PlaceIp(int i)
+            {
+                aIp[i].Visibility = showIp && !showTime ? Visibility.Visible : Visibility.Collapsed;
+                aIpR[i].Visibility = showIp && showTime ? Visibility.Visible : Visibility.Collapsed;
             }
             for (int i = 0; i < WhoRows; i++) AddAddrRow();
+            toggleTime = () =>
+            {
+                showTime = !showTime;
+                _whoShowTime = showTime;
+                var vis = showTime ? Visibility.Visible : Visibility.Collapsed;
+                foreach (var r in progRows) r.Height = RowH();
+                foreach (var t in progWhen) t.Visibility = vis;
+                foreach (var t in aWhen) t.Visibility = vis;
+                foreach (var t in progSubR) t.Visibility = vis;
+                foreach (var b in progPad) b.Visibility = vis;
+                foreach (var t in progSub) t.Visibility = showTime ? Visibility.Collapsed : Visibility.Visible;
+                for (int i = 0; i < aIp.Count; i++) PlaceIp(i);
+                // The boxes keep their height (the window does not change): fewer, taller program rows.
+                refresh?.Invoke();
+            };
+            toggleIp = () =>
+            {
+                showIp = !showIp;
+                _whoShowIp = showIp;
+                for (int i = 0; i < aIp.Count; i++) PlaceIp(i);
+                refresh?.Invoke();   // the address column's width follows what is shown
+            };
+
+            // ---- sorting: what each column holds right now ----
+            WhoSort[] ProgColKeys(int col)
+            {
+                if (col == 0) return showTime ? new[] { WhoSort.Time, WhoSort.Name } : new[] { WhoSort.Time, WhoSort.Name, WhoSort.Conns };
+                if (col == 1) return showTime ? new[] { WhoSort.Down, WhoSort.Conns } : new[] { WhoSort.Down };
+                return new WhoSort[0];
+            }
+            WhoSort[] AddrColKeys(int col)
+            {
+                switch (col)
+                {
+                    case 0: return showIp && !showTime ? new[] { WhoSort.Time, WhoSort.Name, WhoSort.Ip, WhoSort.Conns } : new[] { WhoSort.Time, WhoSort.Name, WhoSort.Conns };
+                    case 1: return showIp && showTime ? new[] { WhoSort.Place, WhoSort.Ip } : new[] { WhoSort.Place };
+                    case 2: return new[] { WhoSort.Isp };
+                    case 4: return new[] { WhoSort.Down };
+                    case 5: return new[] { WhoSort.Up };
+                    default: return new WhoSort[0];
+                }
+            }
+            int[] progSortCols = { 0, 1 }, addrSortCols = { 0, 1, 2, 4, 5 };
+            // The column the sort is in now; -1 = its value is shown nowhere (the IP with «IP» off):
+            // then by time until it shows again — the choice itself is kept.
+            int SortCol(WhoSortState st, Func<int, WhoSort[]> keys, int[] cols)
+            {
+                foreach (int c in cols) if (keys(c).Contains(st.Key)) return c;
+                return -1;
+            }
+            WhoSortState Effective(WhoSortState st, Func<int, WhoSort[]> keys, int[] cols)
+                => SortCol(st, keys, cols) >= 0 ? st : new WhoSortState();
+
+            void SortClick(WhoSortState st, Func<int, WhoSort[]> keys, int[] cols, int col)
+            {
+                var k = keys(col);
+                if (k.Length == 0) return;
+                var eff = Effective(st, keys, cols);
+                int at = Array.IndexOf(k, eff.Key);
+                if (at < 0) { st.Key = k[0]; st.Rev = false; }
+                else if (k.Length == 1) { st.Key = k[0]; st.Rev = !eff.Rev; }
+                else { st.Key = k[(at + 1) % k.Length]; st.Rev = false; }
+                _config.WhoSortProgs = progSort.ToString();
+                _config.WhoSortAddrs = addrSort.ToString();
+                try { AppConfigStore.Save(_config); }
+                catch (Exception ex) { Log.Error("who-sort-save", ex); }
+                refresh?.Invoke();
+            }
+            void WireSort(Border header, WhoSortState st, Func<int, WhoSort[]> keys, int[] cols)
+            {
+                foreach (int c in cols)
+                {
+                    var cell = (Border)((Grid)header.Child).Children[c];
+                    int col = c;
+                    cell.Cursor = Cursors.Hand;
+                    cell.ToolTip = Loc.T("Main_WhoSortTip");
+                    cell.MouseLeftButtonUp += (s, e) => { e.Handled = true; SortClick(st, keys, cols, col); };
+                }
+            }
+            WireSort(progHeader, progSort, ProgColKeys, progSortCols);
+            WireSort(addrHeader, addrSort, AddrColKeys, addrSortCols);
+
+            // A title: the sorted column in the accent; one that holds several things says under its
+            // title which one (a second small line, inside the same header height); one that holds
+            // one thing shows only which way (▾ biggest / newest first, ▴ smallest / A first).
+            void PaintHead(Border header, int col, string title, WhoSortState st, Func<int, WhoSort[]> keys, int[] cols, bool live)
+            {
+                var t = WhoHeadText(header, col);
+                t.Inlines.Clear();
+                var eff = Effective(st, keys, cols);
+                bool on = SortCol(st, keys, cols) == col || (SortCol(st, keys, cols) < 0 && col == 0);
+                var k = keys(col);
+                t.Foreground = on ? Theme.Accent : Theme.TextPrimary;
+                t.Inlines.Add(new Run(title));
+                if (on && k.Length > 1)
+                {
+                    t.LineStackingStrategy = LineStackingStrategy.BlockLineHeight;
+                    t.LineHeight = 15;
+                    t.Inlines.Add(new LineBreak());
+                    t.Inlines.Add(new Run(WhoSortCaption(eff.Key, live)) { FontSize = 11, FontWeight = FontWeights.Normal });
+                }
+                else
+                {
+                    t.LineStackingStrategy = LineStackingStrategy.MaxHeight;
+                    t.ClearValue(TextBlock.LineHeightProperty);
+                    if (on) t.Inlines.Add(new Run((WhoSortDesc(eff.Key) != eff.Rev) ? " ▾" : " ▴") { FontSize = 11 });
+                }
+            }
+            void PaintHeads(bool live)
+            {
+                PaintHead(progHeader, 0, Loc.T("Main_WhoColProgram"), progSort, ProgColKeys, progSortCols, live);
+                PaintHead(progHeader, 1, Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol"), progSort, ProgColKeys, progSortCols, live);
+                PaintHead(addrHeader, 0, Loc.T("Main_WhoColAddr"), addrSort, AddrColKeys, addrSortCols, live);
+                PaintHead(addrHeader, 1, Loc.T("Main_WhoColWhere"), addrSort, AddrColKeys, addrSortCols, live);
+                PaintHead(addrHeader, 2, Loc.T("Main_WhoColIsp"), addrSort, AddrColKeys, addrSortCols, live);
+                PaintHead(addrHeader, 4, Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol"), addrSort, AddrColKeys, addrSortCols, live);
+                PaintHead(addrHeader, 5, Loc.T("Main_WhoColUp"), addrSort, AddrColKeys, addrSortCols, live);
+            }
+
+            // Ties: the bigger traffic first, then by name — rows never swap at random.
+            int ProgTie(WhoProg a, WhoProg b)
+            {
+                int c = b.Bytes.CompareTo(a.Bytes);
+                return c != 0 ? c : string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase);
+            }
+            int AddrTie(WhoAddr a, WhoAddr b)
+            {
+                int c = b.Bytes.CompareTo(a.Bytes);
+                return c != 0 ? c : string.Compare(AddrId(a), AddrId(b), StringComparison.OrdinalIgnoreCase);
+            }
+            // Time: when it started (the date line, then the time in it), then when last seen —
+            // the start does not move while a connection lasts, so the live list does not jump.
+            IComparable TimeKey(DateTime first, DateTime last)
+            {
+                var f = first != DateTime.MinValue ? first : last;
+                if (f == DateTime.MinValue) return null;
+                return f.Ticks.ToString("D19") + (last != DateTime.MinValue ? last : f).Ticks.ToString("D19");
+            }
+            void SortProgs(List<WhoProg> list, bool live)
+            {
+                var st = Effective(progSort, ProgColKeys, progSortCols);
+                bool desc = WhoSortDesc(st.Key) != st.Rev;
+                Func<WhoProg, IComparable> key;
+                switch (st.Key)
+                {
+                    case WhoSort.Name: key = p => p.Name; break;
+                    case WhoSort.Conns: key = p => live ? p.Open : p.Count; break;
+                    case WhoSort.Down: key = p => p.Down; break;
+                    case WhoSort.Up: key = p => p.Up; break;
+                    default: key = p => TimeKey(p.First, p.Last); break;
+                }
+                list.Sort((a, b) => WhoCmp(a, b, key, desc, ProgTie));
+            }
+            void SortAddrs(List<WhoAddr> list, string asnPath)
+            {
+                var st = Effective(addrSort, AddrColKeys, addrSortCols);
+                bool desc = WhoSortDesc(st.Key) != st.Rev;
+                Func<WhoAddr, IComparable> key;
+                switch (st.Key)
+                {
+                    case WhoSort.Name: key = a => !string.IsNullOrEmpty(a.Host) ? a.Host : string.IsNullOrEmpty(a.Ip) ? null : a.Ip; break;
+                    case WhoSort.Conns: key = a => a.Count; break;
+                    case WhoSort.Down: key = a => a.Down; break;
+                    case WhoSort.Up: key = a => a.Up; break;
+                    case WhoSort.Ip: key = a => WhoIpKey(a.Ip); break;
+                    case WhoSort.Place:
+                        key = a =>
+                        {
+                            if (string.IsNullOrEmpty(a.Ip)) return null;
+                            var g = GeoIpService.Lookup(a.Ip);
+                            var place = GeoIpService.PlaceOf(g);
+                            if (place.Length == 0 && IsPrivate(a.Ip)) place = Loc.T("Main_WhoLocal");
+                            var iso = g?.IsoCode ?? "";
+                            return iso.Length == 0 && place.Length == 0 ? null : iso + " " + place;
+                        };
+                        break;
+                    case WhoSort.Isp:
+                        key = a =>
+                        {
+                            var org = string.IsNullOrEmpty(a.Ip) ? "" : GeoIpService.OrgOf(a.Ip, asnPath);
+                            return org.Length > 0 ? org : null;
+                        };
+                        break;
+                    default: key = a => TimeKey(a.First, a.Last); break;
+                }
+                list.Sort((a, b) => WhoCmp(a, b, key, desc, AddrTie));
+            }
             var empty = new TextBlock
             {
                 FontSize = 12.5, Foreground = Theme.TextSecondary, TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
@@ -398,40 +825,159 @@ namespace MihomoLauncher.Views
             Grid.SetColumn(right, 2);
             split.Children.Add(right);
 
+            // ---- search (2026-11-25): one line over both tables, so the two still start level ----
+            // A mask over everything the tables show — program, address, IP, port, place, country
+            // code, provider — within the period tab that is open. Empty: a «paste» icon where the
+            // cross sits once there is text.
+            search = new Wpf.Ui.Controls.TextBox
+            {
+                PlaceholderText = Loc.T("Main_WhoSearchHint"),
+                ToolTip = Loc.T("Main_WhoSearchTip"),
+                ClearButtonEnabled = true,
+                Icon = new Wpf.Ui.Controls.SymbolIcon { Symbol = Wpf.Ui.Controls.SymbolRegular.Search16 },
+                FontSize = 13,
+                MinHeight = 0,
+                Height = 32,
+                Padding = new Thickness(8, 0, 8, 0),
+                VerticalContentAlignment = VerticalAlignment.Center,
+                // Our look, not the library's input fill (2026-11-25: «не в нашем стиле»): the
+                // field is see-through and the frame around it is a block like «Выход в интернет».
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Text = initialMask ?? "",
+            };
+            PasteButton.SetIsEnabled(search, true);
+            // The library's own underline (its accent line on focus) — our frame says it instead.
+            search.Loaded += (s, e) => HideNamedParts(search, "AccentBorder");
+            var searchBox = new Border
+            {
+                Background = Theme.CardBg,
+                BorderBrush = Theme.CardBorder,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(2, 0, 2, 0),
+                Margin = new Thickness(0, 10, 0, 0),
+                Cursor = Cursors.IBeam,
+                Child = search,
+            };
+            // Exactly as tall as the «Выход в интернет» line above it (2026-11-25).
+            exitBox.SizeChanged += (s, e) =>
+            {
+                if (!e.HeightChanged || exitBox.ActualHeight <= 2) return;
+                searchBox.Height = exitBox.ActualHeight;
+                search.Height = exitBox.ActualHeight - 2;
+            };
+            void PaintSearchBox()
+            {
+                searchBox.Background = searchBox.IsMouseOver ? Theme.CardBgHover : Theme.CardBg;
+                searchBox.BorderBrush = search.IsKeyboardFocusWithin ? Theme.TileBorderHover : Theme.CardBorder;
+            }
+            searchBox.MouseEnter += (s, e) => PaintSearchBox();
+            searchBox.MouseLeave += (s, e) => PaintSearchBox();
+            search.IsKeyboardFocusWithinChanged += (s, e) => PaintSearchBox();
+            DockPanel.SetDock(searchBox, Dock.Top);
+            var searchTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromMilliseconds(200) };
+            searchTimer.Tick += (s, e) => { searchTimer.Stop(); refresh?.Invoke(); };
+            search.TextChanged += (s, e) => { searchTimer.Stop(); searchTimer.Start(); };
+
             var root = new DockPanel();
             root.Children.Add(exitBox);
+            root.Children.Add(searchBox);
             root.Children.Add(split);
+
+            List<WhoAddr> AddrsOf(WhoProg p) => p.Addrs ?? p.Conns
+                .GroupBy(w => AddrKey(w.C), StringComparer.OrdinalIgnoreCase)
+                .Select(g =>
+                {
+                    var f = g.First().C;
+                    var a = new WhoAddr
+                    {
+                        Host = f.Host.Length > 0 ? f.Host : f.SniffHost,
+                        Ip = g.Select(w => w.C.DestIp).FirstOrDefault(x => !string.IsNullOrEmpty(x)) ?? "",
+                        Port = f.Port,
+                        Network = f.Network,
+                        Count = g.Count(),
+                        Open = g.Count(w => !w.Closed),
+                        Down = g.Sum(w => w.Down),
+                        Up = g.Sum(w => w.Up),
+                        Bytes = g.Sum(w => w.C.Down + w.C.Up),
+                    };
+                    foreach (var w in g) a.Saw(w.C.Start, w.Closed ? w.Seen : DateTime.UtcNow);
+                    return a;
+                })
+                .OrderByDescending(a => a.Bytes).ThenBy(a => a.Host, StringComparer.OrdinalIgnoreCase).ToList();
+
+            // Everything a row of the addresses' table shows (the geo / provider lookups are cached).
+            bool AddrHit(WhoAddr a, Func<string, bool> m, string asnPath)
+            {
+                string host = a.Host ?? "", ip = a.Ip ?? "", port = a.Port ?? "";
+                if (m(host) || m(ip) || m(a.Network ?? "")) return true;
+                if (port.Length > 0 && (m(port) || m(ip + ":" + port))) return true;
+                if (ip.Length == 0) return false;
+                var g = GeoIpService.Lookup(ip);
+                var place = GeoIpService.PlaceOf(g);
+                if (place.Length == 0 && IsPrivate(ip)) place = Loc.T("Main_WhoLocal");
+                if (m(place) || m(g?.IsoCode ?? "")) return true;
+                return m(GeoIpService.OrgOf(ip, asnPath));
+            }
 
             void Refresh()
             {
                 RenderExit(entry, exitText);
                 bool live = hours == 0;
 
-                // Column titles: speed now, or the volume over the period.
-                WhoHeadText(progHeader, 1).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
-                WhoHeadText(addrHeader, 4).Text = Loc.T(live ? "Main_WhoColDown" : "Main_WhoColVol");
+                // Column titles: speed now, or the volume over the period; the sort on them.
+                PaintHeads(live);
 
                 List<WhoConn> conns;
                 if (!live || !_whoNow.TryGetValue(entry.Id, out conns) || conns == null) conns = new List<WhoConn>();
                 progs = !live ? (archive ?? new List<WhoProg>()) : conns.GroupBy(w => ProgKey(w.C), StringComparer.OrdinalIgnoreCase)
-                    .Select(g => new WhoProg
+                    .Select(g =>
                     {
-                        Key = g.Key,
-                        Name = g.First().C.Process.Length > 0 ? g.First().C.Process : Loc.T("Main_WhoUnknownProc"),
-                        Path = g.Select(w => w.C.ProcessPath).FirstOrDefault(p => !string.IsNullOrEmpty(p)) ?? "",
-                        Conns = g.ToList(),
-                        Open = g.Count(w => !w.Closed),
-                        Down = g.Sum(w => w.Down),
-                        Up = g.Sum(w => w.Up),
-                        Bytes = g.Sum(w => w.C.Down + w.C.Up),
+                        var wp = new WhoProg
+                        {
+                            Key = g.Key,
+                            Name = g.First().C.Process.Length > 0 ? g.First().C.Process : Loc.T("Main_WhoUnknownProc"),
+                            Path = g.Select(w => w.C.ProcessPath).FirstOrDefault(p => !string.IsNullOrEmpty(p)) ?? "",
+                            Conns = g.ToList(),
+                            Open = g.Count(w => !w.Closed),
+                            Down = g.Sum(w => w.Down),
+                            Up = g.Sum(w => w.Up),
+                            Bytes = g.Sum(w => w.C.Down + w.C.Up),
+                        };
+                        foreach (var w in g) wp.Saw(w.C.Start, w.Closed ? w.Seen : DateTime.UtcNow);
+                        return wp;
                     })
                     // By what they carried, not by this second's speed: rows don't jump around.
                     .OrderByDescending(p => p.Bytes).ThenBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
+
+                // The search: a program stays if its name / path matches (then with all its
+                // addresses) or any of its addresses does (then with those only).
+                string asn = AsnPath;
+                int allCount = progs.Count;
+                var mask = DnsStats.MaskOf(search.Text);
+                Dictionary<string, List<WhoAddr>> found = null;
+                if (mask != null)
+                {
+                    found = new Dictionary<string, List<WhoAddr>>(StringComparer.OrdinalIgnoreCase);
+                    var kept = new List<WhoProg>();
+                    foreach (var p in progs)
+                    {
+                        var list = AddrsOf(p);
+                        if (!mask(p.Name ?? "") && !mask(p.Path ?? "")) list = list.Where(a => AddrHit(a, mask, asn)).ToList();
+                        if (list.Count == 0 && !mask(p.Name ?? "") && !mask(p.Path ?? "")) continue;
+                        kept.Add(p);
+                        found[p.Key] = list;
+                    }
+                    progs = kept;
+                }
+                SortProgs(progs, live);
                 if (selected == null || !progs.Any(p => p.Key == selected)) selected = progs.Count > 0 ? progs[0].Key : null;
 
-                leftHead.Text = Loc.T("Main_WhoPrograms") + (progs.Count > 0 ? " · " + progs.Count : "")
+                leftHead.Text = Loc.T("Main_WhoPrograms")
+                              + (mask != null ? " · " + Loc.T("Main_WhoFound", progs.Count, allCount) : progs.Count > 0 ? " · " + progs.Count : "")
                               + (live || archive == null ? "" : " · " + Loc.T("Main_WhoSnapshot", archiveAt.ToString("HH:mm")));
-                int progShow = Math.Max(WhoRows, progs.Count);
+                int progShow = Math.Max(ProgMinRows(), progs.Count);
                 progStripes?.Invoke(progShow);
                 while (progRows.Count < progShow) AddProgRow();
                 for (int i = 0; i < progRows.Count; i++)
@@ -442,6 +988,8 @@ namespace MihomoLauncher.Views
                     var p = i < progs.Count ? progs[i] : null;
                     progName[i].Text = p?.Name ?? "";
                     progSub[i].Text = p == null ? "" : !live ? Loc.T("Main_WhoConns", p.Count) : p.Open > 0 ? Loc.T("Main_WhoConns", p.Open) : Loc.T("Main_WhoClosed");
+                    progSubR[i].Text = progSub[i].Text;
+                    progWhen[i].Text = p == null ? "" : WhoWhen(live ? p.Conns.Count : p.Count, p.First, p.Last, true);
                     // Only closed ones left (within the last minute): dimmed, still there to see.
                     progRows[i].Opacity = live && p != null && p.Open == 0 ? 0.5 : 1;
                     if (live) SetSpeed(progDown[i], p == null ? (double?)null : p.Down);
@@ -452,25 +1000,10 @@ namespace MihomoLauncher.Views
                 }
 
                 var sel = progs.FirstOrDefault(p => p.Key == selected);
-                var addrs = sel == null ? new List<WhoAddr>() : sel.Addrs ?? sel.Conns
-                    .GroupBy(w => AddrKey(w.C), StringComparer.OrdinalIgnoreCase)
-                    .Select(g =>
-                    {
-                        var f = g.First().C;
-                        return new WhoAddr
-                        {
-                            Host = f.Host.Length > 0 ? f.Host : f.SniffHost,
-                            Ip = g.Select(w => w.C.DestIp).FirstOrDefault(x => !string.IsNullOrEmpty(x)) ?? "",
-                            Port = f.Port,
-                            Network = f.Network,
-                            Count = g.Count(),
-                            Open = g.Count(w => !w.Closed),
-                            Down = g.Sum(w => w.Down),
-                            Up = g.Sum(w => w.Up),
-                            Bytes = g.Sum(w => w.C.Down + w.C.Up),
-                        };
-                    })
-                    .OrderByDescending(a => a.Bytes).ThenBy(a => a.Host, StringComparer.OrdinalIgnoreCase).ToList();
+                List<WhoAddr> addrs;
+                if (sel == null) addrs = new List<WhoAddr>();
+                else if (found == null || !found.TryGetValue(sel.Key, out addrs)) addrs = AddrsOf(sel);
+                SortAddrs(addrs, asn);
 
                 rightHead.Inlines.Clear();
                 if (sel != null)
@@ -483,7 +1016,8 @@ namespace MihomoLauncher.Views
                 }
                 else rightHead.Inlines.Add(new Run(Loc.T("Main_WhoWhere")) { Foreground = Theme.TextPrimary });
 
-                string asn = AsnPath;
+                shownAddrs = addrs;
+                if (selAddr != null && !addrs.Any(a => AddrId(a) == selAddr)) selAddr = null;
                 int addrShow = Math.Max(WhoRows, addrs.Count);
                 addrStripes?.Invoke(addrShow);
                 while (aRows.Count < addrShow) AddAddrRow();
@@ -493,7 +1027,8 @@ namespace MihomoLauncher.Views
                     var a = i < addrs.Count ? addrs[i] : null;
                     if (a == null)
                     {
-                        aHost[i].Text = aIp[i].Text = aPlace[i].Text = aIsp[i].Text = "";
+                        aHost[i].Text = aIp[i].Text = aIpR[i].Text = aPlace[i].Text = aIsp[i].Text = "";
+                        aWhen[i].Text = "";
                         aCc[i].Visibility = Visibility.Collapsed;
                         aRows[i].Opacity = 1;
                         WhoPaint(aRows[i], i, null);
@@ -505,7 +1040,9 @@ namespace MihomoLauncher.Views
                     aHost[i].Text = (named ? a.Host : (a.Ip.Length > 0 ? a.Ip : "—")) + (a.Count > 1 ? "  ×" + a.Count : "");
                     aHost[i].ToolTip = (named ? a.Host : Loc.T("Main_WhoNoName")) + (live && a.Open == 0 ? "\n" + Loc.T("Main_WhoClosedTip") : "");
                     aRows[i].Opacity = live && a.Open == 0 ? 0.5 : 1;
-                    WhoPaint(aRows[i], i, false);
+                    bool picked = selAddr != null && AddrId(a) == selAddr;
+                    // The picked address is lit like the picked program while the arrows are its.
+                    WhoPaint(aRows[i], i, picked && addrPane);
                     // Named: «173.194.182.8:443». A bare address is already the top line, so below it
                     // only «порт 59453 · UDP» (was a dangling «:59453»).
                     bool udp = string.Equals(a.Network, "udp", StringComparison.OrdinalIgnoreCase);
@@ -513,6 +1050,8 @@ namespace MihomoLauncher.Views
                         aIp[i].Text = a.Ip + (a.Ip.Length > 0 && a.Port.Length > 0 ? ":" + a.Port : "") + (udp ? " · UDP" : "");
                     else
                         aIp[i].Text = (a.Port.Length > 0 ? Loc.T("Main_WhoPort", a.Port) : "") + (udp ? (a.Port.Length > 0 ? " · " : "") + "UDP" : "");
+                    aIpR[i].Text = aIp[i].Text;
+                    aWhen[i].Text = WhoWhen(a.Count, a.First, a.Last, false);
 
                     var g = a.Ip.Length > 0 ? GeoIpService.Lookup(a.Ip) : null;
                     var place = GeoIpService.PlaceOf(g);
@@ -529,22 +1068,35 @@ namespace MihomoLauncher.Views
                     else { SetVolume(aDown[i], a.Down); SetVolume(aUp[i], a.Up); }
                 }
 
-                // What each text column needs: its header, then its longest line among the rows.
-                want[0] = WhoTextWidth(Loc.T("Main_WhoColAddr"), WhoHeadFont, FontWeights.SemiBold, null);
-                want[1] = WhoTextWidth(Loc.T("Main_WhoColWhere"), WhoHeadFont, FontWeights.SemiBold, null);
-                want[2] = WhoTextWidth(Loc.T("Main_WhoColIsp"), WhoHeadFont, FontWeights.SemiBold, null);
+                // What each text column needs: its header — whole, with the sort caption or mark
+                // (2026-11-25: «нигде не должно быть обрезаний в заголовках»; «по вр…» under an
+                // empty table's «Адрес») — then its longest line among the rows. A column is never
+                // squeezed under its header, the ↓ / ↑ ones widen for it too.
+                for (int k = 0; k < 3; k++)
+                {
+                    want[k] = HeadWidth(addrHeader, k);
+                    least[k] = Math.Max(leastBase[k], want[k] + WhoCellChrome);
+                }
+                dlW = Math.Max(66, HeadWidth(addrHeader, 4) + WhoCellChrome);
+                ulW = Math.Max(60, HeadWidth(addrHeader, 5) + WhoCellChrome);
+                double progDl = Math.Max(72, HeadWidth(progHeader, 1) + WhoCellChrome);
+                foreach (var g in new[] { (Grid)progHeader.Child }.Concat(progRows.Select(r => (Grid)r.Child)))
+                    g.ColumnDefinitions[1].Width = new GridLength(progDl);
                 for (int i = 0; i < addrs.Count; i++)
                 {
                     want[0] = Math.Max(want[0], Math.Max(WhoTextWidth(aHost[i].Text, WhoCellFont, FontWeights.SemiBold, null),
-                                                         WhoTextWidth(aIp[i].Text, 11, FontWeights.Normal, WhoMono)));
+                                                         Math.Max(showIp && !showTime ? WhoTextWidth(aIp[i].Text, 11, FontWeights.Normal, WhoMono) : 0,
+                                                                  showTime ? WhoTextWidth(aWhen[i].Text, 11, FontWeights.Normal, WhoMono) : 0)));
                     double badge = aCc[i].Visibility == Visibility.Visible ? BadgeWidth + 6 : 0;
-                    want[1] = Math.Max(want[1], badge + WhoTextWidth(aPlace[i].Text, 12, FontWeights.Normal, null));
+                    want[1] = Math.Max(want[1], Math.Max(badge + WhoTextWidth(aPlace[i].Text, 12, FontWeights.Normal, null),
+                                                         showIp && showTime ? WhoTextWidth(aIpR[i].Text, 11, FontWeights.Normal, WhoMono) : 0));
                     want[2] = Math.Max(want[2], WhoTextWidth(aIsp[i].Text, 12, FontWeights.Normal, null));
                 }
                 for (int k = 0; k < 3; k++) want[k] += WhoCellChrome + 8;   // the cell's padding and hairline + a little air
                 LayoutAddr();
 
                 if (sel != null) empty.Text = "";
+                else if (mask != null && allCount > 0) empty.Text = Loc.T("Main_WhoNoMatch");
                 else if (!live) empty.Text = Loc.T(archive == null ? "Main_WhoLoading" : "Main_WhoNonePeriod");
                 else if (_mihomo == null) empty.Text = Loc.T("Main_WhoNone");
                 else if (!_whoMeasured) empty.Text = Loc.T("Main_WhoWait");
@@ -590,7 +1142,37 @@ namespace MihomoLauncher.Views
             var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(2) };
             timer.Tick += (s, e) => { if (hours == 0) Refresh(); };
             timer.Start();
-            stop = () => { timer.Stop(); loadGen++; };
+            // ↑ / ↓ move the selected program (2026-11-25), the list scrolls to it.
+            KeyEventHandler keys = (s, e) =>
+            {
+                if (e.Key != Key.Up && e.Key != Key.Down) return;
+                // In the search box too (it is one line: the arrows mean nothing else there).
+                var focused = Keyboard.FocusedElement;
+                if (focused is System.Windows.Controls.Primitives.TextBoxBase && !ReferenceEquals(focused, search)) return;
+                if (addrPane && shownAddrs.Count > 0)
+                {
+                    // The addresses have the arrows (an address was clicked).
+                    e.Handled = true;
+                    int ca = shownAddrs.FindIndex(a => AddrId(a) == selAddr);
+                    int na = ca < 0 ? 0 : Math.Max(0, Math.Min(shownAddrs.Count - 1, ca + (e.Key == Key.Down ? 1 : -1)));
+                    if (na == ca) return;
+                    selAddr = AddrId(shownAddrs[na]);
+                    Refresh();
+                    if (na < aRows.Count) aRows[na].BringIntoView();
+                    return;
+                }
+                if (progs.Count == 0) return;
+                e.Handled = true;
+                int cur = progs.FindIndex(p => p.Key == selected);
+                int next = cur < 0 ? 0 : Math.Max(0, Math.Min(progs.Count - 1, cur + (e.Key == Key.Down ? 1 : -1)));
+                if (next == cur) return;
+                selected = progs[next].Key;
+                selAddr = null;
+                Refresh();
+                if (next < progRows.Count) progRows[next].BringIntoView();
+            };
+            if (win != null) win.PreviewKeyDown += keys;
+            stop = () => { timer.Stop(); searchTimer.Stop(); loadGen++; if (win != null) win.PreviewKeyDown -= keys; };
             setHours = h =>
             {
                 hours = h;
@@ -724,7 +1306,7 @@ namespace MihomoLauncher.Views
         private static Border CountryBadge(string iso) => new Border
         {
             Width = BadgeWidth,
-            Height = 17,
+            Height = 16,   // = WhoLine1H (was 17 — it made the place's line taller than the name's)
             Background = Theme.ChipBg,
             BorderBrush = Theme.CardBorder,
             BorderThickness = new Thickness(1),
@@ -778,7 +1360,8 @@ namespace MihomoLauncher.Views
 
         // Right of the last column: room for the scroll bar, which WPF-UI lays OVER the rows — it
         // covered the ↑ figures (2026-11-16). 14 was not enough: the bar sits a few px off the edge.
-        private const double Gutter = 22;
+        // 2026-11-25: 12 — the gutter is the well now (not striped), and 22 read as a third column.
+        private const double Gutter = 12;
 
         // The rows' box: exactly WhoRows rows tall in the speed window (fixedHeight), filling the
         // detached window; scrolling past that.
@@ -797,15 +1380,18 @@ namespace MihomoLauncher.Views
         // Empty stripes under a table, starting right after its `shown` rows and in step with them
         // (odd = striped, like Row). Only while nothing scrolls: then the rows start at the top of
         // the box and the stripes line up; once they scroll, the rows fill the box themselves.
-        private static Grid StripedUnder(ScrollViewer sv, out Action<int> setShown)
+        // rowH: the rows' height now (taller while the clock shows the time line).
+        private static Grid StripedUnder(ScrollViewer sv, Func<double> rowH, out Action<int> setShown)
         {
             const int Spare = 80;   // 80 × 36 — taller than any screen
             var fill = new StackPanel { IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
-            for (int i = 0; i < Spare; i++) fill.Children.Add(new Border { Height = WhoRowH });
+            // Short of the scroll bar's gutter, like the rows.
+            for (int i = 0; i < Spare; i++) fill.Children.Add(new Border { Height = WhoRowH, Margin = new Thickness(0, 0, Gutter, 0) });
             var host = new Grid { ClipToBounds = true };
             host.Children.Add(fill);
             host.Children.Add(sv);
             int shown = -1;
+            double shownH = WhoRowH;
             void Apply()
             {
                 fill.Visibility = sv.ScrollableHeight > 0.5 ? Visibility.Collapsed : Visibility.Visible;
@@ -813,10 +1399,13 @@ namespace MihomoLauncher.Views
             sv.ScrollChanged += (s, e) => Apply();
             setShown = n =>
             {
-                if (n != shown)
+                double h = rowH();
+                if (n != shown || h != shownH)
                 {
                     shown = n;
-                    fill.Margin = new Thickness(0, n * WhoRowH, 0, 0);
+                    shownH = h;
+                    foreach (Border b in fill.Children) b.Height = h;
+                    fill.Margin = new Thickness(0, n * h, 0, 0);
                     for (int i = 0; i < Spare; i++)
                         WhoPaint((Border)fill.Children[i], n + i, null);
                 }
@@ -866,15 +1455,28 @@ namespace MihomoLauncher.Views
         }
 
         // The ⧉ in the addresses' corner: the same view in a window of its own, sized by the user.
-        private void OpenSpeedWhoWindow(AppEntry entry, string selected, int hours)
+        private void OpenSpeedWhoWindow(AppEntry entry, string selected, int hours, string mask)
         {
             var holder = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
             var win = new SpeedWindow(Loc.T("Main_WhoWinTitle", entry.IsAllTraffic ? AllTrafficName() : entry.Name), holder, resizable: true) { Owner = this };
             Action stop;
             Action<int> setHours;   // the detached window keeps the period it was opened with
-            holder.Content = BuildSpeedWho(entry, win, true, selected, hours, out stop, out setHours);
+            holder.Content = BuildSpeedWho(entry, win, true, selected, hours, mask, out stop, out setHours);
             win.Closed += (s, e) => stop();
             win.Show();
+        }
+
+        // Collapses the template parts of that name (a library control's own decoration).
+        private static void HideNamedParts(DependencyObject root, string name)
+        {
+            if (root == null) return;
+            for (int i = 0, n = VisualTreeHelper.GetChildrenCount(root); i < n; i++)
+            {
+                var child = VisualTreeHelper.GetChild(root, i);
+                var fe = child as FrameworkElement;
+                if (fe != null && fe.Name == name) fe.Visibility = Visibility.Collapsed;
+                HideNamedParts(child, name);
+            }
         }
 
         private static Grid Columns(GridLength[] cols)
@@ -921,6 +1523,20 @@ namespace MihomoLauncher.Views
         // The title in header cell i (the cells are WhoCellBox borders).
         private static TextBlock WhoHeadText(Border header, int i) => (TextBlock)((Border)((Grid)header.Child).Children[i]).Child;
 
+        // How wide header cell i's title is, whole: its widest line (title + sort mark, the caption
+        // under it), each run in its own size and weight. The text only, without the cell's padding.
+        private double HeadWidth(Border header, int i)
+        {
+            var t = WhoHeadText(header, i);
+            double line = 0, widest = 0;
+            foreach (var inline in t.Inlines)
+            {
+                if (inline is LineBreak) { widest = Math.Max(widest, line); line = 0; continue; }
+                if (inline is Run r) line += WhoTextWidth(r.Text, r.FontSize, r.FontWeight, null);
+            }
+            return Math.Ceiling(Math.Max(widest, line)) + 2;
+        }
+
         // Titles from column 0; those from `rightFrom` on (the figures) aligned right. The last
         // column (the scroll bar's gutter) gets no cell.
         private static Border HeaderRow(GridLength[] cols, int rightFrom, int joinRight, params string[] titles)
@@ -949,6 +1565,11 @@ namespace MihomoLauncher.Views
                 if (fe != null) fe.Margin = new Thickness(0);
                 g.Children.Add(WhoCellBox(cells[i], i, false, i == joinRight));
             }
+            // The scroll bar's gutter is the well, not part of the row (2026-11-25: stripes and the
+            // selection ran on into it and it read as an empty third column).
+            var gutter = new Border { Background = Theme.ListBg };
+            Grid.SetColumn(gutter, cols.Length - 1);
+            g.Children.Add(gutter);
             var row = new Border { Height = WhoRowH, Child = g };
             WhoPaint(row, index, null);
             // Hover only on a row that shows something: an empty placeholder row stays still.

@@ -152,7 +152,7 @@ New-Item -ItemType Directory -Force -Path $engineCache | Out-Null
 $haveVer = if (Test-Path -LiteralPath $cacheVer) { (Get-Content -LiteralPath $cacheVer -Raw).Trim() } else { '' }
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $ua = @{ 'User-Agent' = 'MihomoLauncher-build' }
+    $ua = @{ 'User-Agent' = 'MihomoLauncher/build' }
     $em = Invoke-RestMethod -Uri 'https://api.byfox.dev/engine/manifest.json' -Headers $ua -TimeoutSec 30
     $ver = ([string]$em.mihomo.version).Trim().TrimStart('v')
     if (-not $ver) { throw 'engine/manifest.json has no mihomo.version' }

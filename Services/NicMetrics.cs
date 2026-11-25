@@ -92,13 +92,43 @@ namespace MihomoLauncher.Services
 
         // ---------- plan (the launcher, as the user) ----------
 
-        // cards in priority order; metric 0 = automatic. Returns the plan's id.
-        public static string WritePlan(IList<KeyValuePair<string, uint>> cards)
+        // ---------- Wi-Fi while Ethernet is up (2026-11-25) ----------
+        //
+        // Windows' connection manager (WcmSvc) by default «minimizes simultaneous connections»: while
+        // a cable is in, Wi-Fi is dropped and never connects on its own. The switch in «Приоритет
+        // сетевых адаптеров» sets the policy value fMinimizeConnections = 0 (what the Group Policy
+        // «Minimize the number of simultaneous connections…» = Disabled writes); off deletes it, so
+        // Windows is back to its default. Reading needs no rights; writing goes through the plan.
+        private const string WcmKey = @"SOFTWARE\Policies\Microsoft\Windows\WcmSvc\GroupPolicy";
+        private const string WcmValue = "fMinimizeConnections";
+
+        private static Microsoft.Win32.RegistryKey Hklm() =>
+            Microsoft.Win32.RegistryKey.OpenBaseKey(Microsoft.Win32.RegistryHive.LocalMachine,
+                Environment.Is64BitOperatingSystem ? Microsoft.Win32.RegistryView.Registry64 : Microsoft.Win32.RegistryView.Default);
+
+        public static bool WifiWithEthernet()
+        {
+            try
+            {
+                using (var hk = Hklm())
+                using (var k = hk.OpenSubKey(WcmKey, false))
+                {
+                    var v = k?.GetValue(WcmValue);
+                    return v is int && (int)v == 0;
+                }
+            }
+            catch { return false; }
+        }
+
+        // cards in priority order; metric 0 = automatic (empty = metrics untouched).
+        // wifiWithEthernet: null = untouched. Returns the plan's id.
+        public static string WritePlan(IList<KeyValuePair<string, uint>> cards, bool? wifiWithEthernet = null)
         {
             var id = Guid.NewGuid().ToString("N");
             var sb = new StringBuilder();
             sb.AppendLine("# MihomoLauncher network-card metrics — applied once by the SYSTEM helper, then deleted");
             sb.AppendLine("id=" + id);
+            if (wifiWithEthernet.HasValue) sb.AppendLine("wifi=" + (wifiWithEthernet.Value ? "on" : "off"));
             foreach (var kv in cards)
             {
                 var alias = (kv.Key ?? "").Replace("\r", "").Replace("\n", "").Replace("|", "");
@@ -145,6 +175,12 @@ namespace MihomoLauncher.Services
                 {
                     var line = (raw ?? "").Trim();
                     if (line.StartsWith("id=")) { id = line.Substring(3); continue; }
+                    if (line == "wifi=on" || line == "wifi=off")
+                    {
+                        var werr = ApplyWifi(line == "wifi=on");
+                        if (werr != null) errors.Add("Wi-Fi: " + werr);
+                        continue;
+                    }
                     if (!line.StartsWith("nic=")) continue;
                     var v = line.Substring(4);
                     int bar = v.IndexOf('|');
@@ -165,6 +201,57 @@ namespace MihomoLauncher.Services
             }
             catch { }
             try { Log.Info("Сеть: метрики карт " + (errors.Count == 0 ? "применены." : "— ошибки: " + string.Join("; ", errors))); } catch { }
+        }
+
+        // on = keep Wi-Fi with Ethernet (value 0); off = Windows' default (value removed). The
+        // connection manager reads the policy when it starts, so it is restarted — only when the
+        // value really changed. Its dependents (WlanSvc: Wi-Fi drops for a few seconds and comes
+        // back under the new policy) are stopped with it and started again. null = done.
+        private static string ApplyWifi(bool on)
+        {
+            try
+            {
+                if (WifiWithEthernet() == on) return null;
+                using (var hk = Hklm())
+                using (var k = hk.CreateSubKey(WcmKey, true))
+                {
+                    if (on) k.SetValue(WcmValue, 0, Microsoft.Win32.RegistryValueKind.DWord);
+                    else k.DeleteValue(WcmValue, false);
+                }
+            }
+            catch (Exception ex) { return "реестр: " + ex.Message; }
+            try { Log.Info("Сеть: Wi-Fi при активном Ethernet — " + (on ? "подключаться (fMinimizeConnections=0)." : "как в Windows по умолчанию.")); } catch { }
+
+            try
+            {
+                using (var wcm = new System.ServiceProcess.ServiceController("WcmSvc"))
+                {
+                    var restart = wcm.DependentServices
+                        .Where(d => d.Status == System.ServiceProcess.ServiceControllerStatus.Running)
+                        .Select(d => d.ServiceName).ToList();
+                    if (wcm.Status != System.ServiceProcess.ServiceControllerStatus.Stopped)
+                    {
+                        wcm.Stop();   // stops the running dependents first
+                        wcm.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(15));
+                    }
+                    wcm.Start();
+                    wcm.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
+                    foreach (var name in restart)
+                        try
+                        {
+                            using (var d = new System.ServiceProcess.ServiceController(name))
+                                if (d.Status == System.ServiceProcess.ServiceControllerStatus.Stopped) d.Start();
+                        }
+                        catch (Exception ex) { Log.Error("wcm-dependent-start", ex); }
+                }
+            }
+            catch (Exception ex)
+            {
+                // The value is written; it takes effect after a reboot at the latest.
+                Log.Error("wcm-restart", ex);
+                return "служба WcmSvc не перезапустилась (" + ex.Message + ") — сработает после перезагрузки";
+            }
+            return null;
         }
 
         // metric 0 = automatic. Both address families of that card; null = done.

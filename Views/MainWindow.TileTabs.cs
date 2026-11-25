@@ -170,12 +170,16 @@ namespace MihomoLauncher.Views
                 if (dlg.ShowDialog() != true || dlg.Result == null) return;
                 var added = dlg.Result;
                 added.TabId = TileTabs.CurrentIdForNew(_config);   // the tab open now
+                AutoPrograms.FolderSync folderSync = null;
                 await CommitLiveEditAsync(() =>
                 {
                     _config.Apps.Add(added);
                     TileTabs.Normalize(_config);
+                    // The folders of its programs (2026-11-23), before this edit is saved and compared.
+                    folderSync = SyncAutoFoldersNow();
                     return System.Threading.Tasks.Task.CompletedTask;
                 }).ConfigureAwait(true);
+                NoticeAutoFolders(folderSync);
                 Log.Info("Правило «" + added.Name + "» добавлено с плитки «Новое правило».");
                 RebuildTiles();
             }
@@ -251,7 +255,7 @@ namespace MihomoLauncher.Views
             var cross = new Path
             {
                 Data = Geometry.Parse("M0,0 L7,7 M7,0 L0,7"),
-                Stroke = Theme.TextOnColor, StrokeThickness = 1.3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Stroke = Theme.TabCloseGlyph, StrokeThickness = 1.3, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
                 HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
             var close = new Border

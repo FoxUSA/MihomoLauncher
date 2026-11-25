@@ -59,6 +59,21 @@ namespace MihomoLauncher.Models
         public string Path { get; set; } = "";
         // The «Плитка» box: the tile opens this folder in Explorer.
         public bool Launch { get; set; } = false;
+
+        // «Авто-папка программы» (2026-11-23, AutoPrograms.SyncAutoFolders): the install folder of
+        // one of the rule's MANUAL programs, added by the launcher itself, so that helpers started
+        // from it go the rule's way from their very first connection — not only after auto-adding
+        // has seen them online and the engine has reloaded. Routed, auto-tracked (what lies in it
+        // gets no row of its own; the rule's auto rows inside it are dropped) and walled by the
+        // firewall like any folder; watched only when the firewall walls its rule, and its path is
+        // kept by the sync, not by path repair. It goes away by itself when its program leaves
+        // the rule or another tile claims something in it. Dragged into the manual part of the
+        // editor, it becomes a manual folder (false). Same meaning as on RuleProgram.
+        public bool Auto { get; set; } = false;
+        // The exe file name of the program whose folder it is ("Code.exe"), for the tooltip.
+        public string AutoFrom { get; set; } = "";
+        // Added and not seen yet: the amber gear / the outlined row, as for RuleProgram.AutoNew.
+        public bool AutoNew { get; set; } = false;
     }
 
     // One site inside a rule: a URL to open/route, optionally carrying a cached blackmatrix7
@@ -106,6 +121,11 @@ namespace MihomoLauncher.Models
         // third section «Не добавлять автоматически». A full path = that exact file (a version bump
         // is still that file, AutoPrograms.IsBanned); a bare exe name (older configs) = by name.
         public List<string> AutoIgnored { get; set; } = new List<string>();
+        // The amber notice's clock (2026-11-23, AutoPrograms.NoticeTick): seconds the main window
+        // has been ON SCREEN while this rule had unseen auto entries, since the last automatic
+        // addition to it. At an hour the notice goes out by itself (AutoNew cleared; the entries
+        // stay). Saved, so a restart does not start it over; 0 when nothing is unseen.
+        public int AutoNoticeShownSec { get; set; } = 0;
 
         // «Сайт для проверки подключения»: the rule is put through a VPN configuration only once
         // this URL loads from that exit (see SiteChecker). Since 2026-11-23 the field IS the switch:
@@ -178,6 +198,11 @@ namespace MihomoLauncher.Models
         // and when none of the chosen cards works nothing goes out — never through another card.
         public List<string> Interfaces { get; set; } = new List<string>();
 
+        // Each chosen card's Windows interface GUID, as "name=guid" (2026-11-24: a card renamed in
+        // Windows was lost — the tile knew only the name, which is what the engine binds to). Kept
+        // up to date by MainWindow.NicFollow; a name gone from the system is found again by its GUID.
+        public List<string> InterfaceIds { get; set; } = new List<string>();
+
         // «Привязка к сетевой карте» (2026-11-19): the tile is pinned to ONE card (Interfaces holds
         // exactly it) and its traffic never moves to another — a cable pulled or the card switched
         // off and nothing goes out, instead of Windows carrying on through Wi-Fi with the home IP.
@@ -220,9 +245,12 @@ namespace MihomoLauncher.Models
         [XmlIgnore]
         public bool IsBlockMode => Block;
 
-        // Blocking right now: block mode AND switched on.
+        // Blocking right now. Since 2026-11-24 block mode has no on/off: picked on the plate it
+        // blocks, always — no ▷/⏸, untouched by «OFF», a restart or the rule editor; only picking
+        // a VPN / «Напрямую» on the plate ends it (the user: «никто и ничего не может отключить»).
+        // It was «block mode AND switched on», and ⏸ left a grey «Блокировать» that blocked nothing.
         [XmlIgnore]
-        public bool IsBlocking => IsBlockMode && AutoConnect;
+        public bool IsBlocking => IsBlockMode;
 
         // Needs no VPN node.
         [XmlIgnore]

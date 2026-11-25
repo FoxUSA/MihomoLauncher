@@ -76,9 +76,12 @@ namespace MihomoLauncher.Views
                 foreach (var p in (existing.Programs ?? new List<RuleProgram>()).Where(p => p != null && !p.Auto))
                     _items.Add(ItemRow.FromProgram(p));
                 foreach (var f in existing.Folders ?? new List<RuleFolder>())
-                    if (f != null) _items.Add(ItemRow.FromFolder(f));
+                    if (f != null && !f.Auto) _items.Add(ItemRow.FromFolder(f));
                 foreach (var s in existing.Sites ?? new List<RuleSite>())
                     _items.Add(ItemRow.FromSite(s));
+                // Auto folders (2026-11-23) open the second section, then the auto programs.
+                foreach (var f in existing.Folders ?? new List<RuleFolder>())
+                    if (f != null && f.Auto) _items.Add(ItemRow.FromFolder(f));
                 foreach (var p in (existing.Programs ?? new List<RuleProgram>()).Where(p => p != null && p.Auto))
                     _items.Add(ItemRow.FromProgram(p));
                 // Third section: what this rule refuses to auto-add (AppEntry.AutoIgnored).
@@ -127,9 +130,41 @@ namespace MihomoLauncher.Views
                 ChkAutoTrack.Visibility = Visibility.Collapsed;   // it has no programs to follow
                 ChkKillSwitch.ToolTip = Loc.T("AllTraffic_KillTip");
                 System.Windows.Controls.Grid.SetRow(RowVpn, 1);
-                MinHeight = 300;
-                Height = 440;
+                // What is left is small: the window takes its content's size (2026-11-24 — the
+                // fixed 780×440 left a big empty field under three switches and a few VPNs).
+                MinWidth = 420;
+                MinHeight = 200;
+                Loaded += (s, e) => Dispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.ContextIdle, new Action(FitToContent));
             }
+        }
+
+        // Size the window to its content: the width the content wants (capped at the XAML width,
+        // never below MinWidth), then the height it needs at that width; kept centred where it
+        // opened. Measured after the first layout — Measure inside Loaded throws mid-layout.
+        private void FitToContent()
+        {
+            try
+            {
+                var root = Content as FrameworkElement;
+                if (root == null || root.ActualWidth <= 0) return;
+                double frameW = Math.Max(0, ActualWidth - root.ActualWidth);
+                double frameH = Math.Max(0, ActualHeight - root.ActualHeight);
+                double cx = Left + ActualWidth / 2, cy = Top + ActualHeight / 2;
+
+                root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                double w = Math.Min(Math.Max(root.DesiredSize.Width, MinWidth - frameW), 780);
+                root.Measure(new Size(w, double.PositiveInfinity));
+                double h = root.DesiredSize.Height;
+                root.InvalidateMeasure();
+
+                Width = w + frameW;
+                Height = Math.Min(h + frameH, SystemParameters.WorkArea.Height);
+                Left = cx - Width / 2;
+                Top = cy - Height / 2;
+                UiHelpers.KeepOnScreen(this);
+            }
+            catch (Exception ex) { Log.Error("rule-fit", ex); }
         }
 
         // «Привязка к сетевой карте»: the card the tile goes through at the moment it is switched on.
@@ -420,13 +455,19 @@ namespace MihomoLauncher.Views
                 get
                 {
                     var from = AutoFrom ?? "";
+                    // An auto folder (2026-11-23): the folder of that program of the rule.
+                    if (IsFolder) return Loc.T("Rule_AutoFolderTip", from.Length > 0 ? from : "?");
                     return from.StartsWith("folder:", StringComparison.OrdinalIgnoreCase)
                         ? Loc.T("Rule_AutoFromDir", from.Substring(7))
                         : Loc.T("Rule_AutoFromChild", from.Length > 0 ? from : "?");
                 }
             }
-            public string NameTip => IsIgnored ? Loc.T("Rule_IgnoredTip") : IsAuto ? AutoTip : IsFolder ? Loc.T("Rule_FolderTip") : DisplayName;
-            public string PathTip => IsIgnored ? Loc.T("Rule_IgnoredTip") : IsAuto ? AutoTip : ProgTitle;
+            // A ban of a whole folder (its key ends with a separator, AutoPrograms.IsFolderBanKey).
+            // The row stays IsFolder = false: it is no folder entry of the rule.
+            public bool IsFolderBan => IsIgnored && AutoPrograms.IsFolderBanKey(BanKey);
+            private string IgnoredTip => Loc.T(IsFolderBan ? "Rule_IgnoredFolderTip" : "Rule_IgnoredTip");
+            public string NameTip => IsIgnored ? IgnoredTip : IsAuto ? AutoTip : IsFolder ? Loc.T("Rule_FolderTip") : DisplayName;
+            public string PathTip => IsIgnored ? IgnoredTip : IsAuto ? AutoTip : ProgTitle;
 
             // A template is a site that carries a Clash rule-list URL; its table cell shows the
             // template path (read-only), a plain site shows an editable URL box.
@@ -444,7 +485,7 @@ namespace MihomoLauncher.Views
             public Visibility ProgVisibility => IsSite ? Visibility.Collapsed : Visibility.Visible;
             public Visibility TemplateVisibility => string.IsNullOrEmpty(TemplateLabel) ? Visibility.Collapsed : Visibility.Visible;
             public string TypeLabel => IsTemplate ? Loc.T("Rule_TypeTemplate") : IsSite ? Loc.T("Rule_TypeSite")
-                : IsFolder ? Loc.T("Rule_TypeFolder") : (string.IsNullOrEmpty(Aumid) ? Loc.T("Rule_TypeProg") : "Store");
+                : IsFolder || IsFolderBan ? Loc.T("Rule_TypeFolder") : (string.IsNullOrEmpty(Aumid) ? Loc.T("Rule_TypeProg") : "Store");
             public Brush TypeChipBg => IsSite ? Theme.BannerInfoBg : (string.IsNullOrEmpty(Aumid) ? Theme.BannerOkBg : Theme.BannerWarnBg);
             public string ProgTitle => string.IsNullOrWhiteSpace(Name)
                 ? System.IO.Path.GetFileNameWithoutExtension(Path ?? "") : Name;
@@ -512,24 +553,30 @@ namespace MihomoLauncher.Views
             // never written back — ToProgram leaves AutoNew off, a cancel clears it in MainWindow).
             public bool IsAutoNew { get; set; }
 
-            // A ban: a full path (shown with it) or an old bare exe name (shown without a path).
+            // A ban: a full path (shown with it) or an old bare exe name (shown without a path). A
+            // folder ban (2026-11-23, its key ends with "\"): the folder's leaf name, the key as path.
             public static ItemRow FromBan(string ban)
             {
                 var b = (ban ?? "").Trim();
                 bool isPath = b.IndexOf('\\') >= 0 || b.IndexOf('/') >= 0;
                 string name = b;
-                if (isPath) { try { name = System.IO.Path.GetFileName(b); } catch { name = b; } }
+                if (AutoPrograms.IsFolderBanKey(b)) name = AutoPrograms.LeafOf(b);
+                else if (isPath) { try { name = System.IO.Path.GetFileName(b); } catch { name = b; } }
                 return new ItemRow { IsSite = false, IsIgnored = true, BanKey = b, Name = name, Path = isPath ? b : "" };
             }
 
+            // An auto folder (2026-11-23) is an auto row like an auto program: second section, amber
+            // outline while new (never written back — ToFolder leaves AutoNew off).
             public static ItemRow FromFolder(RuleFolder f) => new ItemRow
             {
                 IsSite = false, IsFolder = true, Launch = f.Launch, Name = f.Name ?? "", Path = f.Path ?? "",
+                IsAuto = f.Auto, AutoFrom = f.AutoFrom ?? "", IsAutoNew = f.Auto && f.AutoNew,
             };
 
             public RuleFolder ToFolder() => new RuleFolder
             {
                 Launch = Launch, Name = Name ?? "", Path = MihomoConfigBuilder.NormalizeFolder(Path),
+                Auto = IsAuto, AutoFrom = IsAuto ? (AutoFrom ?? "") : "",
             };
 
             public RuleSite ToSite() => new RuleSite
@@ -847,6 +894,7 @@ namespace MihomoLauncher.Views
                         KillSwitch = ChkKillSwitch.IsChecked == true,
                         LockNic = ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard),
                         Interfaces = SavedInterfaces(),
+                        InterfaceIds = new List<string>(_editing.InterfaceIds ?? new List<string>()),
                         DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id).ToList(),
                         VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
                             .Select(c => c.Id).ToList(),
@@ -888,9 +936,11 @@ namespace MihomoLauncher.Views
                 // Manual ones first, auto ones after — the order the editor shows them in.
                 var progs = _items.Where(i => !i.IsSite && !i.IsFolder && !i.IsIgnored).OrderBy(i => i.IsAuto ? 1 : 0).Select(i => i.ToProgram())
                                   .Where(p => !string.IsNullOrWhiteSpace(p.Path) || !string.IsNullOrWhiteSpace(p.Aumid)).ToList();
-                var folders = _items.Where(i => i.IsFolder).Select(i => i.ToFolder())
+                var folders = _items.Where(i => i.IsFolder && !i.IsIgnored).OrderBy(i => i.IsAuto ? 1 : 0).Select(i => i.ToFolder())
                                     .Where(f => !string.IsNullOrWhiteSpace(f.Path)).ToList();
-                if (sites.Count == 0 && progs.Count == 0 && folders.Count == 0)
+                // An auto folder without «Плитка» is no content of its own (2026-11-23): its program
+                // gone, the launcher removes it — the rule would be left empty.
+                if (sites.Count == 0 && progs.Count == 0 && !folders.Any(f => !f.Auto || f.Launch))
                 {
                     await OverlayDialog.MessageAsync(this, Loc.T("Rule_EmptyTitle"), Loc.T("Rule_NeedOneItem")).ConfigureAwait(true);
                     return;
@@ -928,19 +978,29 @@ namespace MihomoLauncher.Views
                 entry.AutoTrack = ChkAutoTrack.IsChecked == true;
                 // The third section, as it stands (paths, or old bare names). A file the person put
                 // back by hand is no longer "removed".
+                // A folder put back by hand (2026-11-23) is no longer "removed" either.
                 entry.AutoIgnored = _items.Where(i => i.IsIgnored).Select(i => (i.BanKey ?? "").Trim())
                     .Where(b => b.Length > 0)
                     .Where(b => !progs.Any(p => AutoPrograms.IsBanned(new AppEntry { AutoIgnored = new List<string> { b } }, p.Path)))
+                    .Where(b => !AutoPrograms.IsFolderBanKey(b)
+                                || !folders.Any(f => !f.Auto && AutoPrograms.IsFolderBanned(new AppEntry { AutoIgnored = new List<string> { b } }, f.Path)))
                     .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
                 entry.CheckUrl = checkUrl;
                 entry.HomeUrl = (_homeUrl ?? "").Trim();
                 // VPN or «Напрямую» is chosen on the tile's plate now (the switch is gone): an
                 // edited rule keeps what it had, a new one starts on VPN, as the switch defaulted.
                 entry.RequiresVpn = _editing == null || _editing.RequiresVpn;
+                // «Блокировать» is set by hand on the plate and only there is it undone (2026-11-24:
+                // saving the settings — the card binding — rebuilt the rule without it, and the tile
+                // went from «Блокирует» to open). With it its on/off, which is what «Блокирует» is.
+                entry.Block = _editing != null && _editing.Block;
+                if (entry.Block) entry.AutoConnect = _editing.AutoConnect;
                 // The network cards are chosen on the tile's card chip — carried over as they are,
                 // unless «Привязка к сетевой карте» pins the tile to the one it goes through now.
                 entry.LockNic = ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard);
                 entry.Interfaces = SavedInterfaces();
+                // The cards' GUIDs go with them (MainWindow.NicFollow re-reads them for the new list).
+                entry.InterfaceIds = new List<string>(_editing?.InterfaceIds ?? new List<string>());
                 entry.KillSwitchBeforeDirect = _editing != null && _editing.KillSwitchBeforeDirect;
                 entry.KillSwitch = ChkKillSwitch.IsChecked == true;
                 // The address is the switch (2026-11-23): filled = checked, empty = not checked.

@@ -10,7 +10,7 @@
                  WindowStartupLocation="CenterOwner"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -24,7 +24,7 @@
         <ui:TitleBar Grid.Row="0" x:Name="Bar" Title="{DynamicResource Dlg_TemplatesClashTitle}" />
 
         <TextBlock Grid.Row="1" Margin="20,4,20,8" FontSize="12" TextWrapping="Wrap"
-                   Foreground="{x:Static svc:Theme.TextSecondary}">
+                   Foreground="{DynamicResource Theme.TextSecondary}">
             <Run Text="{DynamicResource Dlg_TemplatesHint}" />
         </TextBlock>
 
@@ -39,7 +39,7 @@
         </ui:TextBox>
 
         <TextBlock Grid.Row="3" x:Name="LblFind" Margin="22,0,20,8" FontSize="12" TextWrapping="Wrap"
-                   Foreground="{x:Static svc:Theme.TextSecondary}" Visibility="Collapsed" />
+                   Foreground="{DynamicResource Theme.TextSecondary}" Visibility="Collapsed" />
 
         <!-- Virtualized list: only the visible cards materialize, so the ~700-template catalog
              opens instantly. -->
@@ -77,12 +77,12 @@
                             Cursor="Hand" Tag="{Binding}" MouseLeftButtonUp="OnRowClick">
                         <Border.Style>
                             <Style TargetType="Border">
-                                <Setter Property="Background" Value="{x:Static svc:Theme.CardBg}" />
-                                <Setter Property="BorderBrush" Value="{x:Static svc:Theme.CardBorder}" />
+                                <Setter Property="Background" Value="{DynamicResource Theme.CardBg}" />
+                                <Setter Property="BorderBrush" Value="{DynamicResource Theme.CardBorder}" />
                                 <Style.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="{x:Static svc:Theme.CardBgHover}" />
-                                        <Setter Property="BorderBrush" Value="{x:Static svc:Theme.CardBorderHover}" />
+                                        <Setter Property="Background" Value="{DynamicResource Theme.CardBgHover}" />
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Theme.CardBorderHover}" />
                                     </Trigger>
                                 </Style.Triggers>
                             </Style>
@@ -96,24 +96,24 @@
                                 <DockPanel LastChildFill="True">
                                     <Border DockPanel.Dock="Right" Margin="8,0,0,0" Padding="7,1" CornerRadius="4"
                                             VerticalAlignment="Center"
-                                            Background="{x:Static svc:Theme.BadgeNeutralBg}"
+                                            Background="{DynamicResource Theme.BadgeNeutralBg}"
                                             Visibility="{Binding CategoryVisibility}">
                                         <TextBlock Text="{Binding CategoryText}" FontSize="11"
-                                                   Foreground="{x:Static svc:Theme.BadgeNeutralText}" />
+                                                   Foreground="{DynamicResource Theme.BadgeNeutralText}" />
                                     </Border>
                                     <TextBlock TextTrimming="CharacterEllipsis" VerticalAlignment="Center">
                                         <Run Text="{Binding Title, Mode=OneWay}" FontSize="14" FontWeight="SemiBold"
-                                             Foreground="{x:Static svc:Theme.TextPrimary}" />
+                                             Foreground="{DynamicResource Theme.TextPrimary}" />
                                         <Run Text="{Binding NameNote, Mode=OneWay}" FontSize="12"
-                                             Foreground="{x:Static svc:Theme.TextMuted}" />
+                                             Foreground="{DynamicResource Theme.TextMuted}" />
                                     </TextBlock>
                                 </DockPanel>
                                 <TextBlock Text="{Binding Desc}" FontSize="12" Margin="0,2,0,0"
                                            TextTrimming="CharacterEllipsis"
-                                           Foreground="{x:Static svc:Theme.TextSecondary}" />
+                                           Foreground="{DynamicResource Theme.TextSecondary}" />
                                 <TextBlock Text="{Binding HitText}" FontSize="11" Margin="0,2,0,0"
                                            TextTrimming="CharacterEllipsis"
-                                           Foreground="{x:Static svc:Theme.AccentAmber}"
+                                           Foreground="{DynamicResource Theme.AccentAmber}"
                                            Visibility="{Binding HitVisibility}" />
                             </StackPanel>
                             <ui:Button Grid.Column="1" Appearance="Transparent" Margin="6,0,0,0" Padding="8"
@@ -131,7 +131,7 @@
 
         <Grid Grid.Row="5" Margin="20,10,20,12">
             <TextBlock x:Name="LblCount" VerticalAlignment="Center" FontSize="12"
-                       Foreground="{x:Static svc:Theme.TextMuted}" />
+                       Foreground="{DynamicResource Theme.TextMuted}" />
             <ui:Button Content="{DynamicResource Dlg_Close}" HorizontalAlignment="Right" FontSize="14" Padding="20,8" Click="OnCancel" />
         </Grid>
     </Grid>

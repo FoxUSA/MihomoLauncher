@@ -26,6 +26,10 @@ namespace MihomoLauncher.Services
             public double Secs;        // seconds measured
             public double PeakDown;    // fastest second, bytes/s
             public double PeakUp;      // fastest second up, bytes/s (2026-11-21)
+            // The part of Down / Up that went through a VPN (2026-11-23, «Без VPN / По VPN»).
+            // Split = false: a minute recorded before that, its route unknown.
+            public double VpnDown, VpnUp;
+            public bool Split = true;
         }
 
         private static readonly object _lock = new object();
@@ -62,6 +66,14 @@ namespace MihomoLauncher.Services
             lock (_lock) { _byTile.Remove(tileId); _totals.Remove(tileId); }
             Save();
         }
+        // «Очистить у всех плиток» (2026-11-23): every tile's history, totals and records; written at once.
+        public static void ClearAll()
+        {
+            EnsureLoaded();
+            lock (_lock) { _byTile.Clear(); _totals.Clear(); }
+            Save();
+        }
+
         private static bool _loaded;
         private static DateTime _savedAt = DateTime.UtcNow;
 
@@ -72,8 +84,10 @@ namespace MihomoLauncher.Services
         private static int DayOf(long minute) { var d = TimeOf(minute).ToLocalTime(); return d.Year * 10000 + d.Month * 100 + d.Day; }
         public static DateTime DateOfDay(int day) => new DateTime(day / 10000, day / 100 % 100, day % 100);
 
-        // One measured interval of `secs` seconds ending now: bytes/s down and up.
-        public static void Add(string tileId, DateTime utc, double downBps, double upBps, double secs)
+        // One measured interval of `secs` seconds ending now: bytes/s down and up, and the part of
+        // them that went through a VPN.
+        public static void Add(string tileId, DateTime utc, double downBps, double upBps, double secs,
+                               double vpnDownBps = 0, double vpnUpBps = 0)
         {
             if (string.IsNullOrEmpty(tileId) || secs <= 0) return;
             EnsureLoaded();
@@ -95,6 +109,8 @@ namespace MihomoLauncher.Services
                 }
                 last.Down += downBps * secs;
                 last.Up += upBps * secs;
+                last.VpnDown += Math.Min(downBps, Math.Max(0, vpnDownBps)) * secs;
+                last.VpnUp += Math.Min(upBps, Math.Max(0, vpnUpBps)) * secs;
                 last.Secs += secs;
                 if (downBps > last.PeakDown) last.PeakDown = downBps;
                 if (upBps > last.PeakUp) last.PeakUp = upBps;
@@ -125,7 +141,11 @@ namespace MihomoLauncher.Services
                 List<Bucket> list;
                 if (string.IsNullOrEmpty(tileId) || !_byTile.TryGetValue(tileId, out list)) return new List<Bucket>();
                 return list.Where(b => b.Minute >= from && b.Minute <= to)
-                           .Select(b => new Bucket { Minute = b.Minute, Down = b.Down, Up = b.Up, Secs = b.Secs, PeakDown = b.PeakDown, PeakUp = b.PeakUp })
+                           .Select(b => new Bucket
+                           {
+                               Minute = b.Minute, Down = b.Down, Up = b.Up, Secs = b.Secs, PeakDown = b.PeakDown, PeakUp = b.PeakUp,
+                               VpnDown = b.VpnDown, VpnUp = b.VpnUp, Split = b.Split,
+                           })
                            .ToList();
             }
         }
@@ -150,10 +170,13 @@ namespace MihomoLauncher.Services
                         var rows = kv.Value.Where(b => b.Minute > cut).ToList();
                         if (rows.Count == 0) continue;
                         sb.Append(kv.Key).Append('\t');
+                        // A minute with its route split gets two more fields (2026-11-23); one recorded
+                        // before keeps six, so it stays "route unknown" after the next start too.
                         sb.Append(string.Join(";", rows.Select(b => string.Join(",",
                             N(b.Minute), N(b.Down), N(b.Up),
                             Math.Round(b.Secs, 1).ToString(CultureInfo.InvariantCulture),
-                            N(b.PeakDown), N(b.PeakUp)))));
+                            N(b.PeakDown), N(b.PeakUp))
+                            + (b.Split ? "," + N(b.VpnDown) + "," + N(b.VpnUp) : ""))));
                         sb.Append('\n');
                     }
                     foreach (var kv in _totals)
@@ -215,7 +238,11 @@ namespace MihomoLauncher.Services
                             if (p.Length < 5) continue;
                             long m;
                             if (!long.TryParse(p[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out m) || m <= cut) continue;
-                            list.Add(new Bucket { Minute = m, Down = D(p, 1), Up = D(p, 2), Secs = D(p, 3), PeakDown = D(p, 4), PeakUp = D(p, 5) });
+                            list.Add(new Bucket
+                            {
+                                Minute = m, Down = D(p, 1), Up = D(p, 2), Secs = D(p, 3), PeakDown = D(p, 4), PeakUp = D(p, 5),
+                                VpnDown = D(p, 6), VpnUp = D(p, 7), Split = p.Length >= 8,
+                            });
                         }
                         if (list.Count > 0) _byTile[line.Substring(0, tab)] = list.OrderBy(b => b.Minute).ToList();
                     }

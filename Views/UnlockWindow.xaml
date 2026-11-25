@@ -10,7 +10,7 @@
                  WindowStartupLocation="CenterScreen"
                  ExtendsContentIntoTitleBar="True"
                  WindowBackdropType="None"
-                 Background="{x:Static svc:Theme.WindowBg}">
+                 Background="{DynamicResource Theme.WindowFace}">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -24,7 +24,7 @@
             <TextBlock x:Name="LblReason" FontSize="13.5" TextWrapping="Wrap" Margin="0,0,0,12" />
             <PasswordBox x:Name="TxtPassword" FontSize="14" Padding="8,6" KeyDown="OnPasswordKey" />
             <TextBlock x:Name="LblError" FontSize="12.5" Margin="0,6,0,0" TextWrapping="Wrap"
-                       Foreground="{x:Static svc:Theme.AccentRed}" Visibility="Collapsed" Text="{DynamicResource Lock_Wrong}" />
+                       Foreground="{DynamicResource Theme.AccentRed}" Visibility="Collapsed" Text="{DynamicResource Lock_Wrong}" />
         </StackPanel>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="20,8,20,18">

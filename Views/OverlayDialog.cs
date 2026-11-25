@@ -174,8 +174,10 @@ namespace MihomoLauncher.Views
         // Three answers (2026-11-17, deleting a tab with tiles): the main (safe) button, a red one
         // standing apart on the left, and cancel. 1 = main, 2 = red, 0 = cancel. Enter = main,
         // Esc / the backdrop = cancel — never the red one by accident.
+        // `mainDanger` (2026-11-23, clearing speed history): the main button is destructive too —
+        // red as well, still the one Enter presses.
         public static Task<int> ChoiceAsync(Window owner, string title, string body,
-            string mainText, string dangerText, string cancelText)
+            string mainText, string dangerText, string cancelText, bool mainDanger = false)
         {
             var tcs = new TaskCompletionSource<int>();
             var rootGrid = owner != null ? owner.Content as Grid : null;
@@ -237,6 +239,7 @@ namespace MihomoLauncher.Views
                 Content = mainText, Appearance = Wpf.Ui.Controls.ControlAppearance.Primary,
                 FontSize = 14, Padding = new Thickness(20, 8, 20, 8), Margin = new Thickness(0, 0, 8, 0),
             };
+            if (mainDanger) main.Style = DangerStyle;
             main.Click += (s, e) => Done(1);
             DockPanel.SetDock(main, Dock.Right);
             row.Children.Add(main);
