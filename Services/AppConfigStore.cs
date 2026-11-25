@@ -92,11 +92,25 @@ namespace MihomoLauncher.Services
         public string WhoSortProgs { get; set; } = "";
         public string WhoSortAddrs { get; set; } = "";
 
+        // Tiles pulled out of the window (2026-11-25): each in its own always-on-top window, where
+        // it was left; reopened at start. Closed by its ✕ or by dropping it back on the window.
+        public List<DetachedTile> DetachedTiles { get; set; } = new List<DetachedTile>();
+        // How many times the «a tile can be pulled out» hint was shown (the first 3 grabs).
+        public int TileDetachHints { get; set; }
+
         // Access password (see AccessLock): salted PBKDF2 hash, its salt, and the hashed place
         // (PC + Windows user + launcher copy) the data was locked in. All empty = no password.
         public string LockHash { get; set; } = "";
         public string LockSalt { get; set; } = "";
         public string LockPlace { get; set; } = "";
+    }
+
+    // A tile in a window of its own: the rule's Id and where the window's top-left is (screen DIP).
+    public class DetachedTile
+    {
+        public string Id { get; set; } = "";
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 
     public static class AppConfigStore

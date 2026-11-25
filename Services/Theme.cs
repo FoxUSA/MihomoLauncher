@@ -183,6 +183,9 @@ namespace MihomoLauncher.Services
 
         public static void ApplyFrame(Window w)
         {
+            // A see-through window (a pulled-out tile, 2026-11-25) shows only what it draws: no
+            // frame and no face — the face came out as a dark square behind the tile.
+            if (w == null || w.AllowsTransparency) return;
             try
             {
                 if (IsLight) Wpf.Ui.Appearance.WindowBackgroundManager.RemoveDarkThemeFromWindow(w);

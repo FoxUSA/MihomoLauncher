@@ -325,11 +325,11 @@ namespace MihomoLauncher.Views
         // detached: the same view in a window of its own the user sizes (the ⧉ in the corner of the
         // addresses, 2026-11-16) — the tables then fill whatever height and width it is given.
         //
-        // hours: 0 = «Сейчас» (live, the last minute, refreshed every 2 s); 1 / 6 / 12 / 24 = the
-        // archive of that period (ConnArchive + what is open right now), read once when chosen and
-        // then left still — no rows jumping while it is looked at. setHours switches it.
-        private UIElement BuildSpeedWho(AppEntry entry, Window win, bool detached, string initialSelected, int initialHours,
-                                        string initialMask, out Action stop, out Action<int> setHours)
+        // span: live = «Сейчас» (the last minute, refreshed every 2 s); else the archive of that
+        // stretch (ConnArchive + what is open right now when it runs up to now), read once when
+        // chosen and then left still — no rows jumping while it is looked at. setPeriod switches it.
+        private UIElement BuildSpeedWho(AppEntry entry, Window win, bool detached, string initialSelected, SpeedSpan initialSpan,
+                                        string initialMask, out Action stop, out Action<SpeedSpan> setPeriod)
         {
             string selected = initialSelected;
             Wpf.Ui.Controls.TextBox search = null;   // made below, read by Refresh
@@ -358,7 +358,7 @@ namespace MihomoLauncher.Views
             });
             List<WhoProg> progs = new List<WhoProg>();
             Action refresh = null;   // the row clicks are wired before Refresh exists
-            int hours = initialHours;
+            SpeedSpan span = initialSpan ?? SpeedSpan.Now();
             List<WhoProg> archive = null;   // the period's snapshot; null while it loads
             DateTime archiveAt = DateTime.Now;
             int loadGen = 0;
@@ -393,6 +393,7 @@ namespace MihomoLauncher.Views
             {
                 int i = progRows.Count;
                 var name = Cell(WhoCellFont, Theme.TextPrimary, FontWeights.SemiBold);
+                RevealTrimmed(name);
                 name.Height = WhoLine1H;
                 var sub = SmallLine(Cell(11, Theme.TextMuted));
                 var when = WhenCell();
@@ -468,7 +469,7 @@ namespace MihomoLauncher.Views
                 };
                 detach.MouseEnter += (s, e) => { detach.Background = Theme.ChipBgHover; icon.Foreground = Theme.TextPrimary; };
                 detach.MouseLeave += (s, e) => { detach.Background = Brushes.Transparent; icon.Foreground = Theme.TextSecondary; };
-                detach.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenSpeedWhoWindow(entry, selected, hours, search?.Text); };
+                detach.MouseLeftButtonUp += (s, e) => { e.Handled = true; OpenSpeedWhoWindow(entry, selected, span, search?.Text); };
                 DockPanel.SetDock(detach, Dock.Right);
                 rightHeadRow.Children.Add(detach);
             }
@@ -562,6 +563,7 @@ namespace MihomoLauncher.Views
             {
                 int i = aRows.Count;
                 var host = Cell(WhoCellFont, Theme.TextPrimary, FontWeights.SemiBold);
+                RevealTrimmed(host);
                 host.Height = WhoLine1H;
                 var ip = SmallLine(Cell(11, Theme.TextMuted));
                 ip.FontFamily = WhoMono;
@@ -580,6 +582,7 @@ namespace MihomoLauncher.Views
                 cc.Margin = new Thickness(0, 0, 6, 0);
                 var ccText = (TextBlock)cc.Child;
                 var place = Cell(12, Theme.TextPrimary);
+                RevealTrimmed(place);
                 var geo = new DockPanel { LastChildFill = true, Height = WhoLine1H };
                 DockPanel.SetDock(cc, Dock.Left);
                 geo.Children.Add(cc);
@@ -590,6 +593,7 @@ namespace MihomoLauncher.Views
                 aIpR.Add(ipR);
 
                 var isp = Cell(12, Theme.TextSecondary);
+                RevealTrimmed(isp);
                 var down = Num();
                 var up = Num();
                 up.Foreground = Theme.TextSecondary;
@@ -602,6 +606,19 @@ namespace MihomoLauncher.Views
                     selAddr = AddrId(shownAddrs[idx]);
                     addrPane = true;
                     refresh?.Invoke();
+                };
+                // Right click (2026-11-25): «Скопировать строку» — the address, IP:port, place and
+                // provider on one line; no figures.
+                arow.MouseRightButtonUp += (s, e) =>
+                {
+                    if (idx >= shownAddrs.Count) return;
+                    e.Handled = true;
+                    var a = shownAddrs[idx];
+                    var item = new MenuItem { Header = Loc.T("Main_WhoCopyRow") };
+                    item.Click += (s2, e2) => CopyAddrRow(a);
+                    var menu = new ContextMenu { PlacementTarget = arow };
+                    menu.Items.Add(item);
+                    menu.IsOpen = true;
                 };
                 addrBody.Children.Add(arow);
                 aRows.Add(arow);
@@ -924,7 +941,7 @@ namespace MihomoLauncher.Views
             void Refresh()
             {
                 RenderExit(entry, exitText);
-                bool live = hours == 0;
+                bool live = span.Live;
 
                 // Column titles: speed now, or the volume over the period; the sort on them.
                 PaintHeads(live);
@@ -1114,13 +1131,13 @@ namespace MihomoLauncher.Views
             async void LoadArchive()
             {
                 int gen = ++loadGen;
-                int h = hours;
+                var sp = span;
                 archive = null;
                 Refresh();
                 var now = DateTime.UtcNow;
                 var open = new List<ConnArchive.Rec>();
                 Dictionary<string, WhoConn> map;
-                if (_whoRecent.TryGetValue(entry.Id, out map))
+                if (sp.ToUtc == null && _whoRecent.TryGetValue(entry.Id, out map))
                     foreach (var w in map.Values)
                         if (!w.Closed) open.Add(ConnArchive.From(entry.Id, w.C, w.C.Down - w.ArchDown, w.C.Up - w.ArchUp, now));
                 List<WhoProg> result;
@@ -1128,7 +1145,10 @@ namespace MihomoLauncher.Views
                 try
                 {
                     result = await System.Threading.Tasks.Task.Run(() =>
-                        WhoAggregate(ConnArchive.Read(entry.Id, now.AddHours(-h)).Concat(open), unknown)).ConfigureAwait(true);
+                    {
+                        long to = sp.ToUtc == null ? long.MaxValue : ConnArchive.SecOf(sp.ToUtc.Value);
+                        return WhoAggregate(ConnArchive.Read(entry.Id, sp.FromUtc).Where(r => r.End <= to).Concat(open), unknown);
+                    }).ConfigureAwait(true);
                 }
                 catch (Exception ex) { Log.Error("conn-archive-load", ex); result = new List<WhoProg>(); }
                 if (gen != loadGen) return;
@@ -1138,9 +1158,9 @@ namespace MihomoLauncher.Views
             }
 
             refresh = Refresh;
-            if (hours == 0) Refresh(); else LoadArchive();
+            if (span.Live) Refresh(); else LoadArchive();
             var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(2) };
-            timer.Tick += (s, e) => { if (hours == 0) Refresh(); };
+            timer.Tick += (s, e) => { if (span.Live) Refresh(); };
             timer.Start();
             // ↑ / ↓ move the selected program (2026-11-25), the list scrolls to it.
             KeyEventHandler keys = (s, e) =>
@@ -1173,13 +1193,38 @@ namespace MihomoLauncher.Views
             };
             if (win != null) win.PreviewKeyDown += keys;
             stop = () => { timer.Stop(); searchTimer.Stop(); loadGen++; if (win != null) win.PreviewKeyDown -= keys; };
-            setHours = h =>
+            setPeriod = p =>
             {
-                hours = h;
-                if (h == 0) { archive = null; loadGen++; Refresh(); }
+                span = p ?? SpeedSpan.Now();
+                if (span.Live) { archive = null; loadGen++; Refresh(); }
                 else LoadArchive();
             };
             return root;
+        }
+
+        // One address row as text: «host · 1.2.3.4:443 · DE Франкфурт, ФРГ · Akamai International B.V.»
+        // (a bare address: «1.2.3.4:443 · …»); parts it has none of are left out.
+        private void CopyAddrRow(WhoAddr a)
+        {
+            var parts = new List<string>();
+            string ip = a.Ip ?? "", port = a.Port ?? "";
+            if (!string.IsNullOrEmpty(a.Host)) parts.Add(a.Host);
+            if (ip.Length > 0) parts.Add(ip + (port.Length > 0 ? ":" + port : ""));
+            else if (port.Length > 0) parts.Add(Loc.T("Main_WhoPort", port));
+            if (ip.Length > 0)
+            {
+                var g = GeoIpService.Lookup(ip);
+                var place = GeoIpService.PlaceOf(g);
+                if (place.Length == 0 && IsPrivate(ip)) place = Loc.T("Main_WhoLocal");
+                var iso = g?.IsoCode ?? "";
+                string where = (iso + " " + place).Trim();
+                if (where.Length > 0) parts.Add(where);
+                var org = GeoIpService.OrgOf(ip, AsnPath);
+                if (!string.IsNullOrEmpty(org)) parts.Add(org);
+            }
+            if (parts.Count == 0) return;
+            try { Clipboard.SetText(string.Join(" · ", parts)); }
+            catch (Exception ex) { Log.Error("who-copy-row", ex); }
         }
 
         // «Выход в интернет: напрямую — карта Windows по умолчанию «Wi-Fi» · 91.197.105.120 · [RU] Сочи, Россия · Radist LTD»
@@ -1295,6 +1340,109 @@ namespace MihomoLauncher.Views
         {
             var t = utc.ToLocalTime();
             return t.Date == DateTime.Now.Date ? t.ToString("HH:mm") : t.ToString("dd.MM HH:mm");
+        }
+
+        // A cell cut with «…»: under the pointer its whole text shows right over it, like Explorer's
+        // names (2026-11-25: «при наведении показывай полный адрес, который обрезан»). Drawn in the
+        // window itself (an adorner, not hit-testable): a popup window of its own flickered — the
+        // pointer was then over it, not the cell — and stayed on top of other programs. After a
+        // short pause, so a pass over the rows does not flash them. A cell that fits is left alone
+        // (its tooltip as before); while the whole text shows, the tooltip is held back.
+        private static RevealAdorner _reveal;
+        private static System.Windows.Threading.DispatcherTimer _revealTimer;
+        private static TextBlock _revealFor;
+        private static FrameworkElement _revealCell;
+        private const string WhoCellMark = "who-cell";   // WhoCellBox's Tag: the whole cell is the hover area
+
+        // The pointer anywhere in the cell, not only on the text (2026-11-25: «наводить могу не
+        // только на сам путь, но и на всю ячейку»). The cell is found once the row is in the tree.
+        private void RevealTrimmed(TextBlock t)
+        {
+            bool hooked = false;
+            t.Loaded += (s, e) =>
+            {
+                if (hooked) return;
+                DependencyObject d = t;
+                while (d != null && !(d is Border bd && Equals(bd.Tag, WhoCellMark))) d = VisualTreeHelper.GetParent(d);
+                var cell = (d as FrameworkElement) ?? t;
+                hooked = true;
+                cell.MouseEnter += (s2, e2) => StartReveal(t, cell);
+                cell.MouseLeave += (s2, e2) => { if (ReferenceEquals(_revealCell, cell)) HideReveal(); };
+            };
+            t.Unloaded += (s, e) => { if (ReferenceEquals(_revealFor, t)) HideReveal(); };
+        }
+
+        private void StartReveal(TextBlock t, FrameworkElement cell)
+        {
+            HideReveal();
+            ToolTipService.SetIsEnabled(t, true);
+            if (string.IsNullOrEmpty(t.Text) || t.ActualWidth <= 0 || !t.IsVisible) return;
+            if (WhoTextWidth(t.Text, t.FontSize, t.FontWeight, t.FontFamily) <= t.ActualWidth + 0.5) return;
+            ToolTipService.SetIsEnabled(t, false);
+            _revealFor = t;
+            _revealCell = cell;
+            if (_revealTimer == null)
+            {
+                _revealTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+                _revealTimer.Tick += (s2, e2) =>
+                {
+                    _revealTimer.Stop();
+                    var target = _revealFor;
+                    if (target == null || _revealCell == null || !_revealCell.IsMouseOver || !target.IsVisible) return;
+                    var layer = AdornerLayer.GetAdornerLayer(target);
+                    if (layer == null) { Log.Info("Кто и куда: нет слоя для полного текста ячейки."); return; }
+                    _reveal = new RevealAdorner(target);
+                    layer.Add(_reveal);
+                };
+            }
+            _revealTimer.Stop();
+            _revealTimer.Start();
+        }
+
+        private static void HideReveal()
+        {
+            _revealTimer?.Stop();
+            _revealFor = null;
+            _revealCell = null;
+            if (_reveal == null) return;
+            AdornerLayer.GetAdornerLayer(_reveal.AdornedElement)?.Remove(_reveal);
+            _reveal = null;
+        }
+
+        // The whole text of a cut cell, on a small plate laid exactly over the cell's text.
+        private sealed class RevealAdorner : Adorner
+        {
+            private readonly Border _box;
+
+            public RevealAdorner(TextBlock t) : base(t)
+            {
+                IsHitTestVisible = false;
+                var text = new TextBlock
+                {
+                    Text = t.Text, FontSize = t.FontSize, FontWeight = t.FontWeight, FontFamily = t.FontFamily,
+                    Foreground = Theme.TextPrimary, VerticalAlignment = VerticalAlignment.Center,
+                };
+                _box = new Border
+                {
+                    Background = Theme.OverlayCardBg, BorderBrush = Theme.PickerBorder, BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(4), Padding = new Thickness(4, 0, 6, 0), Child = text,
+                    MinHeight = t.ActualHeight + 2, IsHitTestVisible = false,
+                };
+                AddVisualChild(_box);
+            }
+
+            protected override int VisualChildrenCount => 1;
+            protected override Visual GetVisualChild(int index) => _box;
+            protected override Size MeasureOverride(Size constraint)
+            {
+                _box.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                return _box.DesiredSize;
+            }
+            protected override Size ArrangeOverride(Size finalSize)
+            {
+                _box.Arrange(new Rect(new Point(-5, -1), _box.DesiredSize));
+                return finalSize;
+            }
         }
 
         // ---- table pieces ----
@@ -1455,13 +1603,13 @@ namespace MihomoLauncher.Views
         }
 
         // The ⧉ in the addresses' corner: the same view in a window of its own, sized by the user.
-        private void OpenSpeedWhoWindow(AppEntry entry, string selected, int hours, string mask)
+        private void OpenSpeedWhoWindow(AppEntry entry, string selected, SpeedSpan span, string mask)
         {
             var holder = new ContentControl { HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
             var win = new SpeedWindow(Loc.T("Main_WhoWinTitle", entry.IsAllTraffic ? AllTrafficName() : entry.Name), holder, resizable: true) { Owner = this };
             Action stop;
-            Action<int> setHours;   // the detached window keeps the period it was opened with
-            holder.Content = BuildSpeedWho(entry, win, true, selected, hours, mask, out stop, out setHours);
+            Action<SpeedSpan> setPeriod;   // the detached window keeps the period it was opened with
+            holder.Content = BuildSpeedWho(entry, win, true, selected, span, mask, out stop, out setPeriod);
             win.Closed += (s, e) => stop();
             win.Show();
         }
@@ -1496,6 +1644,9 @@ namespace MihomoLauncher.Views
                 Padding = new Thickness(WhoCellPad, 0, WhoCellPad, 0),
                 BorderThickness = new Thickness(col == 0 ? 1 : 0, head ? 1 : 0, joinRight ? 0 : 1, 1),
                 Child = content,
+                // see-through but there for the pointer: the whole cell is a hover area (RevealTrimmed)
+                Background = Brushes.Transparent,
+                Tag = WhoCellMark,
             };
             b.BorderBrush = Theme.TableLine;
             if (head) b.Background = Theme.TableHeaderBg;

@@ -17,7 +17,7 @@ namespace MihomoLauncher.Services
     // measured seconds; a minute nobody measured simply has no bucket — the chart leaves it empty.
     public static class SpeedHistory
     {
-        public const int KeepMinutes = 48 * 60;
+        public const int KeepMinutes = 7 * 24 * 60;   // the «7 дней» tab (2026-11-25; was 48 h)
 
         public sealed class Bucket
         {

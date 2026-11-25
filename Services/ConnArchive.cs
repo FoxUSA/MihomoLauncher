@@ -25,7 +25,7 @@ namespace MihomoLauncher.Services
             public long Start;         // Unix seconds (UTC) it opened; 0 = unknown (lines before 2026-11-25)
         }
 
-        private const int KeepHours = 24;
+        private const int KeepHours = 7 * 24;   // the «7 дней» tab (2026-11-25; was 24)
         private static readonly object _buf = new object();
         private static readonly object _io = new object();
         private static List<Rec> _pending = new List<Rec>();

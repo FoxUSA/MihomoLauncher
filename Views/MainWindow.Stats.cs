@@ -123,7 +123,8 @@ namespace MihomoLauncher.Views
             StatsBlocksRow.Visibility = showStats ? Visibility.Visible : Visibility.Collapsed;
             bool showNics = ShowNicIps;
             StatsNics.Visibility = showNics ? Visibility.Visible : Visibility.Collapsed;
-            StatsStrip.Visibility = showMsg || showFoot || showStats || showNics ? Visibility.Visible : Visibility.Collapsed;
+            // + the «a tile can be pulled out» line (MainWindow.TileDetach), while it shows.
+            StatsStrip.Visibility = showMsg || showFoot || showStats || showNics || DetachHintOn ? Visibility.Visible : Visibility.Collapsed;
 
             // Only the stats are about the log; a plate holding just a message is not a link.
             StatsStrip.Cursor = showStats ? Cursors.Hand : null;

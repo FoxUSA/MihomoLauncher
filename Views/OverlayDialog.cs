@@ -375,6 +375,9 @@ namespace MihomoLauncher.Views
         private static System.Action HookKeys(Window owner, Grid overlay, System.Action<bool> close)
         {
             if (owner == null) return () => { };
+            // Asked for by a pulled-out tile while the main window is in the tray: show it, or the
+            // question would wait unseen (MainWindow.TileDetach).
+            (owner as MainWindow)?.SurfaceForDetachedAction();
             var entry = new KeyValuePair<Window, Grid>(owner, overlay);
             _open.Add(entry);
             KeyEventHandler handler = (s, e) =>

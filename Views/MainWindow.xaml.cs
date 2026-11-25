@@ -1469,6 +1469,7 @@ namespace MihomoLauncher.Views
             SyncTileGrid();
             UpdateConflictIcon();
             RecalcHeight();
+            RebuildDetachedTiles();
         }
 
         // How tall «Основная»'s tiles are now, at _tileCols columns (MainWindow.WindowSize).
@@ -1699,7 +1700,8 @@ namespace MihomoLauncher.Views
         private static string KillTip(AppEntry entry, string key)
             => Loc.T(key) + (entry.KillSwitch ? "\n\n" + Loc.T("Main_TipKillOn") : "");
 
-        private FrameworkElement CreateTile(AppEntry entry)
+        // detached: the copy in a TileWindow — 1 in 1, its bin a ✕ that closes that window.
+        private FrameworkElement CreateTile(AppEntry entry, bool detached = false)
         {
             bool reconnecting = entry.Id == _reconnectingId;
             bool launching = _launchingIds.Contains(entry.Id);
@@ -1732,7 +1734,9 @@ namespace MihomoLauncher.Views
                 // hand cursor is reserved for actual buttons; "arrow + hourglass" while it launches
                 Cursor = launching ? Cursors.AppStarting : Cursors.Arrow,
                 Tag = entry,              // drag-to-reorder finds the rule by it
-                Effect = bright ? new System.Windows.Media.Effects.DropShadowEffect
+                // No shadow on a pulled-out tile (2026-11-25): half-see-through, it was the one part
+                // that took on whatever lay under the window — just the tile there.
+                Effect = bright && !detached ? new System.Windows.Media.Effects.DropShadowEffect
                 {
                     Color = Theme.ShadowColor,
                     BlurRadius = 10,
@@ -1895,7 +1899,15 @@ namespace MihomoLauncher.Views
 
             // The bin, always on top (▷/⏸ under it): deletes the tile with its rule, after
             // asking. Dull red under the pointer. «Всё остальное» is built in — no bin.
-            if (!entry.IsBuiltIn)
+            if (detached)
+            {
+                // The pulled-out tile: a ✕ where the bin is, closing only its window (the tile
+                // stays in the main window).
+                grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Dismiss24, 13,
+                    new Thickness(0, 5, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipCloseDetached"), false,
+                    () => CloseTileWindow(entry.Id, true)));
+            }
+            else if (!entry.IsBuiltIn)
             {
                 var bin = MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Delete24, 13,
                     new Thickness(0, 5, 5, 0), HorizontalAlignment.Right, Loc.T("Main_TipDeleteTile"), false,

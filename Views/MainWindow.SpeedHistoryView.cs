@@ -25,13 +25,12 @@ namespace MihomoLauncher.Views
         private async Task ShowSpeedHistoryAsync(AppEntry entry)
         {
             if (entry == null) return;
-            // 0 = «Сейчас» (2026-11-20): first and opened by default — live, the chart over the last
-            // hour, the figures and «кто и куда» over the last minute. 1 / 6 / 12 / 24 = the archive
-            // of that period, read once when the tab is clicked and then still.
-            int hours = 0;
-            Action<int> whoSetHours = null;
-
-            var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
+            // The period (SpeedPeriodBar, 2026-11-25): «Сейчас» first and opened by default — live,
+            // the chart over the last hour, the figures and «кто и куда» over the last minute; then
+            // 1 / 6 / 12 / 24 hours, the day counter, or a stretch typed / picked in the date plates —
+            // the archive of it, read once when chosen and then still.
+            var bar = new SpeedPeriodBar(entry.Id);
+            Action<SpeedSpan> whoSetPeriod = null;
 
             // The speed now, big: ↓ in its speed colour, ↑ plain.
             var heroDown = new TextBlock { FontSize = 26, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Bottom };
@@ -90,7 +89,7 @@ namespace MihomoLauncher.Views
             Action whoStop;
             var whoHolder = new ContentControl { Margin = new Thickness(0, 10, 0, 0) };
             var body = new StackPanel();
-            body.Children.Add(tabs);
+            body.Children.Add(bar.View);
             body.Children.Add(hero);
             body.Children.Add(sub);
             body.Children.Add(middle);
@@ -149,17 +148,24 @@ namespace MihomoLauncher.Views
 
             void Refresh()
             {
-                int span = hours == 0 ? 1 : hours;
-                int minutes = span * 60;
-                var data = SpeedHistory.Get(entry.Id, minutes);
-                chart.Set(data, minutes, span == 24 ? 5 : span == 12 ? 3 : span == 6 ? 2 : 1, span == 24 ? 180 : span == 12 ? 120 : span == 6 ? 60 : 10);
+                bool live = bar.Mode == SpeedPeriodBar.Kind.Now;
+                if (live) bar.Paint();   // the history grows: what the buttons may pick
+                DateTime fromUtc, toUtc;
+                bar.Stretch(out fromUtc, out toUtc);
+                long endMin = SpeedHistory.MinuteOf(toUtc);
+                int minutes = (int)Math.Max(1, endMin - SpeedHistory.MinuteOf(fromUtc));
+                int before = (int)Math.Max(0, SpeedHistory.MinuteOf(DateTime.UtcNow) - endMin);
+                var data = SpeedHistory.Get(entry.Id, minutes, before);
+                // Slots: about 300 points whatever the stretch; the days tick at midnight (and noon
+                // for up to 3 days), the hours as before.
+                chart.Set(data, minutes, ChartPer(minutes), ChartTick(minutes), endMin);
                 UpdateNow();
 
                 string period;
                 double avgD, avgU, volD, volU, pkD, pkU;
                 double vpnD, vpnU, oldD = 0, oldU = 0;   // through a VPN; recorded before the split
                 string pkDAt, pkUAt, shiftD = null, shiftU = null;
-                if (hours == 0)
+                if (live)
                 {
                     // «Сейчас»: the figures over the last 60 s, the same minute as «кто и куда».
                     var sec = SpeedLastMinute(entry.Id);
@@ -191,59 +197,37 @@ namespace MihomoLauncher.Views
                     avgU = secs > 0 ? volU / secs : 0;
                     var bD = data.OrderByDescending(b => b.PeakDown).FirstOrDefault();
                     var bU = data.OrderByDescending(b => UpPeak(b)).FirstOrDefault();
-                    string fmt = span >= 12 ? "dd.MM HH:mm" : "HH:mm";
+                    string fmt = minutes >= 720 || fromUtc.ToLocalTime().Date != toUtc.ToLocalTime().Date ? "dd.MM HH:mm" : "HH:mm";
                     pkD = bD?.PeakDown ?? 0; pkU = bU == null ? 0 : UpPeak(bU);
                     pkDAt = bD == null ? "" : SpeedHistory.TimeOf(bD.Minute).ToLocalTime().ToString(fmt);
                     pkUAt = bU == null ? "" : SpeedHistory.TimeOf(bU.Minute).ToLocalTime().ToString(fmt);
                     // The same span just before: the average's shift, when that span was measured enough.
-                    var prev = SpeedHistory.Get(entry.Id, minutes, minutes);
+                    var prev = SpeedHistory.Get(entry.Id, minutes, before + minutes);
                     double ps = prev.Sum(b => b.Secs);
                     if (ps >= minutes * 60 * 0.1)
                     {
                         shiftD = Shift(avgD, prev.Sum(b => b.Down) / ps);
                         shiftU = Shift(avgU, prev.Sum(b => b.Up) / ps);
                     }
-                    period = Loc.T(span == 1 ? "Main_SpeedPer1" : span == 6 ? "Main_SpeedPer6" : span == 12 ? "Main_SpeedPer12" : "Main_SpeedPer24");
-                    note.Text = Loc.T("Main_SpeedNote") + " " + Loc.T(span == 1 ? "Main_SpeedShift1" : "Main_SpeedShiftN", span);
+                    period = bar.Label;
+                    int span = bar.SpanMin / 60;
+                    note.Text = Loc.T("Main_SpeedNote") + " " + (bar.Mode == SpeedPeriodBar.Kind.Range ? Loc.T("Main_SpeedShiftRange")
+                                                                : bar.Mode == SpeedPeriodBar.Kind.Days ? Loc.T("Main_SpeedShiftDays", SpeedPeriodBar.DaysText((int)Math.Ceiling(bar.SpanMin / 1440.0)))
+                                                                : Loc.T(span == 1 ? "Main_SpeedShift1" : "Main_SpeedShiftN", span));
                 }
 
                 // What moved without a VPN and through one (2026-11-23) — always exactly these two
                 // lines; the period is the open tab. Minutes recorded before the split (an
                 // installation just updated: their route is unknown) are in neither line, only in
                 // the chart, until they roll out of the history.
-                Func<double, string> volFmt = hours == 0 ? (Func<double, string>)WhoVolume : Volume;
+                Func<double, string> volFmt = live ? (Func<double, string>)WhoVolume : Volume;
                 SetSplit(volFmt,
                     Tuple.Create(Loc.T("Main_SpeedSplitDirect"), Math.Max(0, volD - oldD - vpnD), Math.Max(0, volU - oldU - vpnU)),
                     Tuple.Create(Loc.T("Main_SpeedSplitVpn"), vpnD, vpnU));
                 FillTable(table, Loc.T("Main_SpeedFor", period),
-                    avgD, shiftD, pkD, pkDAt, hours == 0 ? WhoVolume(volD) : Volume(volD),
-                    avgU, shiftU, pkU, pkUAt, hours == 0 ? WhoVolume(volU) : Volume(volU));
+                    avgD, shiftD, pkD, pkDAt, live ? WhoVolume(volD) : Volume(volD),
+                    avgU, shiftU, pkU, pkUAt, live ? WhoVolume(volU) : Volume(volU));
                 FillRecords(records, SpeedHistory.GetTotal(entry.Id), Volume);
-
-                tabs.Children.Clear();
-                foreach (var h in new[] { 0, 1, 6, 12, 24 })
-                {
-                    bool on = h == hours;
-                    var tab = new Border
-                    {
-                        Background = on ? Theme.ChipBgHover : Theme.BadgeNeutralBg,
-                        BorderBrush = on ? Theme.TileBorderHover : Theme.BadgeNeutralBorder,
-                        BorderThickness = new Thickness(1),
-                        CornerRadius = new CornerRadius(6),
-                        Padding = new Thickness(12, 4, 12, 5),
-                        Margin = new Thickness(0, 0, 6, 0),
-                        Cursor = Cursors.Hand,
-                        Child = new TextBlock
-                        {
-                            Text = Loc.T(h == 0 ? "Main_SpeedTabNow" : h == 1 ? "Main_SpeedTab1" : h == 6 ? "Main_SpeedTab6" : h == 12 ? "Main_SpeedTab12" : "Main_SpeedTab24"),
-                            FontSize = 12.5,
-                            Foreground = on ? Theme.TextPrimary : Theme.TextSecondary,
-                        },
-                    };
-                    int pick = h;
-                    tab.MouseLeftButtonUp += (s, e) => { e.Handled = true; hours = pick; Refresh(); whoSetHours?.Invoke(pick); };
-                    tabs.Children.Add(tab);
-                }
             }
             Refresh();
 
@@ -251,7 +235,9 @@ namespace MihomoLauncher.Views
             // Not modal: the tiles stay usable while it is open.
             var win = new SpeedWindow(Loc.T("Main_SpeedTitle", entry.IsAllTraffic ? AllTrafficName() : entry.Name), body) { Owner = this };
             whoOwner = win;
-            whoHolder.Content = BuildSpeedWho(entry, whoOwner, false, null, 0, null, out whoStop, out whoSetHours);
+            whoHolder.Content = BuildSpeedWho(entry, whoOwner, false, null, bar.Span(), null, out whoStop, out whoSetPeriod);
+            bar.Attach(win);
+            bar.Changed += () => { Refresh(); whoSetPeriod?.Invoke(bar.Span()); };
             win.Closed += (s, e) => whoStop();
 
             var close = new Wpf.Ui.Controls.Button
@@ -284,7 +270,8 @@ namespace MihomoLauncher.Views
                     Log.Info("Скорость: история плитки «" + name + "» очищена (график, рекорды и соединения).");
                 }
                 Refresh();
-                whoSetHours?.Invoke(hours);
+                bar.Paint();
+                whoSetPeriod?.Invoke(bar.Span());
             };
 
             // Every second: the big figures, like the tile's plate; every 5 s the whole «Сейчас»
@@ -293,7 +280,7 @@ namespace MihomoLauncher.Views
             var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
             timer.Tick += (s, e) =>
             {
-                if (hours == 0 && ++ticks % 5 == 0) { Refresh(); return; }
+                if (bar.Mode == SpeedPeriodBar.Kind.Now && ++ticks % 5 == 0) { Refresh(); return; }
                 UpdateNow();
             };
             timer.Start();
@@ -301,6 +288,15 @@ namespace MihomoLauncher.Views
             win.Show();
             await Task.CompletedTask.ConfigureAwait(true);
         }
+
+        // Chart slots: the smallest step that keeps it near 300 points; ticks to suit the stretch.
+        private static int ChartPer(int minutes)
+        {
+            foreach (var p in new[] { 1, 2, 3, 5, 10, 15, 20, 30, 60 }) if (minutes / p <= 340) return p;
+            return 60;
+        }
+        private static int ChartTick(int minutes) =>
+            minutes <= 60 ? 10 : minutes <= 180 ? 30 : minutes <= 360 ? 60 : minutes <= 720 ? 120 : minutes <= 1440 ? 180 : minutes <= 4320 ? 720 : 1440;
 
         // A minute's fastest second up; buckets from before 2026-11-21 have none — their average then.
         private static double UpPeak(SpeedHistory.Bucket b) => b.PeakUp > 0 ? b.PeakUp : (b.Secs > 0 ? b.Up / b.Secs : 0);
@@ -417,11 +413,11 @@ namespace MihomoLauncher.Views
                 Cursor = Cursors.Cross;
             }
 
-            public void Set(List<SpeedHistory.Bucket> data, int minutes, int perMinutes, int tickEveryMinutes)
+            public void Set(List<SpeedHistory.Bucket> data, int minutes, int perMinutes, int tickEveryMinutes, long endMinute)
             {
                 _per = perMinutes;
                 _tickEvery = tickEveryMinutes;
-                long end = SpeedHistory.MinuteOf(DateTime.UtcNow);
+                long end = endMinute;
                 long start = end - minutes + 1;
                 // Slots aligned to round times, so «12:00» lands on a slot edge.
                 start -= ((start % perMinutes) + perMinutes) % perMinutes;
@@ -604,7 +600,7 @@ namespace MihomoLauncher.Views
                     if (mins % _tickEvery >= _per) continue;
                     double x = L + i * bw;
                     dc.DrawLine(tickPen, new Point(x, bottom), new Point(x, bottom + 3));
-                    var t = Txt(t0.ToString("HH:mm"), 10.5, Theme.TextMuted);
+                    var t = Txt(_tickEvery >= 720 && mins < _per ? t0.ToString("dd.MM") : t0.ToString("HH:mm"), 10.5, Theme.TextMuted);
                     double tx = Math.Max(L, Math.Min(W - R - t.Width, x - t.Width / 2));
                     dc.DrawText(t, new Point(tx, bottom + 3));
                 }
@@ -626,7 +622,7 @@ namespace MihomoLauncher.Views
                         double dm = Mb(s.Down, s.Secs);
                         dc.DrawEllipse(SpeedBrush(Math.Max(0.006, dm)), new Pen(Theme.TextOnColor, 1.5), new Point(x, Yd(dm)), 3.5, 3.5);
                     }
-                    string time = s.Start.ToString("HH:mm") + (_per > 1 ? "–" + s.Start.AddMinutes(_per).ToString("HH:mm") : "");
+                    string time = (_tickEvery >= 720 ? s.Start.ToString("dd.MM ") : "") + s.Start.ToString("HH:mm") + (_per > 1 ? "–" + s.Start.AddMinutes(_per).ToString("HH:mm") : "");
                     string text = s.Secs <= 0 ? time + " · " + Loc.T("Main_SpeedNoDataShort")
                         : time + " · ↓ " + Mbit(s.Down / s.Secs) + " · ↑ " + Mbit(s.Up / s.Secs) + " " + Loc.T("Main_SpeedMbit")
                           + (_per > 1 ? " · " + Loc.T("Main_SpeedPeak").ToLowerInvariant() + " " + Mbit(s.PeakDown) : "");

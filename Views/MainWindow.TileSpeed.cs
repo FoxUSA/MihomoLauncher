@@ -86,7 +86,8 @@ namespace MihomoLauncher.Views
             view.DownArrow.Text = "↓";
             view.UpArrow.Text = "↑";
             foreach (var t in new[] { view.DownText, view.UpText }) Typography.SetNumeralAlignment(t, FontNumeralAlignment.Tabular);
-            _speedViews[entry.Id] = view;
+            if (_buildingDetached) _speedViewsDetached[entry.Id] = view;   // the pulled-out copy (TileWindow)
+            else _speedViews[entry.Id] = view;
 
             // Room for the widest number Mbit() writes («0,05», «94,8», «150», «1000»).
             // Four characters at most (2026-11-25: was sized for five — the bars came out short).
@@ -335,6 +336,7 @@ namespace MihomoLauncher.Views
         private void RenderAllSpeeds()
         {
             foreach (var kv in _speedViews) RenderSpeed(kv.Key, kv.Value);
+            foreach (var kv in _speedViewsDetached) RenderSpeed(kv.Key, kv.Value);
         }
 
         // «↓ 15,2 ▬▬▬» over «↑ 0,65 ▬▬▬».

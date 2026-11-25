@@ -400,8 +400,25 @@ namespace MihomoLauncher.Views
                     }
                 }
             }).ConfigureAwait(true);
+            // Whatever copy their names had belongs to a variant before them (2026-11-25).
+            foreach (var slot in added)
+                if (slot.Kind == VpnSlotKind.ClashSub)
+                    SubscriptionPolicy.ForgetCopy(_cfg, ProxyParsers.ProxyNameFor(slot, _cfg.VpnSlots.IndexOf(slot) + 1));
             RefreshSlotRows();
             if (_slotRows.Count > 0) GridSlots.SelectedIndex = _slotRows.Count - 1;
+        }
+
+        // The subscription downloaded in the background while its dialog is open; the «Узел» list
+        // then fills from it. A failure is only logged — «Обновить» shows the reason.
+        private async System.Threading.Tasks.Task FetchNodesAsync(VpnSlot slot, string proxyName, EditSlotDialog dlg)
+        {
+            try
+            {
+                var why = await SubscriptionPolicy.RefreshAsync(_cfg, proxyName, slot.Value, null, System.Threading.CancellationToken.None).ConfigureAwait(true);
+                if (why != null) Log.Info("Подписка «" + proxyName + "»: узлы не получены — " + why);
+                if (dlg.IsVisible) dlg.SubscriptionNodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName, slot.Value);
+            }
+            catch (Exception ex) { Log.Error("sub-fetch-nodes", ex); }
         }
 
         private async void OnEditSlot(object sender, RoutedEventArgs e)
@@ -415,17 +432,26 @@ namespace MihomoLauncher.Views
             if (slot.Kind == VpnSlotKind.ClashSub)
             {
                 var proxyName = ProxyParsers.ProxyNameFor(slot, idx + 1);
-                dlg.SubscriptionNodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName);
+                var nodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName, slot.Value);
+                dlg.SubscriptionNodes = nodes;
+                // No copy of THIS link yet: fetched right away, its nodes appear by themselves —
+                // not only after «Обновить» (2026-11-25).
+                if (nodes == null) _ = FetchNodesAsync(slot, proxyName, dlg);
                 // «Обновить» may bring other nodes: the list follows.
                 dlg.ShowSubscription = refresh =>
                 {
                     ShowSubscription(slot, refresh, dlg);
-                    dlg.SubscriptionNodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName);
+                    dlg.SubscriptionNodes = SubscriptionPolicy.ReadNodes(_cfg, proxyName, slot.Value);
                 };
             }
             else dlg.ShowSubscription = refresh => ShowSubscription(slot, refresh, dlg);
             if (dlg.ShowDialog() != true || dlg.Result == null) return;
             var edited = dlg.Result;
+            // Another link or another name: the copy under its (new) name is not this link's.
+            if (edited.Kind == VpnSlotKind.ClashSub
+                && (!string.Equals((edited.Value ?? "").Trim(), (slot.Value ?? "").Trim(), StringComparison.Ordinal)
+                    || !string.Equals(edited.Name ?? "", slot.Name ?? "", StringComparison.Ordinal)))
+                SubscriptionPolicy.ForgetCopy(_cfg, ProxyParsers.ProxyNameFor(edited, idx + 1));
             await CommitAsync(() =>
             {
                 int at = _cfg.VpnSlots.IndexOf(slot);
@@ -476,7 +502,10 @@ namespace MihomoLauncher.Views
                 : Loc.T("Set_DeleteVariantsMany", targets.Count);
             var ok = await OverlayDialog.ConfirmAsync(this, Loc.T("Set_DeleteVariantTitle"), body, Loc.T("Set_BtnDelete"), Loc.T("Set_BtnCancel")).ConfigureAwait(true);
             if (!ok) return;
+            var gone = targets.Where(t => t.Kind == VpnSlotKind.ClashSub)
+                              .Select(t => ProxyParsers.ProxyNameFor(t, _cfg.VpnSlots.IndexOf(t) + 1)).ToList();
             await CommitAsync(() => { foreach (var t in targets) _cfg.VpnSlots.Remove(t); }).ConfigureAwait(true);
+            foreach (var name in gone) SubscriptionPolicy.ForgetCopy(_cfg, name);
             RefreshSlotRows();
         }
 

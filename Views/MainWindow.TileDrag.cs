@@ -22,6 +22,11 @@ namespace MihomoLauncher.Views
     public partial class MainWindow
     {
         private const double TileDragThreshold = 6;
+        // Held longer than this and let go without moving: not a click — the tile does not open
+        // (2026-11-25: «случайно жмётся открыть программу»). Windows' own double-click time, 500 ms
+        // by default: anything longer than that is a hold, not a press.
+        internal static TimeSpan TileHoldIsNotClick => TimeSpan.FromMilliseconds(Math.Max(400, System.Windows.Forms.SystemInformation.DoubleClickTime));
+        private DateTime _tilePressAt;
 
         private FrameworkElement _dragPending;      // pressed, not moved far enough yet
         private Point _dragPressPos;                // in the WrapPanel's coordinates
@@ -30,6 +35,10 @@ namespace MihomoLauncher.Views
         private Vector _dragGrab;                   // cursor offset inside the tile
         private TileGhostAdorner _dragGhost;
         private bool _tileRebuildPending;           // RebuildTiles asked during a drag
+        private bool _dragDetachOnly;               // «Всё остальное»: never moves, can only be pulled out
+        private int _dragFromIndex;                 // where the tile was: back there if it is pulled out
+        private bool _dragOutside;                  // the cursor is past the window's edge
+        private Point? _dragDetachAt;               // let go outside: the tile's window goes there (screen DIP)
 
         private bool TileDragActive => _dragTile != null;
 
@@ -63,10 +72,15 @@ namespace MihomoLauncher.Views
         {
             _dragPending = null;
             _dragSwallowUp = false;
-            if (TileDragActive || _state == UiState.Checking) return;
+            _tilePressAt = DateTime.UtcNow;
+            // Any time (2026-11-25: «должен иметь возможность схватить её в любое время»): also
+            // while a VPN connects or a program starts. An order changed meanwhile is saved at
+            // once and reaches the engine when the connecting is over (ApplyRuleOrder waits).
+            if (TileDragActive) return;
             var tile = TileFromSource(e.OriginalSource);
             var entry = tile?.Tag as AppEntry;
-            if (entry == null || entry.IsBuiltIn) return;
+            if (entry == null) return;
+            _dragDetachOnly = entry.IsBuiltIn;
             _dragPanel = VisualTreeHelper.GetParent(tile) as Panel;
             if (_dragPanel == null) return;
             _dragPending = tile;
@@ -78,7 +92,22 @@ namespace MihomoLauncher.Views
             if (TileDragActive)
             {
                 var p = e.GetPosition(_dragPanel);
+                // Past the window's edge (2026-11-25): the same picture goes on following the
+                // cursor out there; the tiles and tabs stay as they are.
+                var px = PointToScreen(e.GetPosition(this));
+                _dragOutside = !OverMainPx(px);
+                if (_dragOutside)
+                {
+                    if (_dragGhost != null) _dragGhost.Visibility = Visibility.Hidden;
+                    SetTabDrop(null);
+                    ShowPullWindow(PxToDip(px));
+                    e.Handled = true;
+                    return;
+                }
+                HidePullWindow();
+                if (_dragGhost != null) _dragGhost.Visibility = Visibility.Visible;
                 _dragGhost?.MoveTo(p - _dragGrab);
+                if (_dragDetachOnly) { e.Handled = true; return; }
                 // Over a tab (or «+») below: it lights up and takes the tile on release
                 // (MainWindow.TileTabs); the tiles stay where they are meanwhile.
                 var tab = TabUnder(e);
@@ -94,7 +123,7 @@ namespace MihomoLauncher.Views
                 && Math.Abs(pos.Y - _dragPressPos.Y) < TileDragThreshold) return;
             // The order of the tiles is routing (further left wins) — behind the access password.
             // Ask once the drag is unmistakable; this press must not then launch the tile.
-            if (!AccessLock.IsOpen(_config))
+            if (!_dragDetachOnly && !AccessLock.IsOpen(_config))
             {
                 _dragPending = null;
                 _dragSwallowUp = true;
@@ -103,19 +132,38 @@ namespace MihomoLauncher.Views
                 return;
             }
             AccessLock.Touch();
-            BeginTileDrag(_dragPending, pos);
+            // Connecting / starting redraws the tiles: the one pressed may be gone by now — the
+            // drag takes the tile of the same rule that is there now.
+            var live = LiveTileOf(_dragPending);
+            if (live == null) { _dragPending = null; return; }
+            BeginTileDrag(live, pos);
             e.Handled = true;
         }
 
         private bool _dragSwallowUp;
 
+        // The tile in the panel now for the rule of this (maybe redrawn-away) tile.
+        private FrameworkElement LiveTileOf(FrameworkElement pressed)
+        {
+            if (pressed != null && TilesPanel.Items.Contains(pressed)) return pressed;
+            var entry = pressed?.Tag as AppEntry;
+            if (entry == null) return null;
+            return TilesPanel.Items.OfType<FrameworkElement>()
+                .FirstOrDefault(t => t.Tag is AppEntry a && (ReferenceEquals(a, entry) || a.Id == entry.Id));
+        }
+
         private void OnTilesMouseUp(object sender, MouseButtonEventArgs e)
         {
+            bool held = _dragPending != null && DateTime.UtcNow - _tilePressAt > TileHoldIsNotClick;
             _dragPending = null;
             if (_dragSwallowUp) { _dragSwallowUp = false; e.Handled = true; return; }
+            // Held, not clicked: the tile (its launch, ▷ / ⏸, bin) gets no release.
+            if (held && !TileDragActive) { e.Handled = true; return; }
             if (!TileDragActive) return;
             // Swallow the up: it must not reach the tile's launch / ⟳ / ✕ handlers.
             e.Handled = true;
+            // Let go past the window's edge: the tile opens in a window of its own right there.
+            if (_dragOutside) _dragDetachAt = PxToDip(PointToScreen(e.GetPosition(this)));
             Mouse.Capture(null);   // → LostMouseCapture → EndTileDrag
             if (TileDragActive) EndTileDrag();
         }
@@ -127,6 +175,10 @@ namespace MihomoLauncher.Views
             var slot = LayoutInformation.GetLayoutSlot(tile);
             var tileTopLeft = new Point(slot.X + tile.Margin.Left, slot.Y + tile.Margin.Top);
             _dragGrab = _dragPressPos - tileTopLeft;
+            _dragFromIndex = TilesPanel.Items.IndexOf(tile);
+            _dragOutside = false;
+            _dragDetachAt = null;
+            MaybeShowDetachHint();
 
             // Snapshot BEFORE dimming the tile, so the ghost looks like the real thing.
             var layer = AdornerLayer.GetAdornerLayer(_dragPanel);
@@ -152,8 +204,25 @@ namespace MihomoLauncher.Views
             if (tile != null) tile.Opacity = 1.0;
             var tabTarget = _tabDrop;
             SetTabDrop(null);
-            if (tabTarget != null && tile?.Tag is AppEntry moved) MoveTileToTab(moved, tabTarget);
-            else SaveTileOrder();
+            var detachAt = _dragDetachAt;
+            _dragDetachAt = null;
+            _dragOutside = false;
+            if (detachAt == null) HidePullWindow();
+            if (detachAt != null && tile?.Tag is AppEntry pulled)
+            {
+                _pullWin = null;   // it stays: OpenTileWindow below puts it in place and remembers it
+                // Pulled out: the tile goes back where it was (the order is not touched) and opens
+                // on its own where it was let go — its border's top-left under the grab point.
+                int now = TilesPanel.Items.IndexOf(tile);
+                if (now >= 0 && now != _dragFromIndex && _dragFromIndex >= 0)
+                {
+                    TilesPanel.Items.RemoveAt(now);
+                    TilesPanel.Items.Insert(Math.Min(_dragFromIndex, TilesPanel.Items.Count), tile);
+                }
+                OpenTileWindow(pulled.Id, detachAt.Value.X - _dragGrab.X - tile.Margin.Left, detachAt.Value.Y - _dragGrab.Y - tile.Margin.Top, true);
+            }
+            else if (tabTarget != null && tile?.Tag is AppEntry moved) MoveTileToTab(moved, tabTarget);
+            else if (!_dragDetachOnly) SaveTileOrder();
             if (_tileRebuildPending)
             {
                 _tileRebuildPending = false;

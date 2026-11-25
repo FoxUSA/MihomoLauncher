@@ -22,6 +22,8 @@ namespace MihomoLauncher.Views
                 // Esc inside the «Очистить?» confirmation is that overlay's own.
                 if (e.Key != Key.Escape || OverlayOpen()) return;
                 e.Handled = true;
+                // An open calendar of the period row closes first (SpeedPeriodBar).
+                if (EscapeFirst != null && EscapeFirst()) return;
                 // In a search box with text: clears it first (2026-11-25), the next Esc closes.
                 var box = Keyboard.FocusedElement as System.Windows.Controls.TextBox;
                 if (box != null && box.Text.Length > 0) { box.Clear(); return; }
@@ -108,6 +110,9 @@ namespace MihomoLauncher.Views
         }
 
         private double _baseWidth = 960;
+
+        // Asked first on Esc; true = it took the key (the period row's calendar was open).
+        public Func<bool> EscapeFirst;
 
         private static bool IsWithin(DependencyObject d, DependencyObject ancestor)
         {

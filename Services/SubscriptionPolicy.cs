@@ -123,6 +123,45 @@ namespace MihomoLauncher.Services
         public static string CachePath(AppConfig cfg, string proxyName)
             => Path.Combine(AppConfigStore.ResolveMihomoWorkDir(cfg), "providers", proxyName + ".yaml");
 
+        // The copy is named after the variant, not its link: a new subscription given the name an
+        // old one had («Clash #1») found that one's copy and took it for its own — the old nodes
+        // in «Узел» and the old server on connecting until the copy aged out (2026-11-25).
+        // So the link a copy came from is written beside it («.src»); a copy from
+        // another link is not used. Copies from before this have no «.src» — taken as they are
+        // (adding / renaming / re-linking a variant clears its name's copy anyway, ListsWindow).
+        private static string SrcPath(string cachePath) => cachePath + ".src";
+
+        internal static void MarkSource(string cachePath, string url)
+        {
+            try { File.WriteAllText(SrcPath(cachePath), (url ?? "").Trim()); }
+            catch (Exception ex) { Log.Error("sub-src", ex); }
+        }
+
+        // False: the copy on disk was downloaded from another link.
+        public static bool CopyIsFor(AppConfig cfg, string proxyName, string url)
+        {
+            try
+            {
+                var src = SrcPath(CachePath(cfg, proxyName));
+                if (!File.Exists(src)) return true;
+                return string.Equals(File.ReadAllText(src).Trim(), (url ?? "").Trim(), StringComparison.Ordinal);
+            }
+            catch { return true; }
+        }
+
+        // The variant's copy goes (it was added, renamed or given another link, or deleted): the
+        // next use downloads its own.
+        public static void ForgetCopy(AppConfig cfg, string proxyName)
+        {
+            try
+            {
+                var path = CachePath(cfg, proxyName);
+                if (File.Exists(path)) File.Delete(path);
+                if (File.Exists(SrcPath(path))) File.Delete(SrcPath(path));
+            }
+            catch (Exception ex) { Log.Error("sub-forget", ex); }
+        }
+
         // ---------- before connecting ----------
 
         // Make sure the subscription is on disk, readable by the engine, and its rules usable.
@@ -135,9 +174,15 @@ namespace MihomoLauncher.Services
             if (proxy == null || !proxy.IsProvider || string.IsNullOrEmpty(proxy.ProviderUrl)) return null;
             var path = CachePath(cfg, proxy.ProxyName);
 
+            // Another subscription's copy under this name: not this one's nodes or servers.
+            if (File.Exists(path) && !CopyIsFor(cfg, proxy.ProxyName, proxy.ProviderUrl))
+            {
+                Log.Info("Подписка «" + proxy.ProxyName + "»: копия на диске от другой ссылки — скачиваю заново.");
+                try { File.Delete(path); } catch { }
+            }
             if (!File.Exists(path))
             {
-                try { await DownloadToAsync(proxy.ProviderUrl, path, null, ct); }
+                try { await DownloadToAsync(proxy.ProviderUrl, path, null, ct); MarkSource(path, proxy.ProviderUrl); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
@@ -201,6 +246,7 @@ namespace MihomoLauncher.Services
 
             if (File.Exists(path)) File.Delete(path);
             File.Move(fresh, path);
+            MarkSource(path, url);
             var policy = For(cfg, proxyName);
             if (policy == null) { report.Finish(); return null; }   // a plain server list
 
@@ -790,10 +836,12 @@ namespace MihomoLauncher.Services
         }
 
         // The nodes of the downloaded copy, null when there is no copy yet.
-        public static SubNodeList ReadNodes(AppConfig cfg, string proxyName)
+        // url: the variant's link — a copy from another link counts as none.
+        public static SubNodeList ReadNodes(AppConfig cfg, string proxyName, string url = null)
         {
             try
             {
+                if (url != null && !CopyIsFor(cfg, proxyName, url)) return null;
                 var path = CachePath(cfg, proxyName);
                 return File.Exists(path) ? ParseNodes(File.ReadAllText(path)) : null;
             }

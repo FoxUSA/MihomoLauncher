@@ -42,7 +42,8 @@ namespace MihomoLauncher.Views
             Loaded += (s, e) =>
             {
                 Render();
-                if (AutoRefresh || !File.Exists(SubscriptionPolicy.CachePath(_cfg, _proxyName))) _ = RefreshAsync();
+                if (AutoRefresh || !File.Exists(SubscriptionPolicy.CachePath(_cfg, _proxyName))
+                    || !SubscriptionPolicy.CopyIsFor(_cfg, _proxyName, _url)) _ = RefreshAsync();
             };
             Closing += (s, e) => _cts?.Cancel();
         }
