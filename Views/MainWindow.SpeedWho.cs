@@ -1235,9 +1235,14 @@ namespace MihomoLauncher.Views
             if (e.Block) via = Loc.T("Main_WhoBlocked");
             else if (_assignment.TryGetValue(e.Id, out proxy) && proxy != null)
             {
+                // A cascade: every hop by name; the address and place are those of its exit.
+                var chainNames = MihomoConfigBuilder.IsChain(proxy)
+                    ? string.Join(" › ", MihomoConfigBuilder.ChainHops(proxy).Select(h => _proxySlot.TryGetValue(h, out var hi) && !string.IsNullOrEmpty(hi?.Name) ? hi.Name : h))
+                    : null;
+                proxy = ExitProxy(proxy);
                 ProxySlotInfo info;
                 _proxySlot.TryGetValue(proxy, out info);
-                via = Loc.T("Main_WhoViaVpn", info?.Name ?? proxy);
+                via = Loc.T("Main_WhoViaVpn", chainNames ?? info?.Name ?? proxy);
                 var server = info?.Server ?? "";
                 System.Net.IPAddress parsed;
                 if (System.Net.IPAddress.TryParse(server, out parsed))

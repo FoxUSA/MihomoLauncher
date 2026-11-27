@@ -130,9 +130,17 @@
         </ListBox>
 
         <Grid Grid.Row="5" Margin="20,10,20,12">
-            <TextBlock x:Name="LblCount" VerticalAlignment="Center" FontSize="12"
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="LblCount" VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap" Margin="0,0,12,0"
                        Foreground="{DynamicResource Theme.TextMuted}" />
-            <ui:Button Content="{DynamicResource Dlg_Close}" HorizontalAlignment="Right" FontSize="14" Padding="20,8" Click="OnCancel" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <ui:Button x:Name="BtnUpdateTpl" Content="{DynamicResource Tpl_BtnUpdate}" FontSize="14" Padding="20,8"
+                           Margin="0,0,8,0" Click="OnUpdateTemplates" />
+                <ui:Button Content="{DynamicResource Dlg_Close}" FontSize="14" Padding="20,8" Click="OnCancel" />
+            </StackPanel>
         </Grid>
     </Grid>
 </ui:FluentWindow>

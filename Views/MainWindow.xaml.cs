@@ -216,6 +216,14 @@ namespace MihomoLauncher.Views
             _healthTimer.Tick += HealthTick;
             _healthTimer.Start();
             InitStats();
+            // The rule editor's cascade line shows the same flags as the tiles (MainWindow.Cascade).
+            EditRuleDialog.SlotIsoOf = SlotIso;
+            EditRuleDialog.UserIsoNow = UserIso;
+            // Badge + «Город, Страна» under each VPN (rule editor) and in its column (VPN list).
+            EditRuleDialog.SlotGeoOf = SlotGeoOf;
+            EditRuleDialog.UserGeoNow = UserGeo;
+            ListsWindow.SlotGeoOf = SlotGeoOf;
+            ListsWindow.ResolveGeos = ResolveSlotGeosForWindowAsync;
 
             _retryTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(RuleRetryPeriodSeconds) };
             _retryTimer.Tick += RetryTick;
@@ -763,7 +771,8 @@ namespace MihomoLauncher.Views
                 // while, and a queue of them would keep the engine's config churning.
                 var entry = pending[0];
                 Log.Info("Автоповтор: пробую подключить «" + entry.Name + "» ещё раз.");
-                await ReconnectOneAsync(entry, onlySlotId: HasNoAllowedVpnVariant(entry) ? TileOwnSlotId(entry) : null).ConfigureAwait(true);
+                // A cascade tile sent through one VPN from its plate stays on that VPN.
+                await ReconnectOneAsync(entry, onlySlotId: HasNoAllowedVpnVariant(entry) ? TileOwnSlotId(entry) : CascadeSingleSlot(entry)).ConfigureAwait(true);
 
                 if (_workingApps.Contains(entry.Id))
                 {
@@ -1674,6 +1683,8 @@ namespace MihomoLauncher.Views
         private bool HasNoAllowedVpnVariant(AppEntry e)
         {
             if (e == null || !e.RequiresVpn) return false;
+            // A cascade goes by its own hops (AppEntry.CascadeHops), whatever the ordinary ticks say.
+            if (Services.Cascade.IsOn(e, _config.VpnSlots)) return false;
             var enabled = (_config.VpnSlots ?? new List<VpnSlot>()).Where(s => s != null).ToList();
             if (enabled.Count == 0) return false;   // no variants configured at all is a different case
             var disabled = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
@@ -1687,10 +1698,12 @@ namespace MihomoLauncher.Views
             if (e == null) return "";
             if (e.RequiresVpn && _assignment.TryGetValue(e.Id, out var proxy))
             {
+                if (MihomoConfigBuilder.IsChain(proxy))
+                    return "🛡 " + string.Join(" › ", MihomoConfigBuilder.ChainHops(proxy)
+                        .Select(h => _proxySlot.TryGetValue(h, out var hi) && !string.IsNullOrEmpty(hi?.Name) ? hi.Name : h));
                 _proxySlot.TryGetValue(proxy, out var info);
-                var num = info != null && info.Number > 0 ? "№" + info.Number + " " : "";
                 var name = info != null && !string.IsNullOrEmpty(info.Name) ? info.Name : proxy;
-                return "🛡 " + num + name;
+                return "🛡 " + name;   // the name alone (no «№n», 2026-11-27)
             }
             if (!e.RequiresVpn) return Loc.T("Main_TileDirect");
             return "";
@@ -1886,13 +1899,16 @@ namespace MihomoLauncher.Views
                         });
                     }
                 }
-                else if (canConnect)
+                // ▷ only for a rule with a VPN ticked in its own settings (2026-11-26: «когда впн не
+                // выбран нету плей»): its plate names that VPN in grey. A VPN picked only on the plate
+                // gets ⏸ while it runs; once stopped the plate says «без VPN» — so no ▷ either, the
+                // plate's menu starts it again.
+                else if (!HasNoAllowedVpnVariant(entry))
                 {
-                    string viaSlot = !entry.IsBlockMode && HasNoAllowedVpnVariant(entry) ? TileOwnSlotId(entry) : null;
                     grid.Children.Add(MakeCornerChip(Wpf.Ui.Controls.SymbolRegular.Play24, 14,
                         new Thickness(0, 31, 5, 0), HorizontalAlignment.Right,
                         KillTip(entry, "Main_TipConnectOne"), _reconnectingId != null,
-                        async () => await ReconnectOneAsync(entry, manual: true, onlySlotId: viaSlot),   // switches the rule on, see there
+                        async () => await ReconnectOneAsync(entry, manual: true),   // switches the rule on, see there
                         guard: entry.KillSwitch));
                 }
             }
@@ -2176,7 +2192,8 @@ namespace MihomoLauncher.Views
             if (ct.IsCancellationRequested) { SetState(UiState.Idle); return; }
             slots = LiveFirst(slots);
 
-            var failing = vpnApps.Where(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id) && !HasNoAllowedVpnVariant(a)).ToList();
+            // Cascade tiles are not part of the sweep over variants: they connect hop by hop after it.
+            var failing = vpnApps.Where(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id) && !HasNoAllowedVpnVariant(a) && !UsesCascade(a)).ToList();
             // Nodes already carrying rules stay in the config: leaving them out would drop the
             // very rules this sweep is supposed to leave untouched.
             var usedProxies = CurrentAssignedProxies();
@@ -2339,11 +2356,23 @@ namespace MihomoLauncher.Views
             }
             }
 
+            // «Каскадный VPN» tiles, one after another, each along its own chain (MainWindow.Cascade).
+            foreach (var c in vpnApps.Where(a => a.AutoConnect && !a.IsNoNodeMode && !_workingApps.Contains(a.Id) && UsesCascade(a)).ToList())
+            {
+                if (ct.IsCancellationRequested) { SetState(UiState.Idle); return; }
+                ConnectingDetail.Text = Loc.T("Main_DetailConnectingCascade", c.Name);
+                try { await ConnectCascadeAsync(c, ct).ConfigureAwait(true); }
+                catch (OperationCanceledException) { SetState(UiState.Idle); return; }
+            }
+            foreach (var p in CurrentAssignedProxies())
+                if (!usedProxies.Any(x => x.ProxyName == p.ProxyName)) usedProxies.Add(p);
+
             // Final config: assigned apps on their nodes, the launcher REMOVED (back to
             // direct). This is the kill-switch: split apps are forced through their node
             // with no DIRECT fallback, so if a node drops mihomo BLOCKS that traffic (no
             // IP leak) while mihomo runs — no background polling or app-killing.
             ApplyFinalConfig(usedProxies);
+            RenderCascadeLine();
             SetState(UiState.Done);
 
             // Resolve each used VPN server's country/city in the background, then refresh
@@ -2363,7 +2392,7 @@ namespace MihomoLauncher.Views
         {
             try
             {
-                var servers = _assignment.Values.Distinct()
+                var servers = _assignment.Values.SelectMany(MihomoConfigBuilder.ChainHops).Distinct()
                     .Where(p => _proxySlot.TryGetValue(p, out var info) && !string.IsNullOrWhiteSpace(info?.Server))
                     .ToList();
                 bool changed = false;
@@ -2586,7 +2615,8 @@ namespace MihomoLauncher.Views
                                       IEnumerable<AppEntry> alsoCut = null, List<string> cutFiles = null)
         {
             var vpnApps = _config.Apps.Where(a => a.RequiresVpn).ToList();
-            var liveProxyNames = new HashSet<string>(_assignment.Values);
+            // A cascade tile rides every hop of its chain (MainWindow.Cascade).
+            var liveProxyNames = new HashSet<string>(_assignment.Values.SelectMany(MihomoConfigBuilder.ChainHops));
             var liveProxies = usedProxies.Where(p => liveProxyNames.Contains(p.ProxyName)).ToList();
 
             // Which rules have just been moved to a different node (or taken off one)? Writing
@@ -2701,13 +2731,17 @@ namespace MihomoLauncher.Views
             {
                 var app = _config.Apps.FirstOrDefault(a => a.Id == kv.Key);
                 if (app == null) continue;
-                _proxySlot.TryGetValue(kv.Value, out var info);
+                _proxySlot.TryGetValue(ExitProxy(kv.Value), out var info);
+                // A cascade: every hop by name, in order.
+                var chainName = MihomoConfigBuilder.IsChain(kv.Value)
+                    ? string.Join(" › ", MihomoConfigBuilder.ChainHops(kv.Value).Select(h => _proxySlot.TryGetValue(h, out var hi) ? hi?.Name ?? h : h))
+                    : null;
                 routes.Add(new VpnRoute
                 {
                     AppName = app.Name,
                     ProxyName = kv.Value,
                     SlotNumber = info?.Number ?? 0,
-                    SlotName = info?.Name ?? kv.Value,
+                    SlotName = chainName ?? info?.Name ?? kv.Value,
                     // The rule's own address (check address, else the one moved out of it).
                     Target = HostOf(app.OwnUrl),
                     NodeUp = true,
@@ -2732,7 +2766,7 @@ namespace MihomoLauncher.Views
         // The parsed proxies behind the current assignments (for rebuilding the config).
         private List<ParsedProxy> CurrentAssignedProxies()
         {
-            return _assignment.Values.Distinct()
+            return _assignment.Values.SelectMany(MihomoConfigBuilder.ChainHops).Distinct()
                 .Select(p => _parsedProxy.TryGetValue(p, out var pp) ? pp : null)
                 .Where(p => p != null).ToList();
         }
@@ -2846,6 +2880,15 @@ namespace MihomoLauncher.Views
                     return;
                 }
 
+                // «Каскадный VPN»: its chain, hop by hop (MainWindow.Cascade) — not a search over
+                // variants. A VPN picked on its plate (onlySlotId) is an ordinary connect.
+                if (string.IsNullOrEmpty(onlySlotId) && UsesCascade(entry))
+                {
+                    assigned = await ConnectCascadeAsync(entry, ct).ConfigureAwait(true);
+                    ApplyFinalConfig(CurrentAssignedProxies());
+                }
+                else
+                {
                 var vpnApps = _config.Apps.Where(a => a.RequiresVpn).ToList();
                 var enabledSlotIds = new HashSet<string>(slots.Select(s => s.Id));
                 var launcherExe = LauncherProcessName();
@@ -2934,6 +2977,7 @@ namespace MihomoLauncher.Views
                 }
 
                 ApplyFinalConfig(CurrentAssignedProxies());
+                }   // not a cascade
             }
             catch (OperationCanceledException) { }   // ✕ or a full connect took over — handled below
             finally
@@ -2956,9 +3000,11 @@ namespace MihomoLauncher.Views
                 {
                     SetState(UiState.Done);
                     // Connected / switched off is on the tile; only a failure gets a line.
-                    StatusFoot.Text = !entry.AutoConnect || assigned ? ""
+                    // A cascade says which hop and why on a line of its own (MainWindow.Cascade).
+                    StatusFoot.Text = !entry.AutoConnect || assigned || _cascadeWhy.ContainsKey(entry.Id) ? ""
                         : entry.IsAllTraffic ? Loc.T("Main_FootAllTrafficFailed")
                         : Loc.T("Main_FootReconnectFailed", entry.Name);
+                    RenderCascadeLine();
                     _ = ResolveProxyGeosAsync();
                 }
             }
@@ -3766,15 +3812,51 @@ namespace MihomoLauncher.Views
         // work here is the same one Settings does after a per-rule routing change: drop exactly
         // the rules whose routing moved, leave every other rule on its node. Re-sweeping the lot
         // would cost an engine reload and the open connections of rules that did not change.
+        // Routing / VPN / APP / DNS / Settings don't block the main window (2026-11-27: «любое из этих
+        // окон в том числе настроить не должны мешать работать с основным окном»): Show(), not
+        // ShowDialog(); a second click brings the open one forward instead of opening another; what
+        // used to follow ShowDialog() runs when the window closes.
+        private VpnMatrixWindow _matrixWin;
+        private SettingsWindow _settingsWin, _dnsWin;
+        private readonly Dictionary<ListsWindow.Mode, ListsWindow> _listsWins = new Dictionary<ListsWindow.Mode, ListsWindow>();
+
+        private static bool BringForward(Window w)
+        {
+            if (w == null || !w.IsLoaded) return false;
+            try
+            {
+                if (w.WindowState == WindowState.Minimized) w.WindowState = WindowState.Normal;
+                w.Activate();
+            }
+            catch { }
+            return true;
+        }
+
         private async void OnOpenVpnMatrix(object sender, RoutedEventArgs e)
         {
             try
             {
+                if (BringForward(_matrixWin)) return;
                 if (!await LockPrompt.RequireAsync(this, _config).ConfigureAwait(true)) return;
-                var beforeApps = AppRoutingSignatures(_config);
+                if (BringForward(_matrixWin)) return;
+                Dictionary<string, string> beforeApps = null;
                 var dlg = new VpnMatrixWindow(_config) { Owner = this };
-                if (dlg.ShowDialog() != true || dlg.Result == null) return;
+                dlg.BeforeApply += () => beforeApps = AppRoutingSignatures(_config);
+                dlg.Closed += (s, a) =>
+                {
+                    if (_matrixWin == dlg) _matrixWin = null;
+                    try { if (dlg.Result != null && beforeApps != null) AfterVpnMatrix(beforeApps); }
+                    catch (Exception ex) { Log.Error("vpn-matrix-apply", ex); }
+                };
+                _matrixWin = dlg;
+                dlg.Show();
+            }
+            catch (Exception ex) { Log.Error("open-vpn-matrix", ex); }
+        }
 
+        private void AfterVpnMatrix(Dictionary<string, string> beforeApps)
+        {
+            {
                 AppConfigStore.Save(_config);
 
                 bool moved = false;
@@ -3785,6 +3867,7 @@ namespace MihomoLauncher.Views
                     if (afterApps.TryGetValue(kv.Key, out now) && now == kv.Value) continue;
                     _assignment.Remove(kv.Key);
                     _workingApps.Remove(kv.Key);
+                    ForgetCascadeState(kv.Key);
                     moved = true;
                 }
                 if (!moved) return;
@@ -3795,7 +3878,6 @@ namespace MihomoLauncher.Views
                 RebuildTiles();
                 _ = ResolveProxyGeosAsync();
             }
-            catch (Exception ex) { Log.Error("open-vpn-matrix", ex); }
         }
 
         private async void OnOpenSettings(object sender, RoutedEventArgs e)
@@ -3813,9 +3895,17 @@ namespace MihomoLauncher.Views
         {
             try
             {
+                ListsWindow open;
+                if (_listsWins.TryGetValue(mode, out open) && BringForward(open)) return;
                 var dlg = new ListsWindow(_config, mode, CommitLiveEditAsync) { Owner = this };
-                dlg.ShowDialog();
-                if (mode == ListsWindow.Mode.Vpn) _ = ResolveSlotGeosAsync();   // a VPN added / changed
+                dlg.Closed += (s, a) =>
+                {
+                    ListsWindow cur;
+                    if (_listsWins.TryGetValue(mode, out cur) && cur == dlg) _listsWins.Remove(mode);
+                    if (mode == ListsWindow.Mode.Vpn) _ = ResolveSlotGeosAsync();   // a VPN added / changed
+                };
+                _listsWins[mode] = dlg;
+                dlg.Show();
             }
             catch (Exception ex) { Log.Error("open-lists-" + mode, ex); }
         }
@@ -3840,30 +3930,51 @@ namespace MihomoLauncher.Views
             catch (Exception ex) { Log.Error("dns-button", ex); }
         }
 
-        private async Task OpenSettingsAsync(bool dnsOnly = false)
+        private Task OpenSettingsAsync(bool dnsOnly = false)
         {
-            var before = TakeConfigSnap();
+            var open = dnsOnly ? _dnsWin : _settingsWin;
+            if (BringForward(open)) return Task.CompletedTask;
             var dlg = new SettingsWindow(_config, dnsOnly) { Owner = this, TileIcon = TileIconSmall, TileName = TileDisplayName };
-            if (dlg.ShowDialog() == true && dlg.Result != null)
+            dlg.Closed += async (s, a) =>
             {
-                _config = dlg.Result;
-                AppConfigStore.Save(_config);
+                if (dnsOnly) { if (_dnsWin == dlg) _dnsWin = null; }
+                else if (_settingsWin == dlg) _settingsWin = null;
+                if (dlg.Result == null) return;
+                try { await ApplySettingsAsync(dlg).ConfigureAwait(true); }
+                catch (Exception ex) { Log.Error("settings-apply", ex); }
+            };
+            if (dnsOnly) _dnsWin = dlg; else _settingsWin = dlg;
+            dlg.Show();
+            return Task.CompletedTask;
+        }
+
+        // Settings / DNS saved. Only what the person changed THERE goes into the live config
+        // (MergeChanged against the copy the window opened with): the window no longer blocks the
+        // main one, and replacing _config with its copy would drop whatever changed meanwhile — a
+        // plate's VPN, auto-added programs, the rules / VPN windows' edits — and leave those windows
+        // editing an orphaned object. Through the live-edit gate, like every other change.
+        private async Task ApplySettingsAsync(SettingsWindow dlg)
+        {
+            List<string> taken = null;
+            await CommitLiveEditAsync(() =>
+            {
+                taken = AppConfigStore.MergeChanged(_config, dlg.Baseline, dlg.Result);
                 _mihomo = new MihomoController(_config);
-                // Settings hands back a NEW config object, so the log feed is still watching the
-                // old one — re-point it at this one (address and secret can both have changed
-                // here). Restarting the feed costs nothing: the history lives in the store.
-                EngineLogStore.Instance.Start(_config);
-                // The engine path may have been repointed in Settings — re-read its version.
-                VersionInfo.EngineExePath = _config.MihomoExePath ?? "";
-                try { VersionInfo.SyncEngineVersionFromBinary(); } catch { }
+                return Task.CompletedTask;
+            }).ConfigureAwait(true);
+            if (taken != null && taken.Count > 0)
+                Log.Info("Настройки сохранены: " + string.Join(", ", taken));
+            // The API address / secret can have changed: restart the log feed on them (the history
+            // lives in the store, restarting costs nothing).
+            EngineLogStore.Instance.Start(_config);
+            // The engine path may have been repointed in Settings — re-read its version.
+            VersionInfo.EngineExePath = _config.MihomoExePath ?? "";
+            try { VersionInfo.SyncEngineVersionFromBinary(); } catch { }
 
-                // The engine may have been (re)downloaded in Settings, which stamps a new
-                // local mihomo version — refresh the title-bar caption to match.
-                SetTitleCaption();
-
-                await ApplyConfigChangeAsync(before).ConfigureAwait(true);
-                RebuildTiles();   // «Сеть» → the card strip on tiles may have been switched on/off
-            }
+            // The engine may have been (re)downloaded in Settings, which stamps a new
+            // local mihomo version — refresh the title-bar caption to match.
+            SetTitleCaption();
+            RebuildTiles();   // «Сеть» → the card strip on tiles may have been switched on/off
         }
 
         // What the live picture depends on, taken BEFORE an edit: ApplyConfigChangeAsync compares
@@ -3944,6 +4055,7 @@ namespace MihomoLauncher.Views
                         {
                             _assignment.Remove(kv.Key);
                             _workingApps.Remove(kv.Key);
+                            ForgetCascadeState(kv.Key);
                         }
                     }
 
@@ -3952,9 +4064,10 @@ namespace MihomoLauncher.Views
                     {
                         foreach (var kv in _assignment.ToList())
                         {
-                            ProxySlotInfo info;
-                            if (!_proxySlot.TryGetValue(kv.Value, out info) || info?.Id == null) continue;
-                            if (!changedSlots.Contains(info.Id)) continue;
+                            // A cascade drops when any of its hops changed.
+                            bool hit = MihomoConfigBuilder.ChainHops(kv.Value).Any(h =>
+                                _proxySlot.TryGetValue(h, out var info) && info?.Id != null && changedSlots.Contains(info.Id));
+                            if (!hit) continue;
                             _assignment.Remove(kv.Key);
                             _workingApps.Remove(kv.Key);
                         }
@@ -4273,6 +4386,9 @@ namespace MihomoLauncher.Views
             // one — that has to reach the engine on save like any other routing change.
             sb.Append(':').Append(a.LockNic).Append(':');
             foreach (var n in NetCards.Clean(a.Interfaces)) sb.Append(n).Append(',');
+            // «Каскадный VPN» (2026-11-27): the switch and its own hops, in order.
+            sb.Append(":C").Append(a.Cascade).Append(':');
+            foreach (var h in (a.CascadeHops ?? new List<string>())) sb.Append(h).Append(',');
         }
 
         // appId -> per-app routing fingerprint, for diffing which rules changed across a Settings

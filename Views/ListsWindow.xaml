@@ -46,6 +46,41 @@
         <Style x:Key="RulesCheckboxHeaderStyle" TargetType="DataGridColumnHeader" BasedOn="{StaticResource CheckboxColumnHeaderStyle}">
             <Setter Property="Height" Value="44" />
         </Style>
+        <!-- The rules' rows, and a tab's captioned line among them (2026-11-27: «разбей так как разбито
+             по вкладкам») — the look of «Добавлено автоматически» in the rule editor: line — caption —
+             line in the accent blue, a hairline under it (the next row's top edge). Not clickable,
+             not selectable, not dragged (ListsWindow.InitRowDrag). -->
+        <Style x:Key="RulesRowStyle" TargetType="DataGridRow" BasedOn="{StaticResource AppDataGridRowStyle}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsDivider}" Value="True">
+                    <Setter Property="IsHitTestVisible" Value="False" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="DataGridRow">
+                                <Border BorderBrush="{DynamicResource Theme.TableLine}" BorderThickness="0,0,0,1"
+                                        Background="Transparent">
+                                    <Grid Margin="10,0" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Height="1" VerticalAlignment="Center"
+                                                Background="{DynamicResource Theme.AccentBlue}" Opacity="0.45" />
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource Theme.AccentBlue}"
+                                                   VerticalAlignment="Center" Margin="12,0" />
+                                        <Border Grid.Column="2" Height="1" VerticalAlignment="Center"
+                                                Background="{DynamicResource Theme.AccentBlue}" Opacity="0.45" />
+                                    </Grid>
+                                </Border>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </ui:FluentWindow.Resources>
     <!-- Two windows in one class (ListsWindow.Mode): «VPN» shows only the variants table, «+»
          only the rules table — what used to be the top and bottom half of Settings → «Основное».
@@ -128,10 +163,29 @@
                                     </DataTemplate>
                                 </DataGridTemplateColumn.CellTemplate>
                             </DataGridTemplateColumn>
-                            <DataGridTextColumn Header="#" Binding="{Binding Number}" Width="Auto" />
+                            <!-- No «#» column (2026-11-27): the order is the rows' own, changed by dragging. -->
                             <DataGridTextColumn Header="{DynamicResource Set_ColName}" Binding="{Binding Name}" Width="Auto" MaxWidth="260"
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
                             <DataGridTextColumn Header="{DynamicResource Set_ColType}" Binding="{Binding KindLabel}" Width="Auto" />
+                            <!-- Where the server is (2026-11-27): the ISO badge + «Город, Страна», as in
+                                 the speed window (CountryBadge). Empty for a subscription. -->
+                            <DataGridTemplateColumn Header="{DynamicResource Set_ColPlace}" Width="Auto" MaxWidth="240" CanUserSort="False">
+                                <DataGridTemplateColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Border Width="26" Height="16" CornerRadius="4" BorderThickness="1" Margin="0,0,5,0"
+                                                    Background="{DynamicResource Theme.ChipBg}" BorderBrush="{DynamicResource Theme.CardBorder}"
+                                                    VerticalAlignment="Center" Visibility="{Binding IsoVisibility}">
+                                                <TextBlock Text="{Binding Iso}" FontSize="10" FontWeight="Bold"
+                                                           Foreground="{DynamicResource Theme.TextPrimary}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                            </Border>
+                                            <TextBlock Text="{Binding Place}" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </DataGridTemplateColumn.CellTemplate>
+                            </DataGridTemplateColumn>
                             <DataGridTextColumn Header="{DynamicResource Set_ColValue}" Binding="{Binding ValueLabel}" Width="*"
                                                 ElementStyle="{StaticResource TruncatedTextStyle}" />
                         </DataGrid.Columns>
@@ -172,7 +226,7 @@
                             BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
                     <DataGrid x:Name="GridApps" Margin="-1,-1,-1,0" svc:FrameClip.Radius="7"
                               Style="{StaticResource AppDataGridStyle}"
-                              RowStyle="{StaticResource AppDataGridRowStyle}"
+                              RowStyle="{StaticResource RulesRowStyle}"
                               CellStyle="{StaticResource AppDataGridCellStyle}"
                               ColumnHeaderStyle="{StaticResource RulesHeaderStyle}"
                               CanUserSortColumns="False"

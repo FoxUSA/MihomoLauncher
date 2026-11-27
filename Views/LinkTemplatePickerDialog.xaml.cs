@@ -46,14 +46,76 @@ namespace MihomoLauncher.Views
             // Built on load — by then the caller has set ExcludeClashUrls.
             Loaded += async (s, e) =>
             {
-                _all = BlackMatrixCatalog.Pickable()
-                    .Where(t => ExcludeClashUrls == null || !ExcludeClashUrls.Contains(t.ClashUrl ?? ""))
-                    .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
-                    .ToList();
+                LoadAll();
                 TxtSearch.Focus();
                 await SearchAsync("").ConfigureAwait(true);
             };
-            Closed += (s, e) => { try { _searchCts?.Cancel(); } catch { } _debounce.Stop(); };
+            Closed += (s, e) => { try { _searchCts?.Cancel(); } catch { } try { _updateCts?.Cancel(); } catch { } _debounce.Stop(); };
+        }
+
+        private void LoadAll()
+        {
+            _all = BlackMatrixCatalog.Pickable()
+                .Where(t => ExcludeClashUrls == null || !ExcludeClashUrls.Contains(t.ClashUrl ?? ""))
+                .OrderBy(t => t.Title, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+        }
+
+        // Whole catalog: template key → what its list holds. A changed date or list size = «изменено».
+        private static Dictionary<string, string> Fingerprints()
+        {
+            var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var t in BlackMatrixCatalog.All())
+            {
+                var key = !string.IsNullOrEmpty(t.Id) ? t.Id : !string.IsNullOrEmpty(t.ClashUrl) ? t.ClashUrl : t.Name ?? "";
+                if (key.Length == 0) continue;
+                d[key] = t.Updated + "|" + t.Domains + "|" + t.Suffixes + "|" + t.Keywords + "|" + t.Cidr + "|" + t.Cidr6 + "|" + t.Asn;
+            }
+            return d;
+        }
+
+        // «Обновить шаблоны» right here, so adding a template needs no trip to Settings → «Обновление».
+        // Same download as there (forced, sha256-checked); the list reloads in place, the search stays.
+        private CancellationTokenSource _updateCts;
+
+        private async void OnUpdateTemplates(object sender, RoutedEventArgs e)
+        {
+            if (_updateCts != null) return;
+            var cts = _updateCts = new CancellationTokenSource();
+            BtnUpdateTpl.IsEnabled = false;
+            LblCount.Text = Loc.T("Tpl_Updating", 0);
+            try
+            {
+                var before = Fingerprints();
+                await UpdateService.UpdateTemplatesAsync(true,
+                    p => Dispatcher.BeginInvoke(new Action(() => { if (_updateCts == cts) LblCount.Text = Loc.T("Tpl_Updating", p); })),
+                    cts.Token).ConfigureAwait(true);
+                if (cts.IsCancellationRequested) return;
+                var after = Fingerprints();
+                LoadAll();
+                await SearchAsync(TxtSearch.Text ?? "").ConfigureAwait(true);
+
+                // What the update actually did, not just the new total.
+                int added = after.Keys.Count(k => !before.ContainsKey(k));
+                int removed = before.Keys.Count(k => !after.ContainsKey(k));
+                int changed = after.Count(kv => before.TryGetValue(kv.Key, out var old) && old != kv.Value);
+                LblCount.Text = added + removed + changed == 0
+                    ? Loc.T("Tpl_UpdatedSame", after.Count)
+                    : Loc.T("Tpl_UpdatedDiff", added, removed, changed, after.Count);
+                Log.Info("Шаблоны обновлены из окна выбора: +" + added + " −" + removed + " ~" + changed + ", всего " + after.Count + ".");
+            }
+            catch (Exception ex)
+            {
+                if (cts.IsCancellationRequested) return;
+                Log.Error("tpl-picker-update", ex);
+                Show(ItemsHost.ItemsSource as List<TplRow> ?? new List<TplRow>(), LblFind.Text);
+                await OverlayDialog.MessageAsync(this, Loc.T("Tpl_UpdateFailTitle"), ex.Message).ConfigureAwait(true);
+            }
+            finally
+            {
+                _updateCts = null;
+                BtnUpdateTpl.IsEnabled = true;
+            }
         }
 
         public static string CategoryName(string code)

@@ -34,12 +34,14 @@ namespace MihomoLauncher.Views
             var names = AppLauncher.LaunchImageNames(entry);
             var before = WindowedPids(names);
 
-            var res = AppLauncher.Launch(entry);
+            var res = AppLauncher.Launch(entry, out bool activatedOnly);
             if (!res.Item1)
             {
                 await ShowDialog(Loc.T("Main_OpenFailTitle"), Loc.T("Main_OpenFailBody", entry.Name, res.Item2)).ConfigureAwait(true);
                 return;
             }
+            // Already running — its window is in front now; nothing is starting, no spinner.
+            if (activatedOnly) return;
 
             _launchingIds.Add(entry.Id);
             StatusFoot.Text = Loc.T("Main_FootLaunching", entry.Name);

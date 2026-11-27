@@ -47,6 +47,13 @@ kimi=kimi-ai
 @kinozal.tv=kinozal
 @kinozal.guru=kinozal
 @kinozal.me=kinozal
+# rutracker.png — our own (the three stars of the channel avatar, smoothed, no circle, 2026-11-25)
+рутрекер=rutracker
+рутрэкер=rutracker
+@rutracker.org=rutracker
+@rutracker.net=rutracker
+@rutracker.cc=rutracker
+@rutracker.nl=rutracker
 ютуб=youtube
 youtube music=youtube-music
 @googlevideo.com=youtube

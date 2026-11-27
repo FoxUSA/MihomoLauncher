@@ -929,6 +929,58 @@ namespace MihomoLauncher.Services
             catch { return false; }
         }
 
+        // The same check, telling «no answer» from «answered no» (2026-11-27, the cascade connect:
+        // a hop is tried again only while it is silent; a hop that refused is not asked twice).
+        // The engine's /delay says 504 when its own timeout ran out and 503 for any other failure
+        // (hub/route/proxies.go) — but a TCP server that never answers ALSO comes back as 503: the
+        // engine's dial gives up after 5 s by itself (measured on the stand 2026-11-27: a black-hole
+        // address → 503 at 5007 ms; a closed port, even through a hop → 503 at 7–3151 ms). So a 503
+        // that took SilentAfterMs or more is silence too.
+        public enum NodeCheck { Up, Silent, Refused }
+        private const int SilentAfterMs = 4500;
+
+        public async Task<NodeCheck> CheckNodeAsync(string proxyName, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(proxyName)) return NodeCheck.Refused;
+            using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct))
+            {
+                var pending = NodeProbeUrls.Select(u => ProbeNodeStatusAsync(proxyName, u, linked.Token)).ToList();
+                bool silent = false;
+                var started = DateTime.UtcNow;
+                while (pending.Count > 0)
+                {
+                    var done = await Task.WhenAny(pending).ConfigureAwait(false);
+                    pending.Remove(done);
+                    int code;
+                    try { code = await done.ConfigureAwait(false); }
+                    catch { code = 0; }
+                    if (code >= 200 && code < 300)
+                    {
+                        try { linked.Cancel(); } catch { }
+                        return NodeCheck.Up;
+                    }
+                    // 504, no answer from the engine at all, or a slow 503: silence. A quick 503/404: an answer.
+                    if (code == 504 || code == 0 || (DateTime.UtcNow - started).TotalMilliseconds >= SilentAfterMs) silent = true;
+                    if (ct.IsCancellationRequested) return NodeCheck.Silent;
+                }
+                return silent ? NodeCheck.Silent : NodeCheck.Refused;
+            }
+        }
+
+        // The HTTP status of one /delay call, 0 when the engine itself did not answer.
+        private async Task<int> ProbeNodeStatusAsync(string proxyName, string probeUrl, CancellationToken ct)
+        {
+            try
+            {
+                var url = ApiBase + "/proxies/" + Uri.EscapeDataString(proxyName)
+                          + "/delay?timeout=" + NodeProbeTimeoutMs + "&url=" + Uri.EscapeDataString(probeUrl);
+                using (var http = NewClient(NodeProbeTimeoutMs / 1000 + 5))
+                using (var resp = await http.GetAsync(url, ct).ConfigureAwait(false))
+                    return (int)resp.StatusCode;
+            }
+            catch { return 0; }
+        }
+
         // How long a connection through this node takes, in ms (the engine's own /delay: handshake
         // with the server + one tiny HTTP request) — for the main window's stats strip, NOT for
         // deciding anything; reachability stays with IsNodeUpAsync. Null = no answer in 5 s.

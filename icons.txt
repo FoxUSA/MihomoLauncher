@@ -2709,6 +2709,7 @@ rustdesk
 rustfs
 rust-kawaii
 rutorrent
+rutracker
 rybbit
 rygel
 ryot
@@ -3561,6 +3562,12 @@ kimi=kimi-ai
 @kinozal.tv=kinozal
 @kinozal.guru=kinozal
 @kinozal.me=kinozal
+рутрекер=rutracker
+рутрэкер=rutracker
+@rutracker.org=rutracker
+@rutracker.net=rutracker
+@rutracker.cc=rutracker
+@rutracker.nl=rutracker
 ютуб=youtube
 youtube music=youtube-music
 @googlevideo.com=youtube

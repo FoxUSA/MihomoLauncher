@@ -24,6 +24,7 @@ namespace MihomoLauncher.Views
     public partial class SettingsWindow : FluentWindow, INotifyPropertyChanged
     {
         public AppConfig Result { get; private set; }
+        public AppConfig Baseline { get; private set; }   // the config as this window opened
 
         public event PropertyChangedEventHandler PropertyChanged;
         private void OnPropertyChanged([CallerMemberName] string name = null)
@@ -67,6 +68,9 @@ namespace MihomoLauncher.Views
             // A full copy: the hand-written field-by-field one used to drop FirewallKillSwitch
             // (back to «on» after every Save) and a subscription's update interval.
             _editing = AppConfigStore.Clone(source);
+            // The copy as it opened: on Save the main window takes only what differs from it
+            // (AppConfigStore.MergeChanged) — this window no longer blocks the main one (2026-11-27).
+            Baseline = AppConfigStore.Clone(source);
             FillUi();
 
             LstRoutes.ItemsSource = _routeRows;
@@ -952,13 +956,14 @@ namespace MihomoLauncher.Views
             try { CommitUpdatePeriods(); } catch { }
 
             Result = _editing;
-            DialogResult = true;
+            // Shown with Show() since 2026-11-27 — DialogResult exists only for ShowDialog().
+            try { DialogResult = true; } catch (InvalidOperationException) { }
             Close();
         }
 
         private void OnCancel(object sender, RoutedEventArgs e)
         {
-            DialogResult = false;
+            try { DialogResult = false; } catch (InvalidOperationException) { }
             Close();
         }
 
@@ -971,7 +976,7 @@ namespace MihomoLauncher.Views
         {
             ExitConfirmOverlay.Visibility = Visibility.Collapsed;
 
-            DialogResult = false;
+            try { DialogResult = false; } catch (InvalidOperationException) { }
             Close();
 
             if (Owner is MainWindow main)
@@ -1077,8 +1082,8 @@ namespace MihomoLauncher.Views
             public RouteRow(VpnRoute r)
             {
                 AppName = r.AppName;
-                var num = r.SlotNumber > 0 ? "№" + r.SlotNumber + " " : "";
-                SlotLabel = num + "«" + r.SlotName + "»";
+                // The name alone (2026-11-27): the list number «№n» meant nothing a person sees.
+                SlotLabel = "«" + r.SlotName + "»";
                 ProxyName = r.ProxyName;
                 Target = r.Target;
                 StatusLabel = r.NodeUp ? Loc.T("Set_RouteUp") : Loc.T("Set_RouteDown");

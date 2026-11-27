@@ -81,7 +81,7 @@ namespace MihomoLauncher.Views
             try
             {
                 var ctl = _mihomo;
-                var tasks = proxies.Select(p => ctl.MeasureDelayAsync(p, CancellationToken.None)).ToList();
+                var tasks = proxies.Select(p => ctl.MeasureDelayAsync(PingEngineName(p), CancellationToken.None)).ToList();
                 await System.Threading.Tasks.Task.WhenAll(tasks).ConfigureAwait(true);
                 // The tile may have been disconnected meanwhile — keep only what's still in use.
                 var now = StatsProxies();
@@ -124,7 +124,8 @@ namespace MihomoLauncher.Views
             bool showNics = ShowNicIps;
             StatsNics.Visibility = showNics ? Visibility.Visible : Visibility.Collapsed;
             // + the «a tile can be pulled out» line (MainWindow.TileDetach), while it shows.
-            StatsStrip.Visibility = showMsg || showFoot || showStats || showNics || DetachHintOn ? Visibility.Visible : Visibility.Collapsed;
+            // + a cascade that didn't build: which hop and why (MainWindow.Cascade).
+            StatsStrip.Visibility = showMsg || showFoot || showStats || showNics || DetachHintOn || CascadeLineOn ? Visibility.Visible : Visibility.Collapsed;
 
             // Only the stats are about the log; a plate holding just a message is not a link.
             StatsStrip.Cursor = showStats ? Cursors.Hand : null;
@@ -154,7 +155,7 @@ namespace MihomoLauncher.Views
             return StatsStrip.Visibility + "|" + BannerText.Visibility + "|" + BannerText.Text + "|"
                  + StatusFoot.Visibility + "|" + StatusFoot.Text + "|"
                  + StatsPing.Visibility + "|" + StatsPing.Children.Count + "|" + StatsBlocksRow.Visibility + "|"
-                 + StatsNics.Visibility + "|" + NicIpSig();
+                 + StatsNics.Visibility + "|" + NicIpSig() + "|" + (CascadeLineOn ? _cascadeLine.Text : "");
         }
 
         private void RenderStatsRows(EngineLogStore store, List<string> proxies)
@@ -199,12 +200,25 @@ namespace MihomoLauncher.Views
             }
         }
 
+        // What the engine is asked about for one entry of the row: a cascade (MainWindow.Cascade) is
+        // measured through the whole chain — its last copy, for the cards of a tile riding it.
+        private string PingEngineName(string proxy)
+        {
+            if (!MihomoConfigBuilder.IsChain(proxy)) return proxy;
+            var rider = (_config.Apps ?? new List<Models.AppEntry>())
+                .FirstOrDefault(a => a != null && _assignment.TryGetValue(a.Id, out var t) && t == proxy);
+            return MihomoConfigBuilder.ChainNodeName(proxy, MihomoConfigBuilder.NicKey(rider));
+        }
+
         // "№1 Нидерланды 84 мс" — the number tinted: green fast, amber slow, red no answer.
+        // A cascade: «Turkey › ekb_home › KG_pc 190 мс».
         private UIElement PingChip(string proxy, bool separator)
         {
             ProxySlotInfo info;
-            string name = _proxySlot.TryGetValue(proxy, out info) && info != null && !string.IsNullOrEmpty(info.Name)
-                ? (info.Number > 0 ? "№" + info.Number + " " : "") + info.Name
+            string name = MihomoConfigBuilder.IsChain(proxy)
+                ? string.Join(" › ", MihomoConfigBuilder.ChainHops(proxy).Select(h => _proxySlot.TryGetValue(h, out var hi) && !string.IsNullOrEmpty(hi?.Name) ? hi.Name : h))
+                : _proxySlot.TryGetValue(proxy, out info) && info != null && !string.IsNullOrEmpty(info.Name)
+                ? info.Name   // the name alone (no «№n», 2026-11-27)
                 : proxy;
 
             int? ms;

@@ -820,11 +820,58 @@ namespace MihomoLauncher.Services
         }
 
         // "vpn_Turkey.via-1a2b3c4d" → "vpn_Turkey": the variant behind a copy dialled through a card.
+        // A cascade copy ("vpn_KG.chain-…", below) → its own variant, the hop that exits.
         public static string BaseProxyName(string target)
         {
             var t = (target ?? "").Trim();
+            if (IsChain(t)) t = ChainHops(t).LastOrDefault() ?? t;
             int i = t.IndexOf(ViaMarker, StringComparison.Ordinal);
+            if (i > 0) t = t.Substring(0, i);
+            i = t.IndexOf(ChainMarker, StringComparison.Ordinal);
             return i > 0 ? t.Substring(0, i) : t;
+        }
+
+        // ---------- cascade (2026-11-27) ----------
+        //
+        // A tile with «Каскадный VPN» rides 2–3 variants one inside the other: you → hop 1 → hop 2
+        // → hop 3 → the site. The engine does it natively with `dialer-proxy`, the way it already
+        // dials a VPN through a network card (NicPlan): hop 2 is a copy of its variant whose own
+        // connection is dialled through hop 1, hop 3 a copy dialled through that copy. The tile's
+        // cards, if any, carry hop 1.
+        //
+        // In the launcher a cascade target is one string, the hops' proxy names joined by ChainSep
+        // ("vpn_Turkey>vpn_ekb_home>vpn_KG_pc") — what _assignment holds for such a tile and what
+        // its RuleDefs point at. Build turns it into the copies; ChainNodeName names the last copy
+        // the way Build does, for the node checks. Proxy names are vpn_<letters/digits/_/->, so
+        // neither ">" nor ".chain-" can collide with one.
+        public const string ChainSep = ">";
+        public const string ChainMarker = ".chain-";
+
+        public static bool IsChain(string target) => (target ?? "").IndexOf(ChainSep, StringComparison.Ordinal) > 0;
+
+        public static string ChainTarget(IEnumerable<string> proxyNames)
+            => string.Join(ChainSep, (proxyNames ?? Enumerable.Empty<string>()).Where(n => !string.IsNullOrEmpty(n)));
+
+        // The proxy names a target stands for: the hops of a cascade, else the target itself.
+        public static List<string> ChainHops(string target)
+        {
+            var t = (target ?? "").Trim();
+            if (t.Length == 0) return new List<string>();
+            return t.Split(new[] { ChainSep }, StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+        }
+
+        // The engine name of the copy that carries hop `i` (0-based, ≥ 1) of this chain for a tile
+        // with these cards (null = Windows decides).
+        private static string ChainCloneName(List<string> hops, int i, string nicKey)
+            => hops[i] + ChainMarker + Hash8(string.Join(ChainSep, hops.Take(i + 1)) + "\n" + (nicKey ?? ""));
+
+        // What a node check of this target has to ask the engine about: the last copy of a cascade,
+        // else the variant (through the tile's cards — ViaName).
+        public static string ChainNodeName(string target, string nicKey)
+        {
+            if (!IsChain(target)) return ViaName(target, nicKey);
+            var hops = ChainHops(target);
+            return hops.Count == 1 ? ViaName(hops[0], nicKey) : ChainCloneName(hops, hops.Count - 1, nicKey);
         }
 
         // The cards behind an engine name (a card, a group of cards, or a VPN copy through them);
@@ -931,21 +978,46 @@ namespace MihomoLauncher.Services
             }
 
             // Where a line pointed at `target` goes when its tile is tied to the cards in `key`.
+            // A cascade target (IsChain) becomes its chain of copies whatever the cards.
             public string Route(string target, string key)
             {
-                if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(target)) return target;
+                if (string.IsNullOrEmpty(target)) return target;
+                if (IsChain(target)) return Chain(target, key);
+                if (string.IsNullOrEmpty(key)) return target;
                 if (target.StartsWith("REJECT", StringComparison.OrdinalIgnoreCase)) return target;
                 var via = Outbound(key);
                 if (target.Equals("DIRECT", StringComparison.OrdinalIgnoreCase)) return via;
 
                 var clone = target + ViaMarker + Hash8(key);
                 if (_made.Contains(clone)) return clone;
+                return Clone(target, clone, via, NicLabelOf(via)) ? clone : target;   // not one of ours: as it was
+            }
 
+            // hop 1 (through the tile's cards, if any) → a copy of hop 2 dialled through it → a copy
+            // of hop 3 dialled through that copy. Returns the last one — what the tile's lines point at.
+            private string Chain(string target, string key)
+            {
+                var hops = ChainHops(target);
+                if (hops.Count == 0) return target;
+                var prev = Route(hops[0], key);
+                for (int i = 1; i < hops.Count; i++)
+                {
+                    var name = ChainCloneName(hops, i, key);
+                    if (!_made.Contains(name) && !Clone(hops[i], name, prev, null))
+                        return "REJECT";   // a hop the config doesn't carry: nothing goes out rather than around it
+                    prev = name;
+                }
+                return prev;
+            }
+
+            // A copy of the variant `target` named `clone`, its own connection dialled through `via`.
+            private bool Clone(string target, string clone, string via, string label)
+            {
                 ParsedProxy p;
                 if (_direct.TryGetValue(target, out p))
                 {
                     var lines = new List<string>(p.ProxyYamlLines);
-                    if (lines.Count == 0) return target;
+                    if (lines.Count == 0) return false;
                     lines[0] = "  - name: " + YQ(clone);
                     lines.Add("    dialer-proxy: " + YQ(via));
                     _made.Add(clone);
@@ -954,8 +1026,8 @@ namespace MihomoLauncher.Services
                         Ok = true, ProxyName = clone, SlotId = p.SlotId, Server = p.Server,
                         ProxyYamlLines = lines, ServerDns = p.ServerDns,
                     });
-                    Label(clone, NicLabelOf(via));
-                    return clone;
+                    if (label != null) Label(clone, label);
+                    return true;
                 }
                 if (_providers.TryGetValue(target, out p))
                 {
@@ -979,14 +1051,26 @@ namespace MihomoLauncher.Services
                         ProviderFileContent = p.ProviderFileContent, DialerProxy = via,
                         SubNode = p.SubNode, SubCacheName = p.SubCacheName,
                     });
-                    Label(clone, NicLabelOf(via));
-                    return clone;
+                    if (label != null) Label(clone, label);
+                    return true;
                 }
-                return target;   // not one of ours (shouldn't happen): left as it was
+                return false;
+            }
+
+            // Every copy of every prefix of a cascade (hop 1; 1→2; 1→2→3) in the config, used by a
+            // rule or not: the connect checks the hops one by one through the engine's API, and an
+            // unreferenced proxy is never dialled by itself.
+            public void AllPrefixes(string target, string key)
+            {
+                var hops = ChainHops(target);
+                for (int n = 1; n <= hops.Count; n++) Route(ChainTarget(hops.Take(n)), key);
             }
         }
 
-        public static string Build(AppConfig cfg, List<ParsedProxy> proxies, List<RuleDef> rules)
+        // chainPrefixes: cascade targets (key) and the cards of their tile (value, null = none) whose
+        // every prefix must be in the config — the cascade connect checks hop by hop.
+        public static string Build(AppConfig cfg, List<ParsedProxy> proxies, List<RuleDef> rules,
+                                   IEnumerable<KeyValuePair<string, string>> chainPrefixes = null)
         {
             if (proxies == null) proxies = new List<ParsedProxy>();
             if (rules == null) rules = new List<RuleDef>();
@@ -1124,11 +1208,15 @@ namespace MihomoLauncher.Services
             // only through that card (ekb_home: through Wi-Fi yes, through the Turkish Ethernet no)
             // was judged dead and the tile thrown back to «напрямую».
             var nic = new NicPlan(cfg, directProxies, providers);
+            // A cascade target becomes its chain of copies too (NicPlan.Chain), cards or not.
             rules = rules.Where(r => r != null)
-                .Select(r => r.Nic == null ? r
+                .Select(r => r.Nic == null && !IsChain(r.Target) ? r
                     : new RuleDef(r.Type, r.Value, nic.Route(r.Target, r.Nic))
                       { Raw = r.Raw, Site = r.Site, Probe = r.Probe, Folder = r.Folder, FolderLen = r.FolderLen, AutoFile = r.AutoFile })
                 .ToList();
+            // A cascade being connected: each prefix of it as well, for the hop-by-hop check.
+            foreach (var c in chainPrefixes ?? Enumerable.Empty<KeyValuePair<string, string>>())
+                if (IsChain(c.Key)) nic.AllPrefixes(c.Key, c.Value);
             // rules: split entries first, the catch-all last — DIRECT, unless «Весь трафик» is
             // on, in which case its target (a proxy, or REJECT under its kill-switch). The engine
             // stops at the first MATCH; the last one given is what the loop below used to keep.

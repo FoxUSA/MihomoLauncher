@@ -47,7 +47,11 @@ namespace MihomoLauncher.Views
 
             ItemsGrid.ItemsSource = _items;
             SetupAutoRows();
+            _slotList = slots;
             BuildAllowSlotChoices(slots, existing);
+            // The VPNs are dragged into a new order, as in the VPN window (2026-11-27); the order is
+            // the VPN list's own (global), written on «Сохранить» (ApplySlotOrder).
+            _slotDrag = new ItemsGridDrag<SlotAllowChoice>(AllowSlots, _allowChoices, null);
 
             if (existing != null)
             {
@@ -71,6 +75,8 @@ namespace MihomoLauncher.Views
                     TxtLockNic.Text = _lockCard ?? "";
                 }
                 ChkAutoTrack.IsChecked = existing.AutoTrack;
+                // OnCascadeChanged turns the squares into hops. Not with fewer than two VPNs — see below.
+                ChkCascade.IsChecked = existing.Cascade && _allowChoices.Count >= 2;
 
                 // What the person added first, what auto-tracking added last (its own section).
                 foreach (var p in (existing.Programs ?? new List<RuleProgram>()).Where(p => p != null && !p.Auto))
@@ -94,6 +100,15 @@ namespace MihomoLauncher.Views
                 ChkAutoTrack.IsChecked = true;
             }
 
+            // A cascade is two or three VPNs one inside the other: with fewer than two in the list
+            // there is nothing to chain — the switch is greyed and says why (2026-11-27).
+            if (_allowChoices.Count < 2)
+            {
+                ChkCascade.IsEnabled = false;
+                ChkCascade.SetResourceReference(FrameworkElement.ToolTipProperty, "Edit_CascadeNeedTwo");
+                System.Windows.Controls.ToolTipService.SetShowOnDisabled(ChkCascade, true);
+            }
+
             AdoptItems();
             _items.CollectionChanged += (s, e) =>
             {
@@ -111,7 +126,8 @@ namespace MihomoLauncher.Views
                     return (r.IsSite ? "S|" : r.IsFolder ? "F|" : "P|") + r.Url + "|" + r.ClashRuleUrl + "|" + r.Name + "|" + r.Path
                          + "|" + r.Arguments + "|" + r.Aumid + "|" + (r.Launch ? "1" : "0") + (r.IsAuto ? "|A" : "") + (r.IsIgnored ? "|I" : "");
                 })
-                + "#" + SaveGuard.Join(_allowChoices, o => ((SlotAllowChoice)o).Id + ":" + ((SlotAllowChoice)o).Rank)
+                // Both memories — the ordinary ticks and the cascade's hops — whichever is shown.
+                + "#" + string.Join(",", NormalUsedNow()) + "#" + string.Join(",", CascadeUsedNow())
                 + "#" + _homeUrl,
                 // A new rule: on as soon as it has a name or anything in the table.
                 existing == null
@@ -272,7 +288,13 @@ namespace MihomoLauncher.Views
                     // Settings list, and here the order is this rule's own — two numberings on
                     // one line contradict each other. The name alone, exactly as it was typed.
                     var name = string.IsNullOrWhiteSpace(s.Name) ? Loc.T("Rule_NoName") : s.Name;
-                    _allowChoices.Add(new SlotAllowChoice { Id = s.Id, Label = name });
+                    Tuple<string, string> geo = null;
+                    try { geo = SlotGeoOf?.Invoke(s.Id); } catch { }
+                    _allowChoices.Add(new SlotAllowChoice
+                    {
+                        Id = s.Id, Label = name,
+                        Iso = geo?.Item1 ?? "", Place = geo?.Item2 ?? "",
+                    });
                 }
             }
 
@@ -283,6 +305,11 @@ namespace MihomoLauncher.Views
                                          && _allowChoices.Any(c => c.Id == id)).ToList();
             foreach (var c in _allowChoices)
                 if (!disabled.Contains(c.Id) && !used.Contains(c.Id)) used.Add(c.Id);
+            _normalUsed = used;
+            // The cascade's own hops (AppEntry.CascadeHops) — shown when its switch is on.
+            _cascadeUsed = (existing?.CascadeHops ?? new List<string>())
+                .Where(id => _allowChoices.Any(c => c.Id == id)).Distinct()
+                .Take(Services.Cascade.MaxHops).ToList();
             Renumber(used);
 
             AllowSlots.ItemsSource = _allowChoices;
@@ -302,12 +329,152 @@ namespace MihomoLauncher.Views
             Renumber(any ? new List<string>() : _allowChoices.Select(c => c.Id).ToList());
         }
 
+        private bool CascadeOn => ChkCascade != null && ChkCascade.IsChecked == true;
+
+        // The live VPN list (the config's VpnSlots) and the drag that reorders its rows here.
+        private List<VpnSlot> _slotList;
+        private ItemsGridDrag<SlotAllowChoice> _slotDrag;
+
+        // On «Сохранить»: the VPN list takes the order the rows were dragged into (the same list the
+        // VPN window reorders). Cancel leaves it as it was. Slots not shown keep their place at the end.
+        private void ApplySlotOrder()
+        {
+            if (_slotList == null || _allowChoices == null) return;
+            var order = _allowChoices.Select(c => c.Id).ToList();
+            var now = _slotList.Where(s => s != null).Select(s => s.Id).ToList();
+            if (order.SequenceEqual(now.Where(order.Contains))) return;
+            var byId = _slotList.Where(s => s != null).GroupBy(s => s.Id).ToDictionary(g => g.Key, g => g.First());
+            var reordered = order.Where(byId.ContainsKey).Select(id => byId[id]).ToList();
+            reordered.AddRange(_slotList.Where(s => s == null || !order.Contains(s.Id)));
+            _slotList.Clear();
+            _slotList.AddRange(reordered);
+            Log.Info("Порядок VPN изменён в окне правила: " + string.Join(", ", reordered.Where(s => s != null).Select(s => s.Name)));
+        }
+
+        // Set by the main window (it knows where each VPN's server is and where the person is):
+        // slot id → ISO country, and the person's own country. Null → «?» squares.
+        internal static Func<string, string> SlotIsoOf;
+        internal static Func<AppEntry, string> UserIsoNow;   // the rule being edited (null = new): its card
+        // slot id → (ISO, «Город, Страна»): the line under each VPN's name (2026-11-27).
+        internal static Func<string, Tuple<string, string>> SlotGeoOf;
+        // The rule being edited (null = new) → where the person is: (ISO, «Город, Страна»).
+        internal static Func<AppEntry, Tuple<string, string>> UserGeoNow;
+
+        // The chain as it will run, under the squares (2026-11-27, the mock-up): you › 1 · name ›
+        // 2 · name › 3 · name › the site, each with its flag; a hint while fewer than two are ticked.
+        // In place of the caption row, at its height (2026-11-27: «постарайся не менять окно по высоте»).
+        private void RenderCascadeChain()
+        {
+            if (CascadeChainRow == null) return;
+            bool on = CascadeOn && _allowChoices != null && _allowChoices.Count > 0;
+            CascadeChainRow.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            SlotsHeader.Visibility = on ? Visibility.Collapsed : Visibility.Visible;
+            CascadeChainRow.Children.Clear();
+            if (!on) return;
+            var hops = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank).ToList();
+            if (hops.Count == 0)
+            {
+                CascadeChainRow.Children.Add(ChainText(Loc.T("Edit_CascadeEmpty"), Theme.TextSecondary));
+                return;
+            }
+            // Names only (2026-11-27: «в путях убери цифры и квадраты со страной») — the country is
+            // under each VPN's name in the list below.
+            // …except «Вы»: where you are — «Вы: Город, Страна», plain text like the rest of the row
+            // (2026-11-27: the badge and the small grey place stood out — «обычным текстом как все
+            // остальные в этой строчке»).
+            Tuple<string, string> me = null;
+            try { me = UserGeoNow?.Invoke(_editing); } catch { }
+            string place = me?.Item2 ?? "";
+            CascadeChainRow.Children.Add(ChainText(
+                Loc.T("Main_CascadeYou") + (place.Length > 0 ? ": " + place : ""), Theme.TextPrimary));
+            foreach (var h in hops)
+            {
+                CascadeChainRow.Children.Add(OnTextLine(ChainText("→", Theme.TextMuted), -1));
+                CascadeChainRow.Children.Add(ChainText(h.Label, Theme.TextPrimary));
+            }
+            CascadeChainRow.Children.Add(OnTextLine(ChainText("→", Theme.TextMuted), -1));
+            // The site: the globe alone, a flag's height (2026-11-27: «слово сайт убери»).
+            double scale = 1;
+            try { scale = VisualTreeHelper.GetDpi(this).DpiScaleX; } catch { }
+            var site = MainWindow.SiteVisual(20, scale);
+            site.VerticalAlignment = VerticalAlignment.Center;
+            site.Margin = new Thickness(0, 0, 8, 0);
+            site.ToolTip = Loc.T("Edit_CascadeSite");
+            CascadeChainRow.Children.Add(OnTextLine(site, 1));
+            if (hops.Count == 1)
+                CascadeChainRow.Children.Add(ChainText("   " + Loc.T("Edit_CascadeOneHop"), Theme.AccentAmber));
+        }
+
+        // Lines the chain row up on the text (2026-11-27: «вся строчка ровняется по горизонтали посредине»):
+        // a TextBlock centres its line box, descender room included, so the letters sit ~1 DIP below
+        // the middle — the badge and the globe (centred by their own box) go 1 down, the arrows (drawn
+        // low on the math axis) 1 up. Measured on a screenshot at 150 %.
+        private static T OnTextLine<T>(T el, double dy) where T : UIElement
+        {
+            el.RenderTransform = new TranslateTransform(0, dy);
+            return el;
+        }
+
+        // The ISO badge, the same as in the VPN list's template and the speed window.
+        private static System.Windows.Controls.Border GeoBadge(string iso) => new System.Windows.Controls.Border
+        {
+            Width = 26, Height = 16, CornerRadius = new CornerRadius(4), BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
+            Background = Theme.ChipBg, BorderBrush = Theme.CardBorder,
+            Child = new TextBlock
+            {
+                Text = iso, FontSize = 10, FontWeight = FontWeights.Bold, Foreground = Theme.TextPrimary,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            },
+        };
+
+        private static TextBlock ChainText(string text, System.Windows.Media.Brush fg) => new TextBlock
+        {
+            Text = text, FontSize = 13, Foreground = fg, VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 8, 0),
+        };
+
+
         // The button says what a click would do; called from Renumber, so it follows every change.
+        // In a cascade there is no «Отметить все» — a chain is drawn hop by hop, at most three.
         private void UpdateAllSlotsButton()
         {
             if (BtnAllSlots == null) return;
+            bool any = _allowChoices.Any(c => c.Rank > 0);
             BtnAllSlots.SetResourceReference(System.Windows.Controls.ContentControl.ContentProperty,
-                _allowChoices.Any(c => c.Rank > 0) ? "Rule_SlotsNone" : "Rule_SlotsAll");
+                any ? "Rule_SlotsNone" : "Rule_SlotsAll");
+            BtnAllSlots.Visibility = _allowChoices.Count == 0 || (CascadeOn && !any) ? Visibility.Collapsed : Visibility.Visible;
+        }
+
+        // Two memories (2026-11-27: «у каждого свитча каскад и не каскад своя память»): the ordinary
+        // ticks (VpnSlotOrder / DisabledVpnSlotIds) and the cascade's hops (CascadeHops). The squares
+        // show one of them; the other waits here untouched until the switch flips back.
+        private List<string> _normalUsed = new List<string>();
+        private List<string> _cascadeUsed = new List<string>();
+        private bool _shownCascade;
+
+        private List<string> ShownUsed()
+            => _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank).Select(c => c.Id).ToList();
+        private List<string> NormalUsedNow() => _shownCascade ? _normalUsed : ShownUsed();
+        private List<string> CascadeUsedNow() => _shownCascade ? ShownUsed() : _cascadeUsed;
+
+        // «Каскадный VPN» switched: what the squares show goes back to its own list, and the other
+        // list is shown — each mode keeps its own ticks.
+        private void OnCascadeChanged(object sender, RoutedEventArgs e)
+        {
+            if (_allowChoices == null) return;
+            bool on = CascadeOn;
+            LblAllowedVpn.SetResourceReference(TextBlock.TextProperty, on ? "Edit_CascadeHeader" : "Rule_AllowedVpn");
+            LblAllowedVpn.SetResourceReference(FrameworkElement.ToolTipProperty, on ? "Edit_CascadeTip" : "Rule_VpnOrderHint");
+            LblCascadeHint.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+            if (on != _shownCascade)
+            {
+                if (_shownCascade) _cascadeUsed = ShownUsed(); else _normalUsed = ShownUsed();
+                _shownCascade = on;
+            }
+            var used = new List<string>(on ? _cascadeUsed : _normalUsed);
+            if (on && used.Count > Services.Cascade.MaxHops) used = used.Take(Services.Cascade.MaxHops).ToList();
+            Renumber(used);
         }
 
         // A click either gives this variant the next free number or takes its number away; the
@@ -322,25 +489,42 @@ namespace MihomoLauncher.Views
 
             var used = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
                                     .Select(c => c.Id).ToList();
-            if (!used.Remove(id)) used.Add(id);
+            if (!used.Remove(id))
+            {
+                if (CascadeOn && used.Count >= Services.Cascade.MaxHops) return;   // three hops already
+                used.Add(id);
+            }
             Renumber(used);
         }
 
-        // `used` is the priority order; everything not in it has no number and takes no part.
+        // `used` is the priority order (the hop order in a cascade); everything not in it has no
+        // number and takes no part. A cascade takes at most three.
         private void Renumber(List<string> used)
         {
+            bool cascade = CascadeOn;
+            if (cascade && used.Count > Services.Cascade.MaxHops) used = used.Take(Services.Cascade.MaxHops).ToList();
+            bool full = cascade && used.Count >= Services.Cascade.MaxHops;
             foreach (var c in _allowChoices)
             {
                 int i = used.IndexOf(c.Id);
                 c.Rank = i < 0 ? 0 : i + 1;
+                c.Cascade = cascade;
+                c.Full = full;
+                c.RaiseLook();
             }
             UpdateAllSlotsButton();
+            RenderCascadeChain();
         }
 
         public class SlotAllowChoice : INotifyPropertyChanged
         {
             public string Id { get; set; }
             public string Label { get; set; }
+            // Where its server is: the ISO badge and «Город, Страна», as in the speed window.
+            public string Iso { get; set; } = "";
+            public string Place { get; set; } = "";
+            public Visibility GeoVisibility => Iso.Length > 0 || Place.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            public Visibility IsoVisibility => Iso.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
             private int _rank;   // 0 = not used by this rule at all
             public int Rank
@@ -357,19 +541,45 @@ namespace MihomoLauncher.Views
 
             public string RankText { get { return _rank > 0 ? _rank.ToString() : ""; } }
 
+            // «Каскадный VPN» on (2026-11-27): the number is a hop of the chain, drawn in the accent
+            // blue so it isn't read as the green priority; Full = three hops taken, this one is not.
+            private bool _cascade, _full;
+            public bool Cascade
+            {
+                get { return _cascade; }
+                set { if (_cascade == value) return; _cascade = value; RaiseLook(); }
+            }
+            public bool Full
+            {
+                get { return _full; }
+                set { if (_full == value) return; _full = value; RaiseLook(); }
+            }
+            internal void RaiseLook()
+            {
+                Raise(nameof(BoxFill)); Raise(nameof(BoxEdge)); Raise(nameof(BoxTip));
+                Raise(nameof(RankFore)); Raise(nameof(RowOpacity));
+            }
+
             // Brushes, not colour strings: a string would only reach Background/BorderBrush
             // through the binding engine’s type converter, and a typo there fails silently at
             // runtime instead of at build time. The same squares as the routing matrix (Theme).
-            private static readonly System.Windows.Media.Brush OnFill = Theme.RankOnBg;
-            private static readonly System.Windows.Media.Brush OnEdge = Theme.RankOnBorder;
-            private static readonly System.Windows.Media.Brush OffEdge = Theme.RankOffBorder;
-
+            // Read on use (not cached): the theme can change while the window is open.
             public System.Windows.Media.Brush BoxFill
             {
-                get { return _rank > 0 ? OnFill : System.Windows.Media.Brushes.Transparent; }
+                get { return _rank > 0 ? (_cascade ? Theme.AccentSoft : Theme.RankOnBg) : System.Windows.Media.Brushes.Transparent; }
             }
-            public System.Windows.Media.Brush BoxEdge { get { return _rank > 0 ? OnEdge : OffEdge; } }
-            public string BoxTip { get { return Loc.T(_rank > 0 ? "Vpn_CellOnTip" : "Vpn_CellOffTip"); } }
+            public System.Windows.Media.Brush BoxEdge
+            {
+                get { return _rank > 0 ? (_cascade ? Theme.Accent : Theme.RankOnBorder) : Theme.RankOffBorder; }
+            }
+            public System.Windows.Media.Brush RankFore { get { return _cascade ? Theme.TextPrimary : Theme.TextOnAction; } }
+            // Nothing is dimmed (2026-11-27: «затемнять ничего не надо»): with three hops taken the
+            // other rows look the same; a click on one just does nothing.
+            public double RowOpacity { get { return 1.0; } }
+            public string BoxTip
+            {
+                get { return _cascade ? Loc.T("Edit_CascadeTip") : Loc.T(_rank > 0 ? "Vpn_CellOnTip" : "Vpn_CellOffTip"); }
+            }
 
             public event PropertyChangedEventHandler PropertyChanged;
             private void Raise(string n)
@@ -895,10 +1105,12 @@ namespace MihomoLauncher.Views
                         LockNic = ChkLockNic.IsChecked == true && !string.IsNullOrEmpty(_lockCard),
                         Interfaces = SavedInterfaces(),
                         InterfaceIds = new List<string>(_editing.InterfaceIds ?? new List<string>()),
-                        DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id).ToList(),
-                        VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
-                            .Select(c => c.Id).ToList(),
+                        DisabledVpnSlotIds = _allowChoices.Select(c => c.Id).Where(id => !NormalUsedNow().Contains(id)).ToList(),
+                        VpnSlotOrder = NormalUsedNow(),
+                        Cascade = CascadeOn,
+                        CascadeHops = CascadeUsedNow(),
                     };
+                    ApplySlotOrder();
                     try { DialogResult = true; } catch (InvalidOperationException) { }
                     Close();
                     return;
@@ -976,6 +1188,7 @@ namespace MihomoLauncher.Views
                 entry.Programs = progs;
                 entry.Folders = folders;
                 entry.AutoTrack = ChkAutoTrack.IsChecked == true;
+                entry.Cascade = CascadeOn;   // the ticked VPNs as the hops of one chain (Services.Cascade)
                 // The third section, as it stands (paths, or old bare names). A file the person put
                 // back by hand is no longer "removed".
                 // A folder put back by hand (2026-11-23) is no longer "removed" either.
@@ -1010,14 +1223,17 @@ namespace MihomoLauncher.Views
                 // A configuration with no number takes no part in this rule, which is exactly what
                 // the exclusion list has always meant; the numbered ones, in their order, are the
                 // priority.
-                entry.DisabledVpnSlotIds = _allowChoices.Where(c => c.Rank <= 0).Select(c => c.Id).ToList();
-                entry.VpnSlotOrder = _allowChoices.Where(c => c.Rank > 0).OrderBy(c => c.Rank)
-                    .Select(c => c.Id).ToList();
+                // The ordinary ticks and the cascade's hops, each from its own memory (whichever is shown).
+                var normal = NormalUsedNow();
+                entry.DisabledVpnSlotIds = _allowChoices.Select(c => c.Id).Where(id => !normal.Contains(id)).ToList();
+                entry.VpnSlotOrder = normal;
+                entry.CascadeHops = CascadeUsedNow();
 
                 ApplyIcon(entry);
 
                 if (!IsLoaded) return;
                 Result = entry;
+                ApplySlotOrder();
                 try { DialogResult = true; } catch (InvalidOperationException) { }
                 Close();
             }

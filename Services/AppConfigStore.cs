@@ -299,6 +299,47 @@ namespace MihomoLauncher.Services
             }
         }
 
+        // A window that edits a COPY of the config (Settings / DNS) hands back only what the person
+        // changed in it (2026-11-27: those windows stopped blocking the main one — «не должны мешать
+        // работать с основным окном»). Every saved field of `edited` that differs from `baseline` (the
+        // copy as the window opened) is put into `live`; the rest of `live` — what the main window,
+        // the other windows and auto-tracking changed meanwhile — stays. `live` keeps its identity,
+        // so windows holding it go on editing the real config. Returns the names of the fields taken.
+        public static List<string> MergeChanged(AppConfig live, AppConfig baseline, AppConfig edited)
+        {
+            var taken = new List<string>();
+            if (live == null || baseline == null || edited == null) return taken;
+            foreach (var p in typeof(AppConfig).GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance))
+            {
+                if (!p.CanRead || !p.CanWrite || p.GetIndexParameters().Length > 0) continue;
+                if (p.IsDefined(typeof(XmlIgnoreAttribute), true)) continue;
+                var was = p.GetValue(baseline);
+                var now = p.GetValue(edited);
+                if (SameValue(p.PropertyType, was, now)) continue;
+                p.SetValue(live, now);
+                taken.Add(p.Name);
+            }
+            return taken;
+        }
+
+        private static readonly Dictionary<Type, XmlSerializer> _fieldSer = new Dictionary<Type, XmlSerializer>();
+
+        // Two values of one saved field compared as config.xml would write them.
+        private static bool SameValue(Type t, object a, object b)
+        {
+            if (a == null || b == null) return a == null && b == null;
+            if (t.IsPrimitive || t.IsEnum || t == typeof(string) || t == typeof(decimal) || t == typeof(DateTime))
+                return Equals(a, b);
+            XmlSerializer ser;
+            lock (_fieldSer)
+                if (!_fieldSer.TryGetValue(t, out ser)) _fieldSer[t] = ser = new XmlSerializer(t);
+            string Xml(object o)
+            {
+                using (var w = new StringWriter()) { ser.Serialize(w, o); return w.ToString(); }
+            }
+            return Xml(a) == Xml(b);
+        }
+
         public static AppConfig Load()
         {
             EnsureDirs();
@@ -354,6 +395,7 @@ namespace MihomoLauncher.Services
                 // saw it (legacy fields already folded in).
                 if (NormalizeCheckAddresses(loaded.Apps)) dirty = true;
                 if (NormalizeSlots(loaded.VpnSlots)) dirty = true;
+                if (NormalizeCascade(loaded)) dirty = true;
                 if (dirty) Save(loaded);
                 return loaded;
             }
@@ -523,6 +565,8 @@ namespace MihomoLauncher.Services
         public static bool HasTickedVpn(AppEntry e, IEnumerable<VpnSlot> slots)
         {
             if (e == null) return false;
+            // A cascade with its own hops (AppEntry.CascadeHops) has its VPNs, whatever the ordinary ticks.
+            if (e.Cascade && Cascade.Hops(e, (slots ?? Enumerable.Empty<VpnSlot>()).ToList()).Count >= 2) return true;
             var order = e.VpnSlotOrder ?? new List<string>();
             var off = new HashSet<string>(e.DisabledVpnSlotIds ?? new List<string>());
             if (order.Count == 0 && off.Count == 0) return false;
@@ -541,6 +585,23 @@ namespace MihomoLauncher.Services
                 if (!HasTickedVpn(a, cfg.VpnSlots)) continue;
                 a.RequiresVpn = true;
                 if (a.AutoConnect) a.AutoConnect = false;
+                changed = true;
+            }
+            return changed;
+        }
+
+        // «Каскадный VPN» saved before the hops had their own list (AppEntry.CascadeHops, 2026-11-27):
+        // they were the ordinary ticks — copied over once, the first three in order. True if anything changed.
+        private static bool NormalizeCascade(AppConfig cfg)
+        {
+            bool changed = false;
+            foreach (var a in (cfg?.Apps ?? new List<AppEntry>()).Where(a => a != null && a.Cascade))
+            {
+                if (a.CascadeHops == null) a.CascadeHops = new List<string>();
+                if (a.CascadeHops.Count > 0) continue;
+                var ticks = Cascade.OrdinaryTicks(a, cfg.VpnSlots).Take(Cascade.MaxHops).ToList();
+                if (ticks.Count == 0) continue;
+                a.CascadeHops = ticks;
                 changed = true;
             }
             return changed;

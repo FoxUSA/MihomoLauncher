@@ -63,6 +63,12 @@ namespace MihomoLauncher.Views
             {
                 MinWidth = 520;
                 MinHeight = 220;
+                // Not drawn until it is sized and in place (2026-11-27: it showed at 950×460, then
+                // jumped to its fitted size and centre in front of the eyes — «при нажатии кнопки VPN
+                // что-то передёргивается»). Off-screen didn't do: something put it back in the top-left
+                // corner and the phantom flashed there. DWM «cloak» = the window exists and lays out,
+                // the screen just doesn't show it; FitVpnWindow(true) uncloaks it, a timer makes sure.
+                SourceInitialized += (s, e) => Cloak(true);
                 Loaded += (s, e) => FitVpnWindow(true);
             }
 
@@ -140,10 +146,32 @@ namespace MihomoLauncher.Views
         {
             int sel = GridApps.SelectedIndex;
             _appRows.Clear();
+            // Split by the main window's tabs (2026-11-27: «разбей так как разбито по вкладкам»):
+            // a captioned line before each tab's rules, like «Добавлено автоматически» in the rule
+            // editor. One tab — no lines. The Apps list is grouped by tab (TileTabs.Normalize).
+            TileTabs.Ensure(_cfg);
+            bool split = _cfg.Tabs.Count > 1;
+            int lastTab = -1;
             foreach (var e in _cfg.Apps.Where(a => a != null))
+            {
+                if (split)
+                {
+                    int t = TileTabs.IndexOf(_cfg, e);
+                    if (t != lastTab)
+                    {
+                        var tab = _cfg.Tabs[t];
+                        _appRows.Add(new AppRow(tab.Id == TileTabs.MainId ? "" : tab.Id, TileTabs.NameOf(tab)));
+                        lastTab = t;
+                    }
+                }
                 _appRows.Add(new AppRow(e));
+            }
             if (_appRows.Count > 0)
-                GridApps.SelectedIndex = sel >= 0 && sel < _appRows.Count ? sel : 0;
+            {
+                int at = sel >= 0 && sel < _appRows.Count && !_appRows[sel].IsDivider ? sel
+                       : _appRows.ToList().FindIndex(r => !r.IsDivider);
+                GridApps.SelectedIndex = at;
+            }
             RecomputeAppsAll();
         }
 
@@ -270,24 +298,50 @@ namespace MihomoLauncher.Views
         private void InitRowDrag()
         {
             // Rule order is routing (further left / higher wins) — not while the access password is closed.
-            new GridRowDrag<AppRow>(GridApps, _appRows, r => (r.Entry != null && r.Entry.IsBuiltIn) || !AccessLock.IsOpen(_cfg), OnRulesReordered);
+            // A tab's line is not dragged; a rule dragged past one lands on that tab (OnRulesReordered).
+            new GridRowDrag<AppRow>(GridApps, _appRows, r => r.IsDivider || (r.Entry != null && r.Entry.IsBuiltIn) || !AccessLock.IsOpen(_cfg), OnRulesReordered);
             // The VPN order is routing: no dragging while the list is closed.
             new GridRowDrag<SlotRow>(GridSlots, _slotRows, r => !AccessLock.IsOpen(_cfg), OnSlotsReordered);
         }
 
         // The rows' new order → the master Apps list: rows take the positions rows held
         // (null entries, which have no row, stay where they were).
+        // A rule dropped under another tab's line moves to that tab (2026-11-27, the owner's choice:
+        // «переносит во вкладку») — its tile shows up on that tab of the main window.
         private async void OnRulesReordered(List<AppRow> order, AppRow dropped)
         {
-            var entries = order.Select(r => r.Entry).ToList();
-            bool stale = false;
+            var entries = new List<AppEntry>();
+            var tabOf = new Dictionary<AppEntry, string>();
+            bool split = order.Any(r => r.IsDivider);
+            string tab = "";
+            foreach (var r in order)
+            {
+                if (r.IsDivider) { tab = r.TabId ?? ""; continue; }
+                entries.Add(r.Entry);
+                if (split && r.Entry != null && !r.Entry.IsAllTraffic) tabOf[r.Entry] = tab;
+            }
+            bool stale = false, moved = false;
             await CommitAsync(() =>
             {
                 var slots = Enumerable.Range(0, _cfg.Apps.Count).Where(i => _cfg.Apps[i] != null).ToList();
                 if (slots.Count != entries.Count) { stale = true; return; }
                 for (int k = 0; k < slots.Count; k++) _cfg.Apps[slots[k]] = entries[k];
+                foreach (var kv in tabOf)
+                    if ((kv.Key.TabId ?? "") != kv.Value)
+                    {
+                        Log.Info("Правило «" + kv.Key.Name + "» перенесено во вкладку «"
+                                 + TileTabs.NameOf(_cfg.Tabs.FirstOrDefault(t => (t.Id == TileTabs.MainId ? "" : t.Id) == kv.Value)) + "».");
+                        kv.Key.TabId = kv.Value;
+                        moved = true;
+                    }
             }).ConfigureAwait(true);
-            if (stale) { RefreshAppRows(); return; }
+            if (stale || moved)
+            {
+                RefreshAppRows();
+                var row = _appRows.FirstOrDefault(r => r.Entry == dropped?.Entry);
+                if (row != null) GridApps.SelectedItem = row;
+                return;
+            }
             GridApps.SelectedItem = dropped;
         }
 
@@ -316,6 +370,31 @@ namespace MihomoLauncher.Views
                 GridSlots.SelectedIndex = sel >= 0 && sel < _slotRows.Count ? sel : 0;
             RecomputeSlotsAll();
             if (_mode == Mode.Vpn && IsLoaded) FitVpnWindow(false);
+            if (_mode == Mode.Vpn) FillSlotGeo();
+        }
+
+        // Set by the main window: slot id → (ISO, «Город, Страна»), and «locate the VPNs now».
+        internal static Func<string, Tuple<string, string>> SlotGeoOf;
+        internal static Func<Task> ResolveGeos;
+
+        // The «Страна, город» column (2026-11-27): what is known at once, then again once the main
+        // window has located a VPN just added or changed (a DNS lookup of its server).
+        private async void FillSlotGeo()
+        {
+            SetSlotGeo();
+            if (ResolveGeos == null) return;
+            try { await ResolveGeos().ConfigureAwait(true); } catch { }
+            SetSlotGeo();
+        }
+
+        private void SetSlotGeo()
+        {
+            foreach (var r in _slotRows)
+            {
+                Tuple<string, string> g = null;
+                try { g = SlotGeoOf?.Invoke(r.Slot?.Id); } catch { }
+                r.SetGeo(g?.Item1, g?.Item2);
+            }
         }
 
         // Width = the owner's; height = the window around the table + the table's full height
@@ -347,7 +426,38 @@ namespace MihomoLauncher.Views
                     UiHelpers.KeepOnScreen(this);
                 }
                 catch (Exception ex) { Log.Error("vpn-window-fit", ex); }
+                // Shown now, sized and in place — after one more layout pass, so the first frame on
+                // screen is the final one.
+                if (center)
+                    Dispatcher.BeginInvoke(new Action(() => Cloak(false)), System.Windows.Threading.DispatcherPriority.ContextIdle);
             }), System.Windows.Threading.DispatcherPriority.Loaded);
+        }
+
+        // DWMWA_CLOAK: hidden from the screen while it lays out (see the constructor). A safety
+        // timer uncloaks it whatever happens — a window that never shows would be far worse.
+        [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+        private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        private const int DwmwaCloak = 13;
+        private bool _cloaked;
+
+        private void Cloak(bool on)
+        {
+            if (on == _cloaked) return;
+            try
+            {
+                var hwnd = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+                if (hwnd == IntPtr.Zero) return;
+                int v = on ? 1 : 0;
+                DwmSetWindowAttribute(hwnd, DwmwaCloak, ref v, sizeof(int));
+                _cloaked = on;
+                if (on)
+                {
+                    var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
+                    t.Tick += (s, e) => { t.Stop(); Cloak(false); };
+                    t.Start();
+                }
+            }
+            catch (Exception ex) { Log.Error("vpn-window-cloak", ex); }
         }
 
         // «Обновить» (refresh: download at once, with progress) / «Состав» (what the subscription
@@ -525,19 +635,19 @@ namespace MihomoLauncher.Views
         private void HeaderCheck_Click(object sender, MouseButtonEventArgs e)
         {
             var tag = (sender as FrameworkElement)?.Tag as string;
-            if (tag == "apps") { bool v = AllAppsChecked != true; foreach (var r in _appRows) r.IsChecked = v; RecomputeAppsAll(); }
+            if (tag == "apps") { bool v = AllAppsChecked != true; foreach (var r in _appRows.Where(x => !x.IsDivider)) r.IsChecked = v; RecomputeAppsAll(); }
             else if (tag == "slots") { bool v = AllSlotsChecked != true; foreach (var r in _slotRows) r.IsChecked = v; RecomputeSlotsAll(); }
             e.Handled = true;
         }
 
-        private void RecomputeAppsAll() => AllAppsChecked = TriState(_appRows);
+        private void RecomputeAppsAll() => AllAppsChecked = TriState(_appRows.Where(r => !r.IsDivider).ToList());
         private void RecomputeSlotsAll()
         {
             AllSlotsChecked = TriState(_slotRows);
             UpdateSlotButtons();
         }
 
-        private static bool? TriState<T>(ObservableCollection<T> rows) where T : CheckRow
+        private static bool? TriState<T>(ICollection<T> rows) where T : CheckRow
         {
             if (rows.Count == 0) return false;
             int c = rows.Count(r => r.IsChecked);
@@ -595,6 +705,19 @@ namespace MihomoLauncher.Views
             public StateCell KillSwitch { get; }
             public StateCell LockNic { get; }
             public StateCell AutoTrack { get; }
+
+            // A tab's captioned line (2026-11-27): no rule behind it, drawn by the IsDivider
+            // template of RulesRowStyle; TabId is what a rule dropped under it gets ("" = «Основная»).
+            public bool IsDivider { get; }
+            public string TabId { get; }
+
+            public AppRow(string tabId, string caption)
+            {
+                IsDivider = true;
+                TabId = tabId ?? "";
+                Name = caption ?? "";
+                DisplayPath = "";
+            }
 
             public AppRow(AppEntry e)
             {
@@ -656,6 +779,19 @@ namespace MihomoLauncher.Views
             public string Name { get; }
             public string KindLabel { get; }
             public string ValueLabel { get; }
+
+            // Where its server is: the ISO badge and «Город, Страна», as in the speed window.
+            public string Iso { get; private set; } = "";
+            public string Place { get; private set; } = "";
+            public Visibility IsoVisibility => Iso.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            internal void SetGeo(string iso, string place)
+            {
+                iso = iso ?? ""; place = place ?? "";
+                if (iso == Iso && place == Place) return;
+                Iso = iso; Place = place;
+                OnPropertyChanged(nameof(Iso)); OnPropertyChanged(nameof(Place)); OnPropertyChanged(nameof(IsoVisibility));
+            }
 
             public SlotRow(VpnSlot s, int number)
             {

@@ -17,7 +17,7 @@
     <Company>byFox</Company>
     <Authors>byFox</Authors>
     <Copyright>Copyright (c) 2026 byFox</Copyright>
-    <Version>3.2.1</Version>
+    <Version>4.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>fox.ico</ApplicationIcon>
   </PropertyGroup>
@@ -91,6 +91,14 @@
          mihomolauncher/ico/, uploaded by hand) and is fetched per rule into DataUser\ico\
          (survives updates). IconFetcher looks in Data\ico first, so shipped icons win. -->
     <Content Include="app ico\*.png" Link="Data\ico\%(Filename)%(Extension)">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <!-- Country flags for the cascade plate (2026-11-27): Flagpack 4:3 (MIT), the codes it lacks
+         (eu, un, xk, es-ct, ...) from lipis/flag-icons 4x3 (MIT) — licences in flags\LICENSE.txt.
+         Rendered by Chrome at every height 12..48 (sheet-<px>.png, cells round(px*4/3) x px, 20 per
+         row, in the order of codes.txt) — drawn 1:1 on screen, never scaled. Generator
+         (make_sheets_flagpack.py) and the old square set: .dev\flags-flagicons-backup. -->
+    <Content Include="flags\*.png;flags\*.txt" Link="Data\flags\%(Filename)%(Extension)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <!-- Index of the server icon set (slugs + aliases + @domains) used to recognise a rule's

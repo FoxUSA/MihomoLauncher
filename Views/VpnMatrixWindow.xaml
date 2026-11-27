@@ -35,7 +35,13 @@
                       Margin="20,0,20,0"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Auto">
-            <Grid x:Name="Matrix" HorizontalAlignment="Left" />
+            <!-- In a well, as the rules list (2026-11-27): ListBg with the outline; FrameClip makes the
+                 frame the table's only outline (the -1 margin tucks the outer hairlines under it). -->
+            <Border x:Name="Well" HorizontalAlignment="Center" VerticalAlignment="Top" CornerRadius="8"
+                    Background="{DynamicResource Theme.ListBg}"
+                    BorderBrush="{DynamicResource Theme.CardBorder}" BorderThickness="1">
+                <Grid x:Name="Matrix" Margin="-1" svc:FrameClip.Radius="7" />
+            </Border>
         </ScrollViewer>
 
         <TextBlock Grid.Row="2"

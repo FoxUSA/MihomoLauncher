@@ -108,14 +108,15 @@ namespace MihomoLauncher.Views
             catch { return 0; }
         }
 
-        // The VPN line of a connected tile: «№2 Имя», else just «Имя».
+        // The VPN line of a connected tile: its name.
         private string[] PlateVpnLabels(AppEntry e)
         {
             if (e == null || !_assignment.TryGetValue(e.Id, out var proxy)) return new[] { "" };
             _proxySlot.TryGetValue(proxy, out var info);
             var name = info != null && !string.IsNullOrEmpty(info.Name) ? info.Name : proxy;
-            var num = info != null && info.Number > 0 ? "\u2116" + info.Number + " " : "";
-            return num.Length > 0 ? new[] { num + name, name } : new[] { name };
+            // No «№n» any more (2026-11-27): the VPN's place in the list means nothing on a tile, and
+            // beside the rule's own order and a cascade's hop numbers it was a third numbering.
+            return new[] { name };
         }
 
         // blocks: the plate says «Блокирует» or «Заблокировано · kill-switch» — the ONLY two cases a
@@ -143,6 +144,13 @@ namespace MihomoLauncher.Views
             string noNetTip = null;
             bool noNet = !entry.IsBlocking && !reconnecting && TileHasNoNetwork(entry, out deadCard, out noNetTip);
 
+            // A cascade tile (MainWindow.Cascade): flags instead of words — your country › its hops.
+            // A switched-off one held by its kill-switch keeps the usual «Заблокировано» words.
+            bool cascadeView = !noNet && !entry.IsBlockMode && UsesCascade(entry)
+                               && !(killOn && !entry.AutoConnect && !reconnecting);
+            int cSpin = 0, cFail = 0;
+            bool cDim = false, cBlocks = false;
+
             if (noNet)
             {
                 line1 = new[] { Loc.T("Main_TileNoNet") };
@@ -164,6 +172,41 @@ namespace MihomoLauncher.Views
                 line1 = new[] { Loc.T("Main_TileBlocking") };
                 fg = Theme.AccentRed;
                 tint = PlateTint.Red;
+            }
+            else if (cascadeView)
+            {
+                line1 = new[] { "" };
+                fg = Theme.AccentGreen;
+                bool riding = _assignment.TryGetValue(entry.Id, out var chain) && MihomoConfigBuilder.IsChain(chain);
+                int spinning;
+                if (_cascadeSpin.TryGetValue(entry.Id, out spinning) || reconnecting)
+                {
+                    // Connecting: the hop being checked turns; before the first check, the hop it starts at.
+                    if (spinning < 1) { int resume; spinning = _cascadeResume.TryGetValue(entry.Id, out resume) && resume > 0 ? resume : 1; }
+                    cSpin = spinning;
+                    tint = PlateTint.Neutral;
+                }
+                else if (riding) tint = PlateTint.Green;
+                else if (entry.AutoConnect)
+                {
+                    // Switched on and not built yet: the launcher keeps connecting it (the auto-retry
+                    // comes back to the hop that failed), so that hop keeps turning — not greyed, not
+                    // red, no line (2026-11-27: «крути флагом пока соединяешь, не надо его гасить и
+                    // писать уведомление»). Why it failed: the log and this plate's tooltip.
+                    int hopCount = Services.Cascade.Hops(entry, _config.VpnSlots).Count;
+                    if (!_cascadeFail.TryGetValue(entry.Id, out cFail) || cFail < 1 || cFail > hopCount)
+                    {
+                        int resume;
+                        cFail = _cascadeResume.TryGetValue(entry.Id, out resume) && resume > 0 ? Math.Min(resume, hopCount) : 1;
+                    }
+                    cSpin = cFail;
+                    tint = PlateTint.Neutral;
+                }
+                else
+                {
+                    tint = PlateTint.Neutral;
+                    cDim = !entry.AutoConnect;
+                }
             }
             else if (reconnecting)
             {
@@ -239,7 +282,8 @@ namespace MihomoLauncher.Views
             // picked here since the card's «Использовать VPN» switch went (2026-11-14).
             string blockingText = Loc.T("Main_TileBlocking"), killText = Loc.T("Main_TileKillBlocked");
             blocks = (line1 != null && line1.Length > 0 && (line1[0] == blockingText || line1[0] == killText))
-                  || (line2 != null && line2.Length > 0 && line2[0] != null && line2[0].StartsWith(killText, StringComparison.Ordinal));
+                  || (line2 != null && line2.Length > 0 && line2[0] != null && line2[0].StartsWith(killText, StringComparison.Ordinal))
+                  || cBlocks;
 
             bool clickable = !reconnecting && _reconnectingId == null;
             // Room for the text: the plate is 100 px, minus its border, padding and the chevron.
@@ -267,8 +311,14 @@ namespace MihomoLauncher.Views
             var content = new Grid();
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            content.Children.Add(text);
-            if (clickable)
+            // A cascade plate has no chevron (2026-11-27: «убрать стрелочку — флаги будут больше»):
+            // the whole plate minus its border and 4 px a side, the same while it connects. 88, not
+            // 90: on screen the plate's inside measured 88.5 DIP at 150 % (2026-11-27 — 90 clipped the
+            // outer flags' corners).
+            // Letter boxes at most 16 high (cascade-letters.html, variant 4).
+            if (cascadeView) content.Children.Add(CascadeFlags(entry, 88, cSpin, cDim, maxSize: 16, arrowW: 6));
+            else content.Children.Add(text);
+            if (clickable && !cascadeView)
             {
                 var chev = new Wpf.Ui.Controls.SymbolIcon
                 {
@@ -295,7 +345,7 @@ namespace MihomoLauncher.Views
                 Height = 32,
                 // The network-card plate (MakeNicPlate) takes the strip under it.
                 Margin = new Thickness(5, 5, 5, PlateGap + NicStrip + SpeedStrip),
-                Padding = new Thickness(clickable ? 9 : 4, 0, 4, 0),
+                Padding = new Thickness(clickable && !cascadeView ? 9 : 4, 0, 4, 0),
                 VerticalAlignment = VerticalAlignment.Bottom,
                 CornerRadius = new CornerRadius(7),
                 Background = bg,
@@ -308,6 +358,11 @@ namespace MihomoLauncher.Views
             if (line2 != null && line2.Length > 0 && !string.IsNullOrEmpty(line2[0])) plate.ToolTip = line1[0] + " — " + line2[0];
             else if (line1.Length > 1) plate.ToolTip = line1[0];
             if (noNetTip != null) plate.ToolTip = noNetTip;   // every card of the tile and its state
+            if (cascadeView)
+            {
+                string why;
+                plate.ToolTip = CascadeTip(entry) + (entry.AutoConnect && _cascadeWhy.TryGetValue(entry.Id, out why) ? "\n" + why : "");
+            }
 
             if (clickable)
             {
@@ -341,8 +396,7 @@ namespace MihomoLauncher.Views
         // "№2 Дом" — the same number + name the tile shows for the variant.
         private string SlotLabel(VpnSlot slot)
         {
-            int n = (_config.VpnSlots?.IndexOf(slot) ?? -1) + 1;
-            return (n > 0 ? "№" + n + " " : "") + slot.Name;
+            return slot.Name;   // the name alone, as the person typed it (no «№n», 2026-11-27)
         }
 
         // Country/city of a variant: from its proxy located while connecting, else from its server
@@ -361,6 +415,23 @@ namespace MihomoLauncher.Views
         // slot id → (server it was located by, «Страна, Город»).
         private readonly Dictionary<string, Tuple<string, string>> _slotGeo = new Dictionary<string, Tuple<string, string>>();
         private bool _slotGeoBusy;
+
+        // slot id → «Город, Страна» (GeoIpService.PlaceOf — as the speed window writes it), shown
+        // with the ISO badge under each VPN in the rule editor and in the VPN list (2026-11-27).
+        private readonly Dictionary<string, string> _slotPlace = new Dictionary<string, string>();
+
+        // The badge and place of a VPN for the rule editor and the VPN list; ("", "") — not located
+        // (a subscription, an address not resolved yet).
+        internal Tuple<string, string> SlotGeoOf(string slotId)
+        {
+            if (slotId == null) return Tuple.Create("", "");
+            string place;
+            _slotPlace.TryGetValue(slotId, out place);
+            return Tuple.Create(SlotIso(slotId), place ?? "");
+        }
+
+        // Locates the VPNs (ResolveSlotGeosAsync), for a window that has just added or changed one.
+        internal Task ResolveSlotGeosForWindowAsync() => ResolveSlotGeosAsync();
 
         // Locates every enabled variant's server (a link or a .conf; a subscription has no one
         // server). Local GeoLite2 + a DNS lookup of the host — no connection needed.
@@ -383,10 +454,19 @@ namespace MihomoLauncher.Views
                     }
                     catch { }
                     if (string.IsNullOrWhiteSpace(server)) continue;
-                    if (_slotGeo.TryGetValue(slot.Id, out var had) && had.Item1 == server && !string.IsNullOrEmpty(had.Item2)) continue;
-                    string text = "";
-                    try { text = (await GeoIpService.LookupHostAsync(server).ConfigureAwait(true))?.Display ?? ""; }
+                    if (_slotGeo.TryGetValue(slot.Id, out var had) && had.Item1 == server && !string.IsNullOrEmpty(had.Item2)
+                        && _slotIso.ContainsKey(slot.Id) && _slotPlace.ContainsKey(slot.Id)) continue;
+                    string text = "", iso = "", place = "";
+                    try
+                    {
+                        var g = await GeoIpService.LookupHostAsync(server).ConfigureAwait(true);
+                        text = g?.Display ?? "";
+                        iso = g?.IsoCode ?? "";
+                        place = GeoIpService.PlaceOf(g);
+                    }
                     catch { }
+                    if (!string.IsNullOrEmpty(iso)) _slotIso[slot.Id] = iso;   // the cascade plate's letters
+                    if (!string.IsNullOrEmpty(place)) _slotPlace[slot.Id] = place;
                     if (string.IsNullOrEmpty(text)) continue;
                     _slotGeo[slot.Id] = Tuple.Create(server, text);
                     changed = true;
@@ -442,6 +522,65 @@ namespace MihomoLauncher.Views
             var others = slots.Where(s => off.Contains(s.Id)).ToList();
             var ordered = new List<VpnSlot>(chosen);
             ordered.AddRange(others);
+            // A cascade tile (2026-11-27): the chain itself first — its flags, «Каскадный VPN» under
+            // them; right under it its hops (the rule's ticked VPNs, in hop order) with their number
+            // 1, 2, 3 on the right; then the divider and the other VPNs, as on any tile. It is the
+            // current row unless a single VPN was picked this session.
+            var hopIds = entry.Cascade && entry.RequiresVpn
+                ? Services.Cascade.Hops(entry, slots).Select(s => s.Id).ToList() : new List<string>();
+            if (hopIds.Count < 2) hopIds.Clear();
+            if (hopIds.Count > 0)
+            {
+                // Its hops are the cascade's own list (AppEntry.CascadeHops), not the ordinary ticks.
+                chosen = hopIds.Select(id => slots.First(s => s.Id == id)).ToList();
+                others = slots.Where(s => !hopIds.Contains(s.Id)).ToList();
+                ordered = new List<VpnSlot>(chosen);
+                ordered.AddRange(others);
+            }
+            if (hopIds.Count > 0)
+            {
+                bool current = !entry.IsBlockMode && !_cascadeSingle.Contains(entry.Id);
+                var row = new Grid();
+                var line = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+                line.Children.Add(CascadeFlags(entry, 170, 0, false, left: true));
+                line.Children.Add(new TextBlock
+                {
+                    Text = Loc.T("Edit_Cascade"),
+                    FontSize = 11.5,
+                    Foreground = Theme.TextMuted,
+                    Margin = new Thickness(0, 2, 0, 0),
+                });
+                row.Children.Add(line);
+                if (current)
+                    row.Children.Add(new Border
+                    {
+                        Width = 3,
+                        CornerRadius = new CornerRadius(2),
+                        Background = Theme.AccentGreen,
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                        Margin = new Thickness(-10, 9, 0, 9),
+                    });
+                var cell = new Border
+                {
+                    Height = 48,
+                    Padding = new Thickness(12, 0, 10, 0),
+                    CornerRadius = new CornerRadius(4),
+                    Background = current ? Theme.PickerRowCurrent : Brushes.Transparent,
+                    Cursor = Cursors.Hand,
+                    Child = row,
+                    ToolTip = CascadeTip(entry),
+                };
+                var rest = cell.Background;
+                cell.MouseEnter += (s, e) => cell.Background = Theme.PickerRowHover;
+                cell.MouseLeave += (s, e) => cell.Background = rest;
+                cell.MouseLeftButtonUp += async (s, e) =>
+                {
+                    e.Handled = true;
+                    popup.IsOpen = false;
+                    await PickCascadeForRuleAsync(entry).ConfigureAwait(true);
+                };
+                list.Children.Add(cell);
+            }
             foreach (var slot in ordered)
             {
                 if (others.Count > 0 && chosen.Count > 0 && ReferenceEquals(slot, others[0]))
@@ -467,6 +606,28 @@ namespace MihomoLauncher.Views
                         Foreground = Theme.TextMuted,
                         Margin = new Thickness(0, 1, 0, 0),
                     });
+                int hopNo = hopIds.IndexOf(slot.Id) + 1;
+                if (hopNo > 0)
+                {
+                    lines.Margin = new Thickness(0, 0, 30, 0);   // room for the number
+                    row.Children.Add(new Border
+                    {
+                        Width = 20, Height = 20,
+                        CornerRadius = new CornerRadius(4),
+                        BorderThickness = new Thickness(1),
+                        Background = Theme.AccentSoft,
+                        BorderBrush = Theme.Accent,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        ToolTip = Loc.T("Vpn_CascadeTip"),
+                        Child = new TextBlock
+                        {
+                            Text = hopNo.ToString(), FontSize = 11.5, FontWeight = FontWeights.SemiBold,
+                            Foreground = Theme.TextPrimary,
+                            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                        },
+                    });
+                }
                 row.Children.Add(lines);
                 if (current)
                     row.Children.Add(new Border
@@ -757,8 +918,28 @@ namespace MihomoLauncher.Views
             if (changed) try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("tile-pick-vpn-save", ex); }
             Log.Info("Плитка «" + entry.Name + "»: выбран VPN «" + slot.Name + "» (разово, настройки правила не менялись).");
             _platePick[entry.Id] = slot.Id;   // the tile's ⟳ goes through it when the rule ticks no VPN
+            // A cascade tile goes through this one VPN until its chain is picked again (MainWindow.Cascade).
+            if (entry.Cascade) _cascadeSingle.Add(entry.Id);
+            _cascadeWhy.Remove(entry.Id);
+            _cascadeFail.Remove(entry.Id);
 
             await ReconnectOneAsync(entry, manual: true, onlySlotId: slot.Id).ConfigureAwait(true);
+        }
+
+        // The chain picked on the plate of a cascade tile: back from a single VPN (or from «Блокировать»)
+        // to its cascade, connected at once from the first hop.
+        private async Task PickCascadeForRuleAsync(AppEntry entry)
+        {
+            if (entry == null || _reconnectingId != null) return;
+            bool changed = false;
+            if (entry.Block) { entry.Block = false; changed = true; }
+            if (!entry.RequiresVpn) { entry.RequiresVpn = true; changed = true; }
+            if (RestoreKillAfterDirect(entry)) changed = true;
+            if (changed) try { AppConfigStore.Save(_config); } catch (Exception ex) { Log.Error("tile-pick-cascade-save", ex); }
+            _cascadeSingle.Remove(entry.Id);
+            _cascadeResume.Remove(entry.Id);
+            Log.Info("Плитка «" + entry.Name + "»: выбран каскад.");
+            await ReconnectOneAsync(entry, manual: true).ConfigureAwait(true);
         }
 
         // Legacy: until 2026-11-16 «Напрямую» took the kill-switch off and remembered it in

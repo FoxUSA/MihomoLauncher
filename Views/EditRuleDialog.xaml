@@ -3,6 +3,7 @@
                  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                  xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
                  xmlns:svc="clr-namespace:MihomoLauncher.Services"
+                 xmlns:views="clr-namespace:MihomoLauncher.Views"
                  Title="{DynamicResource Rule_Title}"
                  Width="780" Height="640"
                  MinWidth="660" MinHeight="520"
@@ -285,21 +286,29 @@
                  plate, like any other exit; the list below is which VPNs, in what order. -->
             <!-- A WrapPanel (2026-11-22, third switch): with a long card name or a narrow window the
                  last switch moves to a second line instead of being cut off. -->
+            <!-- The gaps are on the RIGHT of each switch (2026-11-27): a switch that wraps to the next
+                 line starts flush with the first one, not indented by its left gap. -->
             <WrapPanel Orientation="Horizontal">
                 <!-- Both switches, when on, are the violet of the tile chips' frame (2026-11-20). -->
-                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch" Margin="0,0,0,2"
+                <ui:ToggleSwitch x:Name="ChkKillSwitch" Content="Kill-switch" Margin="0,0,24,10"
                                  Style="{DynamicResource GuardToggleSwitchStyle}" />
                 <!-- 2026-11-19: pin the tile to the card it goes through now; the card's name next to it. -->
-                <ui:ToggleSwitch x:Name="ChkLockNic" Content="{DynamicResource Rule_LockNic}" Margin="24,0,0,2"
-                                 ToolTip="{DynamicResource Rule_LockNicTip}"
-                                 Checked="OnLockNicChecked" Unchecked="OnLockNicUnchecked"
-                                 Style="{DynamicResource GuardToggleSwitchStyle}" />
-                <TextBlock x:Name="TxtLockNic" FontSize="12.5" Opacity="0.6" Margin="10,0,0,2"
-                           VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,24,10">
+                    <ui:ToggleSwitch x:Name="ChkLockNic" Content="{DynamicResource Rule_LockNic}"
+                                     ToolTip="{DynamicResource Rule_LockNicTip}"
+                                     Checked="OnLockNicChecked" Unchecked="OnLockNicUnchecked"
+                                     Style="{DynamicResource GuardToggleSwitchStyle}" />
+                    <TextBlock x:Name="TxtLockNic" FontSize="12.5" Opacity="0.6" Margin="10,0,0,0"
+                               VerticalAlignment="Center" />
+                </StackPanel>
                 <!-- 2026-11-22: helpers of the rule's programs that go online join the rule by
                      themselves (AutoPrograms). Plain accent colour: it guards nothing. -->
-                <ui:ToggleSwitch x:Name="ChkAutoTrack" Content="{DynamicResource Rule_AutoTrack}" Margin="24,0,0,2"
+                <ui:ToggleSwitch x:Name="ChkAutoTrack" Content="{DynamicResource Rule_AutoTrack}" Margin="0,0,24,10"
                                  ToolTip="{DynamicResource Rule_AutoTrackTip}" IsChecked="True" />
+                <!-- 2026-11-27: the ticked VPNs become the hops of one chain (Services.Cascade), up to 3. -->
+                <ui:ToggleSwitch x:Name="ChkCascade" Content="{DynamicResource Edit_Cascade}" Margin="0,0,24,10"
+                                 ToolTip="{DynamicResource Edit_CascadeTip}"
+                                 Checked="OnCascadeChanged" Unchecked="OnCascadeChanged" />
             </WrapPanel>
 
             <!-- The rows stay in the Settings order; priority is the NUMBER in the box, not the
@@ -310,20 +319,35 @@
             <!-- Right after the caption (2026-11-23): one button that numbers every configuration
                  1..N in the order shown («Отметить все») or clears them all («Снять все») — through
                  the same Renumber as a click on a square, so its caption follows those clicks too. -->
-            <StackPanel Orientation="Horizontal" Margin="0,6,0,3">
-                <TextBlock Text="{DynamicResource Rule_AllowedVpn}" Background="Transparent"
+            <!-- Margin 0/9: the same place as the cascade chain that replaces it, so nothing moves
+                 when the switch flips (2026-11-27). -->
+            <StackPanel x:Name="SlotsHeader" Orientation="Horizontal" Margin="0,0,0,9" Height="22">
+                <TextBlock x:Name="LblAllowedVpn" Text="{DynamicResource Rule_AllowedVpn}" Background="Transparent"
                            ToolTip="{DynamicResource Rule_VpnOrderHint}" VerticalAlignment="Center"
                            FontSize="12.5" FontWeight="SemiBold" />
                 <ui:Button x:Name="BtnAllSlots" Margin="10,0,0,0" MinHeight="0" Height="22" Padding="8,0"
                            FontSize="12" VerticalAlignment="Center" Cursor="Hand"
                            Content="{DynamicResource Rule_SlotsAll}" Click="OnAllSlots" />
+                <TextBlock x:Name="LblCascadeHint" Text="{DynamicResource Edit_CascadeHint}" Margin="10,0,0,0"
+                           FontSize="12.5" Opacity="0.6" VerticalAlignment="Center" Visibility="Collapsed" />
             </StackPanel>
-            <!-- Three columns, filled row by row: more VPN variants add a row per three
-                 instead of one each, so the card doesn't keep growing down. -->
-            <ItemsControl x:Name="AllowSlots">
+            <!-- «Каскадный VPN» (2026-11-27): the caption row above gives its place to the chain as
+                 it will run — you › 1 › 2 › 3 › the site, with flags — at exactly its height, so the
+                 window and the table above don't change size when the switch flips. -->
+            <!-- Margin 0/9 instead of the caption's 6/3 (2026-11-27): the same height, sitting higher —
+                 off the squares, into the room under the switches. -->
+            <StackPanel x:Name="CascadeChainRow" Orientation="Horizontal" Margin="0,0,0,9" Height="22"
+                        ClipToBounds="True" Visibility="Collapsed" />
+            <!-- Two columns, filled column by column (2026-11-27, was three, row by row): more VPN
+                 variants add a row per two instead of one each, so the card doesn't keep growing down. Each row is one
+                 line: box · name · the ISO badge and «Город, Страна» (mockup .dev\mockups\rule-vpn-geo.html,
+                 variant В). The names share one width (SharedSizeGroup = the longest name), so the
+                 badges stand in a straight column right behind them. -->
+            <ItemsControl x:Name="AllowSlots" Grid.IsSharedSizeScope="True">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <UniformGrid Columns="3" />
+                        <!-- Column by column: 1 2 3 down the left, 4 5 6 down the right (2026-11-27). -->
+                        <views:ColumnFirstGrid Columns="2" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
@@ -331,26 +355,43 @@
                         <!-- The whole row toggles — the box AND the name (2026-11-16). Transparent
                              background so the gaps between them take the click too. -->
                         <Grid Margin="0,3,12,3" Background="Transparent" Cursor="Hand"
-                              Tag="{Binding Id}" ToolTip="{Binding BoxTip}"
+                              Tag="{Binding Id}" ToolTip="{Binding BoxTip}" Opacity="{Binding RowOpacity}"
                               MouseLeftButtonUp="OnSlotToggle">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="SlotName" />
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Border Grid.Column="0" Width="20" Height="20" CornerRadius="4"
-                                    BorderThickness="1" Margin="0,0,8,0"
+                                    BorderThickness="1" Margin="0,0,8,0" VerticalAlignment="Center"
                                     Background="{Binding BoxFill}"
                                     BorderBrush="{Binding BoxEdge}">
                                 <TextBlock Text="{Binding RankText}" FontSize="11.5" FontWeight="SemiBold"
-                                           Foreground="{DynamicResource Theme.TextOnAction}"
+                                           Foreground="{Binding RankFore}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center" />
                             </Border>
                             <!-- The name goes in a TextBlock, NOT in Content: a ContentPresenter
                                  treats a plain string as an access key, so "Node_1 — DE" loses its
-                                 underscore and can't wrap. Star column + Wrap = the full name, as
-                                 the user typed it, over as many lines as it needs. -->
-                            <TextBlock Grid.Column="1" Text="{Binding Label}" TextWrapping="Wrap"
-                                       FontSize="13" VerticalAlignment="Center" />
+                                 underscore. One line; a name past 180 is cut with «…». -->
+                            <TextBlock Grid.Column="1" Text="{Binding Label}" FontSize="13" MaxWidth="180"
+                                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+                            <Grid Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center"
+                                  Visibility="{Binding GeoVisibility}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <Border Width="26" Height="16" CornerRadius="4" BorderThickness="1" Margin="0,0,5,0"
+                                        Background="{DynamicResource Theme.ChipBg}" BorderBrush="{DynamicResource Theme.CardBorder}"
+                                        VerticalAlignment="Center" Visibility="{Binding IsoVisibility}">
+                                    <TextBlock Text="{Binding Iso}" FontSize="10" FontWeight="Bold"
+                                               Foreground="{DynamicResource Theme.TextPrimary}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="{Binding Place}" FontSize="11.5" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource Theme.TextSecondary}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </Grid>
                         </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

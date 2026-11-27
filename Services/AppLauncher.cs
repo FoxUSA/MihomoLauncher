@@ -12,8 +12,13 @@ namespace MihomoLauncher.Services
         // Launch a rule: open every site and start every program flagged Launch=true. If the
         // user marked nothing, fall back to "all programs, else all sites" so a click always
         // does something. Returns false with a combined reason if every attempt failed.
-        public static (bool ok, string error) Launch(AppEntry rule)
+        public static (bool ok, string error) Launch(AppEntry rule) => Launch(rule, out _);
+
+        // activatedOnly — nothing was started: every program was already running and only its
+        // window was brought forward (the tile needs no "starting…" spinner then).
+        public static (bool ok, string error) Launch(AppEntry rule, out bool activatedOnly)
         {
+            activatedOnly = false;
             if (rule == null) return (false, Loc.T("Svc_Empty"));
 
             var programs = (rule.Programs ?? new List<RuleProgram>()).Where(p => p != null).ToList();
@@ -43,7 +48,21 @@ namespace MihomoLauncher.Services
 
             if (progToRun.Count == 0 && siteToRun.Count == 0 && folderToOpen.Count == 0)
                 return (false, Loc.T("Svc_RuleNothingToLaunch"));
-            var r = LaunchAll(progToRun, siteToRun.Select(x => x.Url).ToList(), folderToOpen);
+            // Already running → bring its window forward, don't start a second copy. Only a plain
+            // exe without arguments: with arguments (python + a script) the running copy may be a
+            // different job. Store apps — Windows already brings a running one forward.
+            var toStart = new List<RuleProgram>();
+            int activated = 0;
+            foreach (var p in progToRun)
+            {
+                if (!p.IsStoreApp && string.IsNullOrWhiteSpace(p.Arguments) && WindowActivator.TryActivateRunning(p.Path)) activated++;
+                else toStart.Add(p);
+            }
+            activatedOnly = activated > 0 && toStart.Count == 0 && siteToRun.Count == 0 && folderToOpen.Count == 0;
+            if (activatedOnly) return (true, null);
+
+            var r = LaunchAll(toStart, siteToRun.Select(x => x.Url).ToList(), folderToOpen);
+            if (!r.ok && activated > 0) return (true, null);
             return r;
         }
 

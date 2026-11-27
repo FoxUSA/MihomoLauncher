@@ -150,6 +150,10 @@ namespace MihomoLauncher.Views
                         }
                     }
                     _nicIp[r.Card] = r;
+                    // A cascade plate's first flag is this country (MainWindow.Cascade.UserIso).
+                    if (r.Ok && (old == null || old.CountryCode != r.CountryCode)
+                        && (_config.Apps ?? new List<Models.AppEntry>()).Any(a => a != null && a.Cascade))
+                        Dispatcher.BeginInvoke(new Action(RebuildTiles));
                     NetCards.SetInternet(r.Card, r.Ok);   // the chip: «нет интернета» when it failed
                     if (old == null || old.Ok != r.Ok || old.Ip != r.Ip)
                         Log.Info("Сетевая карта «" + r.Card + "» (" + r.LocalIp + "): "

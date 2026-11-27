@@ -191,6 +191,18 @@ namespace MihomoLauncher.Models
         // ones — so a newly added variant never silently jumps the queue.
         public List<string> VpnSlotOrder { get; set; } = new List<string>();
 
+        // «Каскадный VPN» (2026-11-27): the ticked configurations are not alternatives in order of
+        // preference but the hops of ONE chain, in that order — you → 1 → 2 → 3 → the site, each
+        // dialled through the one before (Services.Cascade, MihomoConfigBuilder ChainSep). At most
+        // three. With fewer than two ticked it is an ordinary VPN tile.
+        public bool Cascade { get; set; } = false;
+
+        // The cascade's own hops, in order (VpnSlot.Id, at most three) — a memory of its own, apart
+        // from the ordinary ticks above (2026-11-27: «у каждого свитча каскад и не каскад своя
+        // память»): flipping the switch shows the other list and changes neither. Configs saved
+        // before this kept the hops in VpnSlotOrder — AppConfigStore.NormalizeCascade moves them.
+        public List<string> CascadeHops { get; set; } = new List<string>();
+
         // Network cards this rule's traffic leaves through (adapter names as Windows shows them),
         // in order of preference: the first one that works carries it, the next takes over when it
         // fails (2026-11-14). Empty = Windows decides, as before. Applied HARD and ALWAYS: switched
